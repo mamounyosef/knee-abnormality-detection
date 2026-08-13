@@ -216,3 +216,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+hackathon_page.txt
+.gitignore
+modal_setup_commands.txt
+
+# local DICOM samples (competition data, do not commit)
+data/sample_dicoms/
+data/raw/
+data/stats/
+medical_terms.md
+CLAUDE.md
+other_md/outline.md
