@@ -72,21 +72,77 @@ px_max   {'count': 24371.0, 'mean': 2454.0, 'std': 3138.1, 'min': 147.0, '5%': 5
 NOTE: MRI has no absolute intensity scale — the spread across series is why
       per-volume percentile normalization is needed, not a fixed window.
 
---- background / cropping ---
-median foreground fraction per slice : 0.017
-median crop area as fraction of frame: 0.704
-  -> cropping to signal saves about 29.6% of pixels
+--- foreground detection (Otsu + largest blob) ---
+slices passing the sanity check (>30mm span, >5% of frame): 97.175%
+series with <90% of slices passing: 1674 of 24371
+median foreground fraction per slice : 0.340
+
+detected anatomy width in mm (should look like a knee, ~90-160mm):
+count    819071.0
+mean        112.5
+std          28.8
+min           0.6
+1%           31.0
+5%           55.8
+50%         118.3
+95%         150.2
+99%         162.9
+max         257.0
+
+--- cropping ---
+median crop area as fraction of frame: 0.839
+  -> cropping to anatomy saves about 16.1% of pixels
 crop_h / crop_w percentiles:
         crop_h   crop_w
-count  23460.0  23460.0
-mean     453.9    404.3
-std      177.3    173.5
-min        1.0      1.0
-5%       213.0    173.0
-50%      445.0    382.0
-95%      793.0    743.0
-99%      968.0    920.0
-max     1087.0   1263.0
+count  24367.0  24367.0
+mean     513.8    465.7
+std      181.3    165.4
+min      107.0    106.0
+5%       252.0    243.0
+50%      504.0    438.0
+95%      892.0    820.0
+99%     1020.0    969.7
+max     1196.0   1164.0
+
+--- physical scale (the reason cropping matters) ---
+field of view width, mm:
+count    24371.0
+mean       164.7
+std         22.6
+min         70.3
+1%         130.0
+5%         140.0
+50%        160.0
+95%        190.0
+99%        320.0
+max        361.0
+
+anatomy width, mm:
+count    24367.0
+mean       140.6
+std         13.9
+min         45.3
+1%         109.7
+5%         119.5
+50%        140.5
+95%        162.0
+99%        177.7
+max        257.8
+
+if every frame is naively resized to 384px, the anatomy spans 274-379 px (1.38x variation)
+-> argues for resampling to a fixed mm/px instead of resizing whole frames
+
+pixel spacing (mm/px) distribution:
+count    24371.000
+mean         0.339
+std          0.124
+min          0.073
+1%           0.137
+5%           0.167
+50%          0.312
+95%          0.562
+99%          0.703
+max          1.172
 
 --- scanners ---
 manufacturer
@@ -115,12 +171,12 @@ SIGNA EXCITE            930
 Optima MR450w           811
 
 --- storage estimate for preprocessed shards ---
-total cropped pixels      : 177,018,223,264
-  as uint8, uncompressed  : 164.9 GiB
-  assuming ~2.5x lossless : 65.9 GiB
+total cropped pixels      : 219,876,958,686
+  as uint8, uncompressed  : 204.8 GiB
+  assuming ~2.5x lossless : 81.9 GiB
 
 --- duplicate series ---
 series per study: mean 5.53, max 14
 (tie-break candidates: n_slices, rows*cols, series_number — decided in the notebook)
 ==============================================================================
-collect took 1.8m
+collect took 2.4m
