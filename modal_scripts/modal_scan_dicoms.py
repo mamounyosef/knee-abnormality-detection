@@ -47,17 +47,69 @@ OUT_SUMMARY_TXT = f"{OUT_DIR}/scan_summary.txt"
 
 SHARD_SIZE = 60          # studies per container
 N_CORES = 8              # CPU cores requested per container == pool workers
+MAX_CONTAINERS = 20      # concurrency cap: 20 x 8 = 160 cores peak, not 590
 BG_PERCENTILE = 5        # background threshold = this percentile of the slice...
 BG_MULT = 2.0            # ...times this; anything above counts as signal
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install("pydicom==3.0.1", "pylibjpeg", "pylibjpeg-libjpeg",
-                 "pylibjpeg-openjpeg", "numpy", "pandas", "pyarrow")
+                 "pylibjpeg-openjpeg", "numpy", "scipy", "pandas", "pyarrow")
 )
 
 app = modal.App("knee-scan-dicoms")
 vol = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
+
+
+# =============================================================================
+# foreground detection helpers
+# =============================================================================
+def _otsu(a, nbins=256):
+    """Otsu's threshold: the split that minimises within-class intensity variance.
+
+    Standard, parameter-free, and robust to the wildly different intensity scales
+    across MRI series — which is exactly why a fixed or noise-derived threshold
+    failed here.
+    """
+    import numpy as np
+
+    lo, hi = float(a.min()), float(np.percentile(a, 99.5))
+    if hi <= lo:
+        return lo
+    hist, edges = np.histogram(np.clip(a, lo, hi), bins=nbins, range=(lo, hi))
+    hist = hist.astype(np.float64)
+    w = np.cumsum(hist)                       # weight of class 0 up to each bin
+    centers = (edges[:-1] + edges[1:]) / 2
+    m = np.cumsum(hist * centers)
+    total_w, total_m = w[-1], m[-1]
+    if total_w == 0:
+        return lo
+    w0 = w[:-1]
+    w1 = total_w - w0
+    valid = (w0 > 0) & (w1 > 0)
+    if not valid.any():
+        return lo
+    mu0 = np.where(w0 > 0, m[:-1] / np.maximum(w0, 1), 0)
+    mu1 = np.where(w1 > 0, (total_m - m[:-1]) / np.maximum(w1, 1), 0)
+    var_between = w0 * w1 * (mu0 - mu1) ** 2
+    var_between[~valid] = -1
+    return float(centers[int(np.argmax(var_between))])
+
+
+def _largest_blob(mask):
+    """Keep only the biggest connected region of a boolean mask."""
+    import numpy as np
+    from scipy import ndimage
+
+    if not mask.any():
+        return mask
+    # close small holes/gaps first so the knee is one component, not many
+    mask = ndimage.binary_closing(mask, structure=np.ones((5, 5)))
+    lab, n = ndimage.label(mask)
+    if n <= 1:
+        return mask
+    sizes = ndimage.sum(mask, lab, range(1, n + 1))
+    return lab == (int(np.argmax(sizes)) + 1)
 
 
 # =============================================================================
@@ -146,32 +198,31 @@ def _scan_studies(job):
                     for p in (1, 5, 50, 95, 99, 99.9):
                         rec[f"px_p{p}"] = float(np.percentile(a, p))
 
-                    # --- background: how much of the frame is empty air? ---
-                    # Estimate the noise floor from a border ring (which is air in
-                    # every knee MRI), then call anything well above it "signal".
-                    # A plain low percentile of the whole frame does not work: the
-                    # knee fills most of the field of view, so the 5th percentile
-                    # already sits inside tissue.
-                    h, wd = a.shape
-                    bh, bw = max(h // 20, 2), max(wd // 20, 2)
-                    ring = np.concatenate([a[:bh].ravel(), a[-bh:].ravel(),
-                                           a[:, :bw].ravel(), a[:, -bw:].ravel()])
-                    noise_mu, noise_sd = float(ring.mean()), float(ring.std())
-                    rec["bg_mu"], rec["bg_sd"] = noise_mu, noise_sd
-                    thr = max(noise_mu + 5 * noise_sd, float(np.percentile(a, 99)) * 0.02)
+                    # --- foreground: where is the anatomy in the frame? ---
+                    # Otsu's method picks the threshold that best separates the
+                    # intensity histogram into two groups (air vs tissue). Then we
+                    # keep only the LARGEST connected blob, which discards coil
+                    # artefacts and stray bright specks — the failure mode of a
+                    # simple noise-floor threshold, which collapsed the box to a
+                    # few pixels on some series.
+                    rec["fg_ok"] = 0
+                    thr = _otsu(a)
                     rec["bg_thr"] = float(thr)
                     fg = a > thr
+                    rec["fg_frac_raw"] = float(fg.mean())
+                    fg = _largest_blob(fg)
                     rec["fg_frac"] = float(fg.mean())
                     if fg.any():
                         ys, xs = np.where(fg)
                         rec["bbox_r0"], rec["bbox_r1"] = int(ys.min()), int(ys.max())
                         rec["bbox_c0"], rec["bbox_c1"] = int(xs.min()), int(xs.max())
-                        # tighter box: ignore stray bright specks
-                        rprof, cprof = fg.mean(axis=1), fg.mean(axis=0)
-                        rr, cc = np.where(rprof > 0.01)[0], np.where(cprof > 0.01)[0]
-                        if len(rr) and len(cc):
-                            rec["tbox_r0"], rec["tbox_r1"] = int(rr[0]), int(rr[-1])
-                            rec["tbox_c0"], rec["tbox_c1"] = int(cc[0]), int(cc[-1])
+                        rec["tbox_r0"], rec["tbox_r1"] = rec["bbox_r0"], rec["bbox_r1"]
+                        rec["tbox_c0"], rec["tbox_c1"] = rec["bbox_c0"], rec["bbox_c1"]
+                        # sanity: a real knee spans >30 mm and >15% of the frame
+                        span_mm = (rec["bbox_c1"] - rec["bbox_c0"] + 1) * \
+                                  rec.get("pixel_spacing_c", 0.3)
+                        rec["fg_span_mm"] = float(span_mm)
+                        rec["fg_ok"] = int(span_mm > 30 and rec["fg_frac"] > 0.05)
                 except Exception as exc:                  # keep going; record the failure
                     rec["error"] = f"{type(exc).__name__}: {exc}"[:200]
                     n_err += 1
@@ -230,7 +281,7 @@ def build_index(limit_studies: int = 0):
 # shard: one container, N_CORES processes
 # =============================================================================
 @app.function(image=image, volumes={MOUNT: vol}, timeout=60 * 60 * 4,
-              cpu=N_CORES, memory=16384,
+              cpu=N_CORES, memory=16384, max_containers=MAX_CONTAINERS,
               retries=modal.Retries(max_retries=2, initial_delay=10.0))
 def scan_shard(shard):
     import time
@@ -315,10 +366,13 @@ def collect(chunks):
         "px_p99":          g["px_p99"].median(),
         "px_max":          g["px_max"].max(),
         "fg_frac":         g["fg_frac"].median(),
-        "tbox_r0":         g["tbox_r0"].min(),
-        "tbox_r1":         g["tbox_r1"].max(),
-        "tbox_c0":         g["tbox_c0"].min(),
-        "tbox_c1":         g["tbox_c1"].max(),
+        "fg_ok_frac":      g["fg_ok"].mean(),
+        "fg_span_mm":      g["fg_span_mm"].median(),
+        # bounding box over the slices whose foreground passed the sanity check
+        "tbox_r0":         g.apply(lambda d: d.loc[d.fg_ok == 1, "bbox_r0"].min()),
+        "tbox_r1":         g.apply(lambda d: d.loc[d.fg_ok == 1, "bbox_r1"].max()),
+        "tbox_c0":         g.apply(lambda d: d.loc[d.fg_ok == 1, "bbox_c0"].min()),
+        "tbox_c1":         g.apply(lambda d: d.loc[d.fg_ok == 1, "bbox_c1"].max()),
         "total_bytes":     g["file_bytes"].sum(),
     }).reset_index()
     series["crop_h"] = series["tbox_r1"] - series["tbox_r0"] + 1
@@ -369,12 +423,35 @@ def collect(chunks):
     w("\nNOTE: MRI has no absolute intensity scale — the spread across series is why")
     w("      per-volume percentile normalization is needed, not a fixed window.")
 
-    w("\n--- background / cropping ---")
+    w("\n--- foreground detection (Otsu + largest blob) ---")
+    w(f"slices passing the sanity check (>30mm span, >5% of frame): "
+      f"{ok['fg_ok'].mean():.3%}")
+    w(f"series with <90% of slices passing: {int((series['fg_ok_frac'] < 0.9).sum())} "
+      f"of {len(series)}")
     w(f"median foreground fraction per slice : {ok['fg_frac'].median():.3f}")
+    w("\ndetected anatomy width in mm (should look like a knee, ~90-160mm):")
+    w(ok["fg_span_mm"].describe(percentiles=[.01, .05, .5, .95, .99]).round(1).to_string())
+
+    w("\n--- cropping ---")
     w(f"median crop area as fraction of frame: {series['crop_frac'].median():.3f}")
-    w(f"  -> cropping to signal saves about {1 - series['crop_frac'].median():.1%} of pixels")
+    w(f"  -> cropping to anatomy saves about {1 - series['crop_frac'].median():.1%} of pixels")
     w("crop_h / crop_w percentiles:")
     w(series[["crop_h", "crop_w"]].describe(percentiles=[.05, .5, .95, .99]).round(1).to_string())
+
+    w("\n--- physical scale (the reason cropping matters) ---")
+    series["fov_w_mm"] = series["cols"] * series["pixel_spacing_c"]
+    series["anat_w_mm"] = series["crop_w"] * series["pixel_spacing_c"]
+    w("field of view width, mm:")
+    w(series["fov_w_mm"].describe(percentiles=[.01, .05, .5, .95, .99]).round(1).to_string())
+    w("\nanatomy width, mm:")
+    w(series["anat_w_mm"].describe(percentiles=[.01, .05, .5, .95, .99]).round(1).to_string())
+    apparent = 384 * series["crop_w"] / series["cols"]
+    w(f"\nif every frame is naively resized to 384px, the anatomy spans "
+      f"{apparent.quantile(.05):.0f}-{apparent.quantile(.95):.0f} px "
+      f"({apparent.quantile(.95) / max(apparent.quantile(.05), 1):.2f}x variation)")
+    w("-> argues for resampling to a fixed mm/px instead of resizing whole frames")
+    w("\npixel spacing (mm/px) distribution:")
+    w(series["pixel_spacing_c"].describe(percentiles=[.01, .05, .5, .95, .99]).round(3).to_string())
 
     w("\n--- scanners ---")
     w(series["manufacturer"].value_counts().head(10).to_string())

@@ -223,7 +223,10 @@ modal_setup_commands.txt
 # local DICOM samples (competition data, do not commit)
 data/sample_dicoms/
 data/raw/
-data/stats/
+# stats: keep the small summaries in git, skip the 676 MB per-slice dumps
+# (GitHub rejects files over 100 MB)
+data/stats/slice_stats.csv
+data/stats/slice_stats.parquet
 medical_terms.md
 CLAUDE.md
 other_md/outline.md
