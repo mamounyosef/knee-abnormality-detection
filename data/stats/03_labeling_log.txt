@@ -1,0 +1,38 @@
+==============================================================================
+LLM REPORT LABELING (stage 2)
+==============================================================================
+source text      : english
+studies labeled  : 4407 of 4407
+unique texts     : 3747   API calls: 3747
+retries/failures : 0 / 0
+tokens in/out    : 4,093,955 / 5,491,018
+wall clock       : 44.2 min
+unusable reports : 6
+
+mean predicted probability per finding (%):
+Effusion            58.7
+Medial Meniscus     42.6
+Synovitis           36.5
+PF OA               33.1
+Baker's             31.3
+Medial OA           29.8
+ACL                 23.2
+Contusion           22.5
+Lateral OA          22.4
+Lateral Meniscus    20.4
+MCL                 18.3
+Fracture            11.9
+
+fraction above 0.5 (%):
+Effusion            59.9
+Medial Meniscus     39.6
+PF OA               26.3
+Baker's             25.0
+Synovitis           21.9
+Medial OA           21.7
+ACL                 17.9
+Contusion           15.6
+Lateral Meniscus    14.8
+MCL                 14.4
+Lateral OA          12.9
+Fracture             7.0

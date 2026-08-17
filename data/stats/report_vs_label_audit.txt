@@ -2,6 +2,17 @@
 DO THE 58 OFFICIAL LABELS MATCH WHAT THE REPORTS SAY?
 ==============================================================================
 
+*** PROVISIONAL — DO NOT QUOTE THESE NUMBERS ***
+The YES/NO/SILENT classification below comes from multilingual KEYWORD RULES,
+which are demonstrably unreliable (they are the same method that scored only
+0.700 macro AUROC as a labeler). SILENT is overstated: e.g. a report saying
+"tricompartmental chondrosis" is scored SILENT for Medial OA because the rules
+look for "medial compartment".
+
+Treat this as evidence of the PATTERN only -- that the labels are image-derived
+and that OA/Synovitis are under-reported in text. Redo with the LLM labeler
+before relying on any figure here.
+
 The 58 labels were made by the Society of Skeletal Radiology annotation team
 using MD.ai, an IMAGE annotation tool. The reports were written separately, by
 the original radiologist at each hospital. So the two can legitimately disagree.

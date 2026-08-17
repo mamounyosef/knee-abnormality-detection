@@ -1,0 +1,70 @@
+==============================================================================
+LLM REPORT LABELS vs THE 58 OFFICIAL STUDIES
+==============================================================================
+studies scored : 58
+labeler        : Qwen3.8-27B, translated-to-English reports, effort=low
+
+                  pos  mean_p_pos  mean_p_neg  separation  auroc     ap
+finding                                                                
+ACL                24       0.926       0.207       0.718  0.969  0.929
+MCL                 9       0.946       0.200       0.746  0.966  0.770
+Medial Meniscus    26       0.860       0.192       0.668  0.945  0.898
+Baker's            12       0.878       0.186       0.691  0.929  0.795
+PF OA              21       0.595       0.119       0.476  0.922  0.902
+Medial OA          15       0.729       0.167       0.562  0.915  0.842
+Lateral Meniscus   23       0.749       0.163       0.585  0.898  0.853
+Fracture           18       0.717       0.175       0.542  0.892  0.818
+Contusion          19       0.852       0.297       0.555  0.858  0.659
+Effusion           35       0.933       0.665       0.267  0.828  0.830
+Lateral OA         11       0.638       0.195       0.443  0.826  0.682
+Synovitis          27       0.659       0.382       0.277  0.795  0.726
+
+MACRO AUROC        = 0.8952
+keyword floor      = 0.7003
+improvement        = +0.1949
+
+--- how the errors are distributed ---
+A 'confident miss' is a study where the model was sure and the panel disagreed.
+  ACL               confident false-pos  3   confident false-neg  0
+  MCL               confident false-pos  7   confident false-neg  0
+  Medial Meniscus   confident false-pos  3   confident false-neg  0
+  Lateral Meniscus  confident false-pos  2   confident false-neg  2
+  Medial OA         confident false-pos  1   confident false-neg  1
+  Lateral OA        confident false-pos  2   confident false-neg  2
+  PF OA             confident false-pos  0   confident false-neg  3
+  Effusion          confident false-pos 15   confident false-neg  0
+  Synovitis         confident false-pos  3   confident false-neg  0
+  Baker's           confident false-pos  3   confident false-neg  1
+  Contusion         confident false-pos  8   confident false-neg  1
+  Fracture          confident false-pos  3   confident false-neg  4
+
+--- calibration: does a higher probability mean a higher hit rate? ---
+  p in [0.0,0.10)  n= 199  actually positive: 3.0%
+  p in [0.1,0.20)  n= 126  actually positive: 6.3%
+  p in [0.2,0.40)  n=  83  actually positive: 21.7%
+  p in [0.4,0.60)  n=  33  actually positive: 48.5%
+  p in [0.6,0.80)  n=  15  actually positive: 40.0%
+  p in [0.8,0.90)  n=  31  actually positive: 71.0%
+  p in [0.9,1.01)  n= 209  actually positive: 78.5%
+
+--- prevalence: what the model predicts over ALL 4,407 vs the 58 ---
+                  58_panel_%  58_model_mean_p_%  all4407_mean_p_%  all4407_over_0.5_%
+ACL                     41.4               50.5              23.2                17.9
+MCL                     15.5               31.5              18.3                14.4
+Medial Meniscus         44.8               49.2              42.6                39.6
+Lateral Meniscus        39.7               39.6              20.4                14.8
+Medial OA               25.9               31.2              29.8                21.7
+Lateral OA              19.0               27.9              22.4                12.9
+PF OA                   36.2               29.2              33.1                26.3
+Effusion                60.3               82.7              58.7                59.9
+Synovitis               46.6               51.1              36.5                21.9
+Baker's                 20.7               32.9              31.3                25.0
+Contusion               32.8               47.9              22.5                15.6
+Fracture                31.0               34.3              11.9                 7.0
+
+The 58 are enriched for disease, so the full-corpus rates should be lower.
+
+CAVEATS
+  * 58 studies -> roughly +/-0.05 noise on each AUROC.
+  * The panel labeled from IMAGES, not reports, so some disagreement is
+    irreducible rather than a labeling error.
