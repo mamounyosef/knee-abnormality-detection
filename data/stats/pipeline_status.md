@@ -1,10 +1,17 @@
-# Modal pipeline status — 2026-08-17 19:02:20
+# Modal pipeline status
 
-| # | workspace | zip (GiB) | shards | shard GiB | progress | state |
-|---|---|---|---|---|---|---|
-| 3 | modal | 246.8 | 4407 | 136.6 | `████████████████████` 100% | READY |
-| 4 | modal | 0.0 | 0 | 0.0 | `····················` — | empty |
+_2026-08-17 19:05:36_
 
-**1/2 workspaces ready** · total storage across workspaces: 383 GiB
+```
+┌───┬───────────────────┬─────────┬─────────┬────────────┬───────────┬────────────────────────────────┐
+│ # │ workspace         │ state   │ zip GiB │ shards     │ shard GiB │ progress                       │
+├───┼───────────────────┼─────────┼─────────┼────────────┼───────────┼────────────────────────────────┤
+│ 3 │ modal   │ ✔ READY │  246.8  │  4407/4407 │  136.6    │ ██████████████████ 100% shards │
+│ 4 │ modal │ · empty │      —  │         —  │      —    │ ··················   0% —      │
+└───┴───────────────────┴─────────┴─────────┴────────────┴───────────┴────────────────────────────────┘
 
-zip ▒ · shards █ · target 4,407 studies (~137 GiB) per workspace
+  1/2 workspaces ready   ·   383 GiB stored   ·   2026-08-17 19:05:36
+  ✔ ready   ▶ preprocessing   ▼ downloading   ◆ zip ready   · empty
+```
+
+**1/2 ready** · 383 GiB stored · target 4,407 studies (~137 GiB) per workspace

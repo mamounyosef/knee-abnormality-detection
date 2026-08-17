@@ -48,6 +48,14 @@ EXPECTED_ZIP_GIB = 246.8
 
 CA_BUNDLE = Path.home() / ".certs" / "ca-bundle.pem"
 
+# Windows consoles default to a codepage that mangles the box-drawing characters
+if os.name == "nt":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        subprocess.run(["chcp", "65001"], shell=True, capture_output=True)
+    except Exception:                            # noqa: BLE001 — cosmetic only
+        pass
+
 
 # -----------------------------------------------------------------------------
 # workspace map
@@ -146,35 +154,75 @@ def status(session: int) -> dict:
     return st
 
 
-def render(rows: list[dict], names: dict[int, str]) -> str:
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    out = [f"# Modal pipeline status — {now}", "",
-           "| # | workspace | zip (GiB) | shards | shard GiB | progress | state |",
-           "|---|---|---|---|---|---|---|"]
-    ready = 0
+STATE_ICON = {"READY": "✔", "preprocessing": "▶", "downloading": "▼",
+              "zip ready": "◆", "empty": "·", "unreachable": "✖",
+              "no volumes": "·"}
+
+
+def _cells(rows: list[dict], names: dict[int, str]) -> list[list[str]]:
+    body = []
     for s in rows:
-        name = names.get(s["session"], "?")
         if s["state"] == "READY":
-            ready += 1
-            bar = "█" * 20
-            pct = "100%"
+            frac, mark = 1.0, "█"
         elif s["shards"]:
-            f = s["shards"] / EXPECTED_STUDIES
-            bar = "█" * int(f * 20) + "·" * (20 - int(f * 20))
-            pct = f"{f:.0%}"
+            frac, mark = s["shards"] / EXPECTED_STUDIES, "█"
         elif s["zip_gib"]:
-            f = min(s["zip_gib"] / EXPECTED_ZIP_GIB, 1.0)
-            bar = "▒" * int(f * 20) + "·" * (20 - int(f * 20))
-            pct = f"{f:.0%} zip"
+            frac, mark = min(s["zip_gib"] / EXPECTED_ZIP_GIB, 1.0), "▒"
         else:
-            bar = "·" * 20
-            pct = "—"
-        out.append(f"| {s['session']} | {name} | {s['zip_gib']:.1f} | "
-                   f"{s['shards']} | {s['shard_gib']:.1f} | `{bar}` {pct} | {s['state']} |")
+            frac, mark = 0.0, " "
+        filled = int(round(frac * 18))
+        bar = mark * filled + "·" * (18 - filled)
+        stage = ("shards" if s["shards"] else "zip" if s["zip_gib"] else "—")
+        body.append([
+            str(s["session"]),
+            names.get(s["session"], "?"),
+            f"{STATE_ICON.get(s['state'], '?')} {s['state']}",
+            f"{s['zip_gib']:6.1f}" if s["zip_gib"] else "     —",
+            f"{s['shards']:>5}/{EXPECTED_STUDIES}" if s["shards"] else "        —",
+            f"{s['shard_gib']:6.1f}" if s["shard_gib"] else "     —",
+            f"{bar} {frac:>4.0%} {stage}",
+        ])
+    return body
+
+
+HEADERS = ["#", "workspace", "state", "zip GiB", "shards", "shard GiB", "progress"]
+
+
+def render_box(rows: list[dict], names: dict[int, str]) -> str:
+    """A closed, aligned table for the terminal."""
+    body = _cells(rows, names)
+    widths = [max(len(str(r[i])) for r in [HEADERS] + body) for i in range(len(HEADERS))]
+
+    def line(l, m, r):
+        return l + m.join("─" * (w + 2) for w in widths) + r
+
+    def row(cells, sep="│"):
+        return sep + sep.join(f" {c:<{w}} " for c, w in zip(cells, widths)) + sep
+
+    ready = sum(1 for s in rows if s["state"] == "READY")
     total_gib = sum(s["zip_gib"] + s["shard_gib"] for s in rows)
-    out += ["", f"**{ready}/{len(rows)} workspaces ready** · "
-                f"total storage across workspaces: {total_gib:.0f} GiB",
-            "", "zip ▒ · shards █ · target 4,407 studies (~137 GiB) per workspace"]
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    out = [line("┌", "┬", "┐"), row(HEADERS), line("├", "┼", "┤")]
+    out += [row(c) for c in body]
+    out.append(line("└", "┴", "┘"))
+    out.append("")
+    out.append(f"  {ready}/{len(rows)} workspaces ready   ·   "
+               f"{total_gib:,.0f} GiB stored   ·   {now}")
+    out.append("  ✔ ready   ▶ preprocessing   ▼ downloading   ◆ zip ready   · empty")
+    return "\n".join(out)
+
+
+def render_md(rows: list[dict], names: dict[int, str]) -> str:
+    """Markdown version for data/stats/pipeline_status.md."""
+    body = _cells(rows, names)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ready = sum(1 for s in rows if s["state"] == "READY")
+    total_gib = sum(s["zip_gib"] + s["shard_gib"] for s in rows)
+    out = [f"# Modal pipeline status", "", f"_{now}_", "",
+           "```", render_box(rows, names), "```", "",
+           f"**{ready}/{len(rows)} ready** · {total_gib:,.0f} GiB stored · "
+           f"target 4,407 studies (~137 GiB) per workspace"]
     return "\n".join(out)
 
 
@@ -257,14 +305,12 @@ def main():
                         and r["session"] not in args.keep_zip):
                     print(f"[{r['session']}] {delete_zip(r['session'])}")
 
-        table = render(rows, names)
-
         STATUS_MD.parent.mkdir(parents=True, exist_ok=True)
-        STATUS_MD.write_text(table + "\n", encoding="utf-8")
+        STATUS_MD.write_text(render_md(rows, names) + "\n", encoding="utf-8")
 
         if args.watch:
             os.system("cls" if os.name == "nt" else "clear")
-        print(table)
+        print(render_box(rows, names))
         print(f"\nwritten: {STATUS_MD}")
 
         if not args.watch:
