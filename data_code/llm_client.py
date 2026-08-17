@@ -151,18 +151,33 @@ def warmup(timeout: int = 1800) -> bool:
     cfg = load_env()
     t0 = time.time()
     print(f"[warmup] waiting for a container (up to {timeout // 60} min) ...", flush=True)
-    try:
-        r = requests.post(
-            f"{cfg['base']}/chat/completions",
-            headers={**cfg["headers"], "Modal-Session-ID": "warmup"},
-            json={"model": cfg["model"],
-                  "messages": [{"role": "user", "content": "Reply with the word OK."}],
-                  "temperature": 0.0, "max_tokens": 10},
-            timeout=timeout)
-        r.raise_for_status()
-        print(f"[warmup] ready after {time.time() - t0:.0f}s", flush=True)
-        return True
-    except Exception as exc:                              # noqa: BLE001
-        print(f"[warmup] FAILED after {time.time() - t0:.0f}s: "
-              f"{type(exc).__name__}: {str(exc)[:100]}", flush=True)
-        return False
+    body = {"model": cfg["model"],
+            "messages": [{"role": "user", "content": "Reply with the word OK."}],
+            "temperature": 0.0, "max_tokens": 10}
+    attempt = 0
+    while time.time() - t0 < timeout:
+        attempt += 1
+        try:
+            r = requests.post(
+                f"{cfg['base']}/chat/completions",
+                headers={**cfg["headers"], "Modal-Session-ID": "warmup"},
+                json=body, timeout=min(600, timeout))
+            # A scaled-to-zero endpoint answers 503 immediately instead of
+            # queueing, so 503/502/504 mean "still booting", not "broken".
+            if r.status_code in (502, 503, 504):
+                if attempt == 1 or attempt % 5 == 0:
+                    print(f"[warmup] {r.status_code} — container still starting "
+                          f"({time.time() - t0:.0f}s)", flush=True)
+                time.sleep(10)
+                continue
+            r.raise_for_status()
+            print(f"[warmup] ready after {time.time() - t0:.0f}s "
+                  f"({attempt} attempt(s))", flush=True)
+            return True
+        except requests.Timeout:
+            continue                                     # boot is slow; keep waiting
+        except Exception as exc:                          # noqa: BLE001
+            print(f"[warmup] {type(exc).__name__}: {str(exc)[:90]} — retrying", flush=True)
+            time.sleep(10)
+    print(f"[warmup] FAILED after {time.time() - t0:.0f}s", flush=True)
+    return False

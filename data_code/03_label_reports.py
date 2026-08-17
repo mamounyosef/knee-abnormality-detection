@@ -82,7 +82,15 @@ Medial OA / Lateral OA / PF OA - osteoarthritis of that compartment, meaning sub
        naming compartments, score ALL THREE (medial, lateral, patellofemoral) high.
        "Bicompartmental" -> infer which two from context. PF OA covers the patella, patellar
        facets, trochlea and retropatellar cartilage.
-Effusion  - any joint fluid above trace, including "small"/"mild" effusion and haemarthrosis.
+Effusion  - a joint effusion the panel would call present, meaning a MODERATE or LARGE amount
+       of fluid, or haemarthrosis. Be strict here: nearly every knee report mentions some
+       fluid, and the panel does NOT count small amounts. Calibrate by wording:
+         "trace" / "minimal" / "physiologic" / "small amount"        -> 0.25
+         "mild" / "small effusion"                                    -> 0.40
+         "moderate" / "distended suprapatellar bursa" / unqualified
+             "joint effusion"                                         -> 0.75
+         "large" / "massive" / "tense" / haemarthrosis                -> 0.92
+         explicitly "no effusion"                                     -> 0.05
 Synovitis - synovial thickening or enhancement, "reactive synovitis", hoffitis, bursitis with
        synovial involvement. Chronic degenerative joints often have it even when unmentioned,
        so a knee with advanced OA and an effusion should not score very low.
@@ -234,7 +242,11 @@ def main():
         row.update({k: float(res["findings"][k]["p"]) for k in LABELS})
         rows.append(row)
     out = pd.DataFrame(rows)
-    out.to_csv(OUT_CSV, index=False)
+    # --validate covers only the 58 studies, so it must NEVER overwrite the
+    # full-corpus labels; it writes its own file instead.
+    csv_path = (OUT_CSV.with_name("03_report_labels_validate58.csv")
+                if args.validate else OUT_CSV)
+    out.to_csv(csv_path, index=False)
 
     L = []
     def w(s=""):
@@ -275,7 +287,7 @@ def main():
 
     LOG_TXT.parent.mkdir(parents=True, exist_ok=True)
     LOG_TXT.write_text("\n".join(L) + "\n", encoding="utf-8")
-    w(f"\nwritten: {OUT_CSV}\n         {OUT_JSONL}\n         {LOG_TXT}")
+    w(f"\nwritten: {csv_path}\n         {OUT_JSONL}\n         {LOG_TXT}")
 
 
 if __name__ == "__main__":
