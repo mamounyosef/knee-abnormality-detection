@@ -221,11 +221,11 @@ def build_index(limit_studies: int = 0):
 # =============================================================================
 # shard worker
 # =============================================================================
-# memory=6144: the real working set is one ~30 MiB volume per process plus
-# float32 intermediates, well under 1 GiB total. The first run requested 32 GiB
-# per container, and memory was ~40% of its $2.10 bill for no benefit.
+# memory=8192: the first run requested 32 GiB per container but peaked at only
+# ~7 GiB each (140 GiB across 20 containers), and memory was ~40% of its $2.10
+# bill. 8 GiB leaves headroom over the observed peak without paying for 32.
 @app.function(image=image, volumes={DATA_MOUNT: data_vol, SHARD_MOUNT: shard_vol},
-              timeout=60 * 60 * 4, cpu=N_CORES, memory=6144,
+              timeout=60 * 60 * 4, cpu=N_CORES, memory=8192,
               max_containers=MAX_CONTAINERS,
               retries=modal.Retries(max_retries=2, initial_delay=10.0))
 def preprocess_shard(shard):
