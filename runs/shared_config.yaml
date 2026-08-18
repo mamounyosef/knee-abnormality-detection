@@ -127,6 +127,7 @@ output:
   val_log_csv: "val_log.csv"
   summary_json: "training_summary.json"
   console_log_every: 20
+  console_capture_dir: "train_config"   # full terminal capture per run
   keep_last_n: 3
   save_debug_images: 0
 

@@ -13,12 +13,15 @@ applied here from config.
 
 from __future__ import annotations
 
+import csv
 import io
 import json
 import math
 import os
 import random
+import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -60,17 +63,83 @@ def load_config(experiment_dir, config_name: str = "config.yaml", verbose: bool 
 
 
 def print_config(cfg: dict):
-    i = cfg["input"]
-    t = cfg["training"]
-    print("=" * 70)
-    print(f"experiment : {cfg['experiment']['name']}")
-    print(f"model      : {cfg.get('model', {}).get('name', '?')}")
-    print(f"input      : {len(i['slots'])} slots {i['slots']}")
-    print(f"             {i['n_slices']} slices @ {i['size']}px, {i['mm_per_px']} mm/px")
-    print(f"target     : {cfg['target']['mode']}   loss: {t['loss']['name']}")
-    print(f"training   : {t.get('epochs')} epochs, batch {t.get('batch_size')}, "
-          f"lr {t['optimizer'].get('lr')}")
-    print("=" * 70)
+    """Full, verbatim record of what this run is doing — structured, then raw YAML."""
+    i, t, o, m = cfg["input"], cfg["training"], cfg["output"], cfg.get("modal", {})
+    dl, aug = cfg.get("dataloader", {}), cfg["augmentation"]
+    line = "=" * 70
+    print(line); print("CONFIGURATION"); print(line)
+    print(f"  experiment        : {cfg['experiment']['name']}")
+    print(f"  model             : {cfg.get('model', {}).get('name', '?')}  "
+          f"(pretrained={cfg.get('model', {}).get('pretrained')})")
+    print(f"  resume            : {cfg.get('resume')}")
+    print(f"  tasks ({len(cfg['tasks'])})         : {cfg['tasks']}")
+    print("  --- paths " + "-" * 56)
+    print(f"  data_dir          : {cfg['paths']['data_dir']}")
+    print(f"  shards_dir        : {cfg['paths']['shards_dir']}")
+    print(f"  train / val csv   : {cfg['paths']['train_csv']}  |  {cfg['paths']['val_csv']}")
+    print(f"  audit csv         : {cfg['paths']['audit_csv']}")
+    print("  --- input " + "-" * 56)
+    print(f"  slots ({len(i['slots'])})          : {i['slots']}")
+    print(f"  fallback/dup rule : same_plane={i['fallback_same_plane']}  "
+          f"duplicate={i['duplicate_rule']}")
+    print(f"  slices            : n={i['n_slices']}  margin={i.get('slice_margin', 0)}  "
+          f"train={i['train_slice_sampling']}  eval={i['slice_sampling']}")
+    print(f"  geometry          : {i['size']}x{i['size']} px @ {i['mm_per_px']} mm/px "
+          f"= {i['size'] * (i['mm_per_px'] or 0):.0f} mm field  interp={i['interpolation']}")
+    print(f"  intensity         : window={i['window']} pct={i['window_pct']}  "
+          f"channels={i['channels']}")
+    print(f"  normalize         : mean={i['norm_mean']}  std={i['norm_std']}")
+    print(f"  images per study  : {len(i['slots'])} slots x {i['n_slices']} slices = "
+          f"{len(i['slots']) * i['n_slices']}")
+    print(f"  augmentation      : {'ENABLED (train only)' if aug['enable'] else 'DISABLED'}")
+    if aug["enable"]:
+        for k in ("rotation", "translate", "scale", "brightness", "contrast",
+                  "hflip", "slice_dropout"):
+            if k in aug:
+                print(f"      {k:14s}: {aug[k]}")
+    print("  --- target " + "-" * 55)
+    print(f"  mode              : {cfg['target']['mode']}  "
+          f"threshold={cfg['target']['hard_threshold']}  "
+          f"smoothing={cfg['target']['label_smoothing']}")
+    print("  --- dataloader " + "-" * 51)
+    print(f"  batch_size        : {t.get('batch_size')}  accum_steps={t.get('accum_steps', 1)}  "
+          f"-> effective {t.get('batch_size', 0) * t.get('accum_steps', 1)} studies")
+    print(f"  num_workers       : {dl.get('num_workers')}  pin_memory={dl.get('pin_memory')}  "
+          f"drop_last={dl.get('drop_last')}")
+    print(f"  prefetch_factor   : {dl.get('prefetch_factor')}  "
+          f"persistent={dl.get('persistent_workers')}")
+    print("  --- training " + "-" * 53)
+    print(f"  epochs            : {t.get('epochs')}")
+    print(f"  optimizer         : {t['optimizer']['name']}  lr={t['optimizer'].get('lr'):.4e}  "
+          f"wd={t['optimizer'].get('weight_decay')}  "
+          f"backbone_mult={t['optimizer'].get('backbone_lr_mult')}")
+    print(f"  scheduler         : {t['scheduler']['name']}  "
+          f"warmup_frac={t['scheduler']['warmup_frac']}  "
+          f"min_lr_mult={t['scheduler']['min_lr_mult']}")
+    print(f"  loss              : {t['loss']['name']}  pos_weight={t['loss']['pos_weight']}")
+    print(f"  amp               : {t['amp']}  grad_clip={t['grad_clip']}  "
+          f"channels_last={t['channels_last']}")
+    es = t["early_stopping"]
+    print(f"  early_stopping    : enable={es['enable']}  monitor={es['monitor']}  "
+          f"mode={es['mode']}  patience={es['patience']}")
+    print("  --- evaluation / repro / output " + "-" * 34)
+    print(f"  eval cadence      : every_epochs={cfg['evaluation']['eval_every_epochs']}  "
+          f"every_steps={cfg['evaluation']['eval_every_steps']}")
+    print(f"  audit set         : enable={cfg['evaluation']['audit']['enable']}  "
+          f"(report only, never drives best.pt)")
+    print(f"  seed              : {cfg['reproducibility']['seed']}  "
+          f"deterministic={cfg['reproducibility']['deterministic']}")
+    print(f"  run_dir           : {o['run_dir']}  (logs: {o['train_log_csv']}, {o['val_log_csv']})")
+    print(f"  checkpoints       : {o['checkpoints_dir']}/  best={o['best_name']}  "
+          f"keep_last_n={o['keep_last_n']}")
+    print(f"  console_log_every : {o['console_log_every']}  "
+          f"capture_dir={o.get('console_capture_dir')}")
+    if m:
+        print(f"  modal (cloud)     : gpu={m.get('gpu')}  timeout={m.get('timeout_hours')}h  "
+              f"shards={m.get('shards_volume')}  runs={m.get('runs_volume')}")
+    print("  --- raw merged config (verbatim) " + "-" * 33)
+    print(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True).rstrip())
+    print(line)
 
 
 def num_output_logits(cfg: dict) -> int:
@@ -206,7 +275,8 @@ class KneeShardDataset(Dataset):
 
     def _fit(self, vol: np.ndarray) -> np.ndarray:
         """Centre crop or pad each slice to size x size."""
-        s, (h, w) = self.size, vol.shape[1:]
+        # s = target side in px (cfg input.size); h, w = this slice's current height/width
+        s, (h, w) = self.size, vol.shape[1:]      # vol is (n_slices, h, w), so skip axis 0
         if h > s:
             t = (h - s) // 2; vol = vol[:, t:t + s]
         if w > s:
@@ -316,17 +386,92 @@ def make_loaders(cfg: dict):
 
 
 # =============================================================================
+# logging
+# =============================================================================
+class _Tee:
+    """Write to the console and the capture file at once, flushing every time."""
+
+    def __init__(self, *streams):
+        self._streams = streams
+
+    def write(self, data):
+        for st in self._streams:
+            try:
+                st.write(data); st.flush()
+            except Exception:
+                pass                      # a broken capture file must never kill a run
+
+    def flush(self):
+        for st in self._streams:
+            try:
+                st.flush()
+            except Exception:
+                pass
+
+    def isatty(self):
+        return False
+
+
+class CSVLogger:
+    """Append-only CSV, header on first row, flushed per row so a crash keeps the log."""
+
+    def __init__(self, path: Path):
+        self.path = Path(path); self._f = None; self._w = None
+
+    def log(self, row: dict):
+        try:
+            if self._f is None:
+                new = (not self.path.exists()) or self.path.stat().st_size == 0
+                self._f = open(self.path, "a", newline="", encoding="utf-8")
+                self._w = csv.DictWriter(self._f, fieldnames=list(row.keys()))
+                if new:
+                    self._w.writeheader()
+            self._w.writerow(row); self._f.flush()
+        except Exception as e:                # logging must never crash training
+            print(f"  [warn] CSV log failed: {type(e).__name__}: {e}")
+            self._f, self._w = None, None
+
+    def close(self):
+        try:
+            if self._f:
+                self._f.close()
+        except Exception:
+            pass
+
+
+# =============================================================================
 # metrics / loss / optim
 # =============================================================================
-def macro_auroc(y_true: np.ndarray, y_prob: np.ndarray, tasks: list, thr: float = 0.5) -> dict:
-    """Area Under the ROC Curve per label, averaged. This is the competition metric."""
-    from sklearn.metrics import roc_auc_score
+def compute_metrics(y_true: np.ndarray, y_prob: np.ndarray, tasks: list,
+                    thr: float = 0.5) -> dict:
+    """Per-task AUROC + AUPRC and the operating-point stats at `thr`."""
+    from sklearn.metrics import average_precision_score, roc_auc_score
+
     per = {}
     for i, t in enumerate(tasks):
-        yt = (y_true[:, i] > thr).astype(int)   # soft targets need a threshold to score
-        per[t] = roc_auc_score(yt, y_prob[:, i]) if yt.min() != yt.max() else float("nan")  # undefined if one class
-    vals = [v for v in per.values() if not math.isnan(v)]
-    return {"macro_auroc": float(np.mean(vals)) if vals else float("nan"), "per_task": per}
+        yt = (y_true[:, i] > thr).astype(int)          # soft targets need a threshold to score
+        yp = y_prob[:, i]
+        one_class = yt.min() == yt.max()
+        per[t] = {
+            "auroc": float("nan") if one_class else roc_auc_score(yt, yp),
+            "auprc": float("nan") if one_class else average_precision_score(yt, yp),
+            "pos": int(yt.sum()),
+        }
+    au = [v["auroc"] for v in per.values() if not math.isnan(v["auroc"])]
+    ap = [v["auprc"] for v in per.values() if not math.isnan(v["auprc"])]
+
+    yb, pb = (y_true > thr).astype(int), (y_prob > thr).astype(int)
+    tp = ((yb == 1) & (pb == 1)).sum(); fp = ((yb == 0) & (pb == 1)).sum()
+    fn = ((yb == 1) & (pb == 0)).sum(); tn = ((yb == 0) & (pb == 0)).sum()
+    prec = tp / max(tp + fp, 1); rec = tp / max(tp + fn, 1)
+    return {
+        "macro_auroc": float(np.mean(au)) if au else float("nan"),
+        "macro_auprc": float(np.mean(ap)) if ap else float("nan"),
+        "precision": float(prec), "recall": float(rec),
+        "f1": float(2 * prec * rec / max(prec + rec, 1e-9)),
+        "specificity": float(tn / max(tn + fp, 1)),
+        "per_task": per,
+    }
 
 
 class FocalBCE(nn.Module):
@@ -400,112 +545,239 @@ def evaluate(model, loader, loss_fn, cfg, device) -> dict:
             losses.append(loss_fn(logits, y).item())
         # sigmoid turns raw logits into 0-1 probabilities
         P.append(torch.sigmoid(logits.float()).cpu().numpy()); Y.append(y.cpu().numpy())
-    m = macro_auroc(np.concatenate(Y), np.concatenate(P), cfg["tasks"])
+    m = compute_metrics(np.concatenate(Y), np.concatenate(P), cfg["tasks"])
     m["loss"] = float(np.mean(losses))
+    m["n"] = int(np.concatenate(Y).shape[0])
     return m
 
 
 def run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None, log_fn=None):
-    """Full training run: loaders, loss, optimizer, epoch loop, eval, checkpoints, logs.
-    persist_fn flushes the Modal volume; log_fn ships metrics to Weights & Biases."""
+    """Public entry: tee the whole console into results/train_config/<timestamp>.txt,
+    then train. Streams are restored even if the run crashes, traceback included."""
+    out_dir = Path(out_dir)
+    cap_dir = (out_dir / cfg["output"]["run_dir"]
+               / cfg["output"].get("console_capture_dir", "train_config"))
+    cap_dir.mkdir(parents=True, exist_ok=True)
+    cap_path = cap_dir / f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
+    try:
+        sys.stdout.reconfigure(encoding="utf-8"); sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+    orig_out, orig_err = sys.stdout, sys.stderr
+    log_f = open(cap_path, "w", encoding="utf-8")
+    sys.stdout, sys.stderr = _Tee(orig_out, log_f), _Tee(orig_err, log_f)
+    print(f"[capture] full console of this run -> {cap_path}")
+    print(f"[capture] command: {' '.join(sys.argv)}")
+    print(f"[capture] started {datetime.now():%Y-%m-%d %H:%M:%S}")
+    try:
+        return _run_experiment(cfg, model, out_dir, persist_fn, log_fn)
+    finally:
+        sys.stdout, sys.stderr = orig_out, orig_err
+        log_f.close()
+        print(f"[capture] saved -> {cap_path}")
+
+
+def _print_eval(tag: str, epoch: int, epochs: int, gstep: int, m: dict,
+                elapsed: float, eta: float, tasks: list, emoji: str = "\U0001F50E"):
+    """One validation block: headline metrics, then every finding."""
+    print("-" * 70)
+    print(f"  {emoji} [{tag}] epoch={epoch}/{epochs} step={gstep}  n={m['n']}  "
+          f"loss={m['loss']:.4f}  elapsed={fmt(elapsed)}  ETA={fmt(eta)}")
+    print(f"     \U0001F4CA macro AUROC={m['macro_auroc']:.4f}  AUPRC={m['macro_auprc']:.4f}  "
+          f"F1={m['f1']:.3f}  P={m['precision']:.3f}  R={m['recall']:.3f}  "
+          f"Spec={m['specificity']:.3f}")
+    for t in tasks:
+        v = m["per_task"][t]
+        print(f"        {t:18s} AUROC={v['auroc']:.4f}  AUPRC={v['auprc']:.4f}  "
+              f"(pos={v['pos']})")
+
+
+def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None, log_fn=None):
+    """Full training run: loaders, loss, optimizer, epoch loop, eval, checkpoints, logs."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    epochs = cfg["training"]["epochs"]
+    print("#" * 70)
+    print(f"# \U0001F680 run_experiment: {cfg['experiment']['name']}")
+    print(f"# \U0001F5A5\uFE0F  device={device}  epochs={epochs}")
+    print("#" * 70)
     set_seed(cfg["reproducibility"]["seed"], cfg["reproducibility"]["deterministic"])
+    print(f"[set_seed] seed={cfg['reproducibility']['seed']}  "
+          f"deterministic={cfg['reproducibility']['deterministic']}")
+    print_config(cfg)
 
     out = Path(out_dir) / cfg["output"]["run_dir"]
     ckpt_dir = out / cfg["output"]["checkpoints_dir"]
     ckpt_dir.mkdir(parents=True, exist_ok=True)
+    print(f"[paths] results -> {out}")
 
     loaders = make_loaders(cfg)
     train_df = pd.read_csv(resolve(cfg["paths"]["train_csv"], cfg))
+
     model = model.to(device)
     if cfg["training"]["channels_last"]:
-        model = model.to(memory_format=torch.channels_last)   # faster convolutions on tensor cores
+        model = model.to(memory_format=torch.channels_last)
+    tot_p = sum(q.numel() for q in model.parameters())
+    tr_p = sum(q.numel() for q in model.parameters() if q.requires_grad)
+    print("=" * 70); print("MODEL"); print("=" * 70)
+    print(f"  architecture      : {cfg.get('model', {}).get('name', '?')}")
+    print(f"  pretrained        : {cfg.get('model', {}).get('pretrained')}")
+    print(f"  pooling           : {cfg.get('model', {}).get('pool')}")
+    print(f"  output logits     : {num_output_logits(cfg)}  (one per finding)")
+    print(f"  total params      : {tot_p:,}  ({tot_p/1e6:.2f} M)")
+    print(f"  trainable params  : {tr_p:,}  ({tr_p/1e6:.2f} M, {100*tr_p/max(tot_p,1):.1f}%)")
+    print(f"  frozen params     : {tot_p-tr_p:,}  ({(tot_p-tr_p)/1e6:.2f} M)")
+    print("=" * 70)
 
     loss_fn = build_loss(cfg, train_df, device)
     opt = build_optimizer(model, cfg)
-    epochs = cfg["training"]["epochs"]
-    accum = cfg["training"].get("accum_steps", 1)          # batches summed before one weight update
-    total = max(1, len(loaders["train"]) // accum) * epochs  # optimizer steps over the whole run
+    accum = cfg["training"].get("accum_steps", 1)
+    steps_per_epoch = max(1, len(loaders["train"]) // accum)
+    total = steps_per_epoch * epochs
     sched = build_scheduler(opt, cfg, total)
-    # mixed precision: half-precision math with a loss scaler to stop gradients underflowing
     scaler = torch.amp.GradScaler("cuda", enabled=cfg["training"]["amp"] and device.type == "cuda")
+    imgs_per_batch = (cfg["training"]["batch_size"] * len(cfg["input"]["slots"])
+                      * cfg["input"]["n_slices"])
+    print(f"[setup] optimizer={cfg['training']['optimizer']['name']}  "
+          f"scheduler={cfg['training']['scheduler']['name']}  amp={scaler.is_enabled()}")
+    print(f"[setup] steps/epoch={steps_per_epoch}  total_steps={total}  accum={accum}  "
+          f"images/optimizer-step={imgs_per_batch * accum}")
 
     es = cfg["training"]["early_stopping"]
-    best, bad, gstep = -math.inf, 0, 0                     # best score, epochs since it, global step
-    train_rows, val_rows = [], []
+    best, best_epoch, bad, gstep = -math.inf, 0, 0, 0
+    train_log = CSVLogger(out / cfg["output"]["train_log_csv"])
+    val_log = CSVLogger(out / cfg["output"]["val_log_csv"])
+    history = []
     t0 = time.time()
+    prev_loss = None
 
     for epoch in range(1, epochs + 1):
+        print("\n" + "=" * 70)
+        print(f"\U0001F4DA EPOCH {epoch}/{epochs}")
+        print("=" * 70)
         model.train()
+        ep_t0, seen = time.time(), 0
         for it, (x, y) in enumerate(loaders["train"], 1):
             y = y.to(device, non_blocking=True)
             with torch.autocast("cuda", enabled=scaler.is_enabled()):
                 loss = loss_fn(model(prepare_batch(x, cfg, device)), y) / accum
-            scaler.scale(loss).backward()                   # gradients accumulate until it % accum == 0
+            scaler.scale(loss).backward()
+            seen += imgs_per_batch
             if it % accum == 0:
+                gnorm = float("nan")
                 if cfg["training"]["grad_clip"]:
-                    scaler.unscale_(opt)                     # undo loss scaling before clipping
-                    nn.utils.clip_grad_norm_(model.parameters(), cfg["training"]["grad_clip"])
-                # update weights, adjust the scale, clear grads, advance the lr schedule
+                    scaler.unscale_(opt)
+                    gnorm = float(nn.utils.clip_grad_norm_(model.parameters(),
+                                                           cfg["training"]["grad_clip"]))
                 scaler.step(opt); scaler.update(); opt.zero_grad(set_to_none=True); sched.step()
                 gstep += 1
-                if gstep % cfg["output"]["console_log_every"] == 0:
-                    lr = sched.get_last_lr()[-1]
-                    msg = (f"e{epoch} step {gstep}/{total} loss {loss.item()*accum:.4f} "
-                           f"lr {lr:.2e} {fmt(time.time()-t0)}")
-                    print(msg, flush=True)
-                    train_rows.append({"epoch": epoch, "step": gstep,
-                                       "loss": loss.item() * accum, "lr": lr})
+                lr = sched.get_last_lr()[-1]
+                l = loss.item() * accum
+                ips = seen / max(time.time() - ep_t0, 1e-9)
+                mem = (torch.cuda.max_memory_allocated() / 1024**3
+                       if device.type == "cuda" else 0.0)
+                el = time.time() - t0
+                eta = el * (total / gstep - 1)
+                train_log.log({"epoch": epoch, "epoch_step": it // accum,
+                               "global_step": gstep, "loss": round(l, 6), "lr": lr,
+                               "gnorm": round(gnorm, 4), "img_s": round(ips, 1),
+                               "gpu_mem_gb": round(mem, 2), "elapsed_s": round(el, 1)})
+                if gstep % cfg["output"]["console_log_every"] == 0 or gstep == 1:
+                    d = "" if prev_loss is None else f" ({l - prev_loss:+.4f})"
+                    print(f"  Epoch {epoch}/{epochs}  epoch_step: {it // accum}/{steps_per_epoch}"
+                          f"  global_step: {gstep}/{total}  loss={l:.4f}{d}  lr={lr:.4e}"
+                          f"  gnorm={gnorm:.2f}  {ips:.0f} img/s  elapsed={fmt(el)}"
+                          f"  ETA={fmt(eta)}  gpu_mem(peak)={mem:.2f}GB", flush=True)
+                    prev_loss = l
                     if log_fn:
-                        log_fn({"train/loss": loss.item() * accum, "train/lr": lr}, gstep)
+                        log_fn({"train/loss": l, "train/lr": lr, "train/gnorm": gnorm}, gstep)
 
-        # ---- validation -------------------------------------------------
+        el = time.time() - t0
+        eta = el * (total / max(gstep, 1) - 1)
+        print("=" * 70)
+        print(f"\U0001F50E VALIDATION - epoch {epoch}/{epochs}  step {gstep}  "
+              f"({len(loaders['val'])} batches, {len(loaders['val'].dataset)} studies) ...")
         vm = evaluate(model, loaders["val"], loss_fn, cfg, device)
-        row = {"epoch": epoch, "step": gstep, "val_loss": vm["loss"],
-               "val_macro_auroc": vm["macro_auroc"]}
-        row |= {f"val_{k}": v for k, v in vm["per_task"].items()}
-        print(f"\n[val] epoch {epoch}  loss {vm['loss']:.4f}  "
-              f"macro AUROC {vm['macro_auroc']:.4f}")
-        for k, v in vm["per_task"].items():
-            print(f"       {k:18s} {v:.3f}")
+        _print_eval("VAL", epoch, epochs, gstep, vm, el, eta, cfg["tasks"])
 
-        # the 58 panel-labeled studies: reported, never used for best.pt
+        row = {"epoch": epoch, "step": gstep, "val_loss": round(vm["loss"], 6),
+               "val_macro_auroc": round(vm["macro_auroc"], 6),
+               "val_macro_auprc": round(vm["macro_auprc"], 6),
+               "val_f1": round(vm["f1"], 4), "val_precision": round(vm["precision"], 4),
+               "val_recall": round(vm["recall"], 4),
+               "val_specificity": round(vm["specificity"], 4)}
+        for t in cfg["tasks"]:
+            row[f"val_auroc_{t}"] = round(vm["per_task"][t]["auroc"], 6)
+            row[f"val_auprc_{t}"] = round(vm["per_task"][t]["auprc"], 6)
+
         if "audit" in loaders:
             am = evaluate(model, loaders["audit"], loss_fn, cfg, device)
-            row["audit_macro_auroc"] = am["macro_auroc"]
-            print(f"[audit 58] macro AUROC {am['macro_auroc']:.4f}  (report only)")
+            _print_eval("AUDIT-58", epoch, epochs, gstep, am, el, eta, cfg["tasks"],
+                        "\U0001F9EA")
+            print("     \u2139\uFE0F  report only - the panel's own labels, never drives best.pt")
+            row["audit_macro_auroc"] = round(am["macro_auroc"], 6)
+            for t in cfg["tasks"]:
+                row[f"audit_auroc_{t}"] = round(am["per_task"][t]["auroc"], 6)
 
-        val_rows.append(row)
+        row["elapsed_s"] = round(el, 1)
+        val_log.log(row)
+        history.append(row)
         if log_fn:
-            log_fn({f"val/{k}": v for k, v in row.items() if isinstance(v, float)}, gstep)
+            log_fn({f"val/{k}": v for k, v in row.items() if isinstance(v, (int, float))}, gstep)
 
-        pd.DataFrame(train_rows).to_csv(out / cfg["output"]["train_log_csv"], index=False)
-        pd.DataFrame(val_rows).to_csv(out / cfg["output"]["val_log_csv"], index=False)
-
-        score = row.get(es["monitor"], vm["macro_auroc"])   # the number best.pt is chosen by
+        score = row.get(es["monitor"], vm["macro_auroc"])
         improved = score > best if es["mode"] == "max" else score < best
         if improved:
-            best, bad = score, 0
+            prev = best
+            best, best_epoch, bad = score, epoch, 0
             torch.save({"model": model.state_dict(), "cfg": cfg, "epoch": epoch,
-                        "score": score}, ckpt_dir / cfg["output"]["best_name"])
-            print(f"       new best {es['monitor']} = {score:.4f}")
+                        "step": gstep, "score": score}, ckpt_dir / cfg["output"]["best_name"])
+            delta = "" if prev == -math.inf else f"  (was {prev:.4f}, +{score - prev:.4f})"
+            print(f"  \u2B50 new best {es['monitor']} = {score:.4f}{delta} -> best.pt")
         else:
             bad += 1
-        torch.save({"model": model.state_dict(), "cfg": cfg, "epoch": epoch},
-                   ckpt_dir / f"last.pt")                   # overwritten each epoch, for resuming
+            print(f"  \u23F3 no improvement ({bad}/{es['patience']})  "
+                  f"best {best:.4f} @ epoch {best_epoch}")
+        torch.save({"model": model.state_dict(), "cfg": cfg, "epoch": epoch, "step": gstep},
+                   ckpt_dir / "last.pt")
+        print(f"  \U0001F4BE saved last.pt (epoch {epoch})")
 
         (out / cfg["output"]["summary_json"]).write_text(json.dumps({
-            "experiment": cfg["experiment"]["name"], "epoch": epoch,
-            "best": best, "monitor": es["monitor"],
-            "last": {k: v for k, v in row.items() if isinstance(v, float)},
-            "elapsed": fmt(time.time() - t0)}, indent=2))
+            "experiment": cfg["experiment"]["name"], "epoch": epoch, "epochs": epochs,
+            "best_score": best, "best_epoch": best_epoch, "monitor": es["monitor"],
+            "last": row, "elapsed": fmt(time.time() - t0)}, indent=2))
         if persist_fn:
-            persist_fn()                                    # flush to the Modal volume; survives a kill
+            persist_fn()
+
         if es["enable"] and bad >= es["patience"]:
-            print(f"early stop: no improvement for {bad} epochs")
+            print(f"\n\U0001F6D1 early stop: no improvement for {bad} epochs")
             break
 
-    print(f"\ndone in {fmt(time.time()-t0)}   best {es['monitor']} = {best:.4f}")
+    train_log.close(); val_log.close()
+    total_time = time.time() - t0
+    best_row = next((r for r in history if r["epoch"] == best_epoch),
+                    history[-1] if history else {})
+    print("\n" + "=" * 70)
+    print(f"\U0001F3C1 FINISHED - {cfg['experiment']['name']}")
+    print("=" * 70)
+    print(f"  \u23F1\uFE0F  total time       : {fmt(total_time)}  "
+          f"({len(history)} epochs, {gstep} steps)")
+    print(f"  \u2B50 best {es['monitor']:<15s}: {best:.4f}  @ epoch {best_epoch}")
+    if best_row:
+        print(f"  \U0001F4C9 val loss at best  : {best_row.get('val_loss')}")
+        print(f"  \U0001F4CA macro AUPRC       : {best_row.get('val_macro_auprc')}")
+        if "audit_macro_auroc" in best_row:
+            print(f"  \U0001F9EA audit-58 AUROC    : {best_row['audit_macro_auroc']}  (report only)")
+        print("\n  per-finding AUROC at the best epoch (bar = AUROC above chance):")
+        ranked = sorted(((t, best_row.get(f"val_auroc_{t}", float("nan")))
+                         for t in cfg["tasks"]), key=lambda kv: -(kv[1] if kv[1] == kv[1] else 0))
+        for t, v in ranked:
+            bar = "\u2588" * int(max(0.0, v - 0.5) * 40) if v == v else ""
+            print(f"    {t:18s} {v:.4f}  {bar}")
+        print("\n  \U0001F4C8 reference: keyword labeler 0.700, LLM labels 0.895 (vs the 58)")
+    print(f"  \U0001F4BE checkpoints       : {ckpt_dir}")
+    print(f"  \U0001F4DD logs              : {out / cfg['output']['train_log_csv']}")
+    print(f"                        {out / cfg['output']['val_log_csv']}")
+    print("=" * 70)
     return best
 
 
