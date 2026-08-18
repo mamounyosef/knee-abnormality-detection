@@ -19,9 +19,10 @@ import json
 import math
 import os
 import random
+import re
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -129,6 +130,7 @@ def print_config(cfg: dict):
 
     _kv("run", [
         ("experiment", cfg["experiment"]["name"]),
+        ("run_id", cfg["experiment"].get("run_id", "(allocated at launch)")),
         ("model", f"{mo.get('name', '?')}  (pretrained={mo.get('pretrained')})"),
         ("pooling", mo.get("pool")),
         ("findings", f"{len(cfg['tasks'])}  {', '.join(cfg['tasks'][:4])} ..."),
@@ -224,6 +226,92 @@ def print_config(cfg: dict):
     print("\u2500\u2500 raw merged config (verbatim) " + "\u2500" * (W - 31))
     print(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True).rstrip())
     _rule()
+
+
+# =============================================================================
+# run identity
+# =============================================================================
+# Every run of an experiment gets a sequential id: run001, run002, ... It tags
+# every CSV row and prefixes every file the run writes, so artifacts from two
+# runs can be merged across machines without ever blending into each other.
+RUN_ID_RE = re.compile(r"run\d+")
+
+
+def run_id_of(name: str) -> str | None:
+    """Leading runNNN of a filename, e.g. run007_e1_s800.png -> run007."""
+    m = re.match(r"(run\d+)", str(name))
+    return m.group(1) if m else None
+
+
+def scan_run_ids(results_dir) -> set[str]:
+    """Every runNNN this results/ folder already shows evidence of."""
+    results_dir = Path(results_dir)
+    ids = set()
+    for sub in (".run_ids", "train_config", "debugged_images"):
+        d = results_dir / sub
+        if d.is_dir():
+            ids |= {r for q in d.glob("run*") if (r := run_id_of(q.name))}
+    for name in ("train_log.csv", "val_log.csv"):
+        f = results_dir / name
+        if f.exists():
+            try:                                   # a truncated log must not block a launch
+                ids |= set(pd.read_csv(f, usecols=["run_id"], engine="python",
+                                       on_bad_lines="skip")["run_id"]
+                           .dropna().astype(str))
+            except Exception:
+                pass
+    return {i for i in ids if RUN_ID_RE.fullmatch(str(i))}
+
+
+def next_run_no(ids) -> int:
+    return max((int(str(i)[3:]) for i in ids if RUN_ID_RE.fullmatch(str(i))), default=0) + 1
+
+
+def allocate_run_id(results_dir, known=()) -> str:
+    """Reserve the next free runNNN for this experiment.
+
+    Called on THIS PC at launch, never inside the container: the number is then
+    passed into the run. `known` carries ids seen on the Modal volume so two
+    workspaces can't land on the same one. The reservation itself is an
+    exclusive-create, so two concurrent launches here can't collide either.
+    """
+    results_dir = Path(results_dir)
+    lock_dir = results_dir / ".run_ids"            # markers only, never synced
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    n = next_run_no(scan_run_ids(results_dir) | {str(k) for k in known})
+    import platform
+    while True:
+        cand = f"run{n:03d}"
+        try:
+            with open(lock_dir / cand, "x", encoding="utf-8") as fh:
+                fh.write(f"{datetime.now(timezone.utc):%Y-%m-%d %H:%M:%S} UTC  "
+                         f"{platform.node()}  {workspace_name()}\n")
+            return cand
+        except FileExistsError:                    # someone else took it a moment ago
+            n += 1
+
+
+def workspace_name() -> str:
+    """Which Modal workspace this is, from MODAL_CONFIG_PATH + modal_setup_commands.txt."""
+    ws = os.environ.get("MODAL_WORKSPACE") or os.environ.get("MODAL_PROFILE")
+    if ws:
+        return ws
+    m = re.search(r"modal_session(\d+)", os.environ.get("MODAL_CONFIG_PATH", ""))
+    if not m:
+        return "local"
+    try:
+        txt = (Path(__file__).resolve().parent.parent
+               / "modal_setup_commands.txt").read_text(encoding="utf-8-sig")
+        name = None
+        for line in txt.splitlines():
+            line = line.strip()
+            if line.startswith("#"):
+                name = line.lstrip("# ").rstrip(":").strip()
+            elif f".modal_session{m.group(1)}.toml" in line and name:
+                return name
+    except Exception:
+        pass
+    return f"session{m.group(1)}"
 
 
 def num_output_logits(cfg: dict) -> int:
@@ -504,15 +592,28 @@ class _Tee:
 class CSVLogger:
     """Append-only CSV, header on first row, flushed per row so a crash keeps the log."""
 
-    def __init__(self, path: Path):
-        self.path = Path(path); self._f = None; self._w = None
+    def __init__(self, path: Path, run_id: str = ""):
+        self.path = Path(path); self.run_id = run_id; self._f = None; self._w = None
 
     def log(self, row: dict):
+        row = {"run_id": self.run_id, **row}       # first column: which run wrote this line
         try:
             if self._f is None:
                 new = (not self.path.exists()) or self.path.stat().st_size == 0
+                fields = list(row.keys())
+                if not new:                        # reuse the file's own header, never mix two
+                    try:
+                        with open(self.path, newline="", encoding="utf-8") as fh:
+                            old = next(csv.reader(fh), [])
+                        if old and old != fields:
+                            print(f"  [warn] {self.path.name} has a different header, "
+                                  f"appending in its column order")
+                            fields = old
+                    except Exception:
+                        pass
                 self._f = open(self.path, "a", newline="", encoding="utf-8")
-                self._w = csv.DictWriter(self._f, fieldnames=list(row.keys()))
+                self._w = csv.DictWriter(self._f, fieldnames=fields, restval="",
+                                         extrasaction="ignore")
                 if new:
                     self._w.writeheader()
             self._w.writerow(row); self._f.flush()
@@ -778,7 +879,8 @@ def evaluate(model, loader, loss_fn, cfg, device) -> dict:
 
 
 def save_debug_batch(x_prep: torch.Tensor, cfg: dict, out_dir: Path,
-                     epoch: int, step: int, y: torch.Tensor | None = None):
+                     epoch: int, step: int, y: torch.Tensor | None = None,
+                     prefix: str = ""):
     """Dump one study from the batch EXACTLY as the model sees it.
 
     x_prep is the normalized tensor fed to the backbone, so we invert the
@@ -816,7 +918,7 @@ def save_debug_batch(x_prep: torch.Tensor, cfg: dict, out_dir: Path,
                     (6, sheet.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX,
                     0.55, (0, 255, 0), 1, cv2.LINE_AA)
 
-    path = out_dir / f"e{epoch}_s{step}.png"
+    path = out_dir / f"{prefix}e{epoch}_s{step}.png"
     cv2.imwrite(str(path), sheet)
     print(f"  \U0001F5BC\uFE0F  debug image -> {path}")
 
@@ -924,18 +1026,23 @@ def run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None, 
     """Public entry: tee the whole console into results/train_config/<timestamp>.txt,
     then train. Streams are restored even if the run crashes, traceback included."""
     out_dir = Path(out_dir)
-    cap_dir = (out_dir / cfg["output"]["run_dir"]
-               / cfg["output"].get("console_capture_dir", "train_config"))
+    res_dir = out_dir / cfg["output"]["run_dir"]
+    exp = cfg.setdefault("experiment", {})
+    # normally allocated on the launching PC and passed in; only a bare local run gets here
+    exp["run_id"] = exp.get("run_id") or allocate_run_id(res_dir)
+    cap_dir = res_dir / cfg["output"].get("console_capture_dir", "train_config")
     cap_dir.mkdir(parents=True, exist_ok=True)
-    cap_path = cap_dir / f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
+    stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    cap_path = cap_dir / f"{exp['run_id']}_{stamp}.txt"
     try:
         sys.stdout.reconfigure(encoding="utf-8"); sys.stderr.reconfigure(encoding="utf-8")
     except Exception:
         pass
     orig_out, orig_err = sys.stdout, sys.stderr
-    log_f = open(cap_path, "w", encoding="utf-8")
+    log_f = open(cap_path, "a", encoding="utf-8")
     sys.stdout, sys.stderr = _Tee(orig_out, log_f), _Tee(orig_err, log_f)
     print(f"[capture] full console of this run -> {cap_path}")
+    print(f"[capture] run_id: {exp['run_id']}  workspace: {workspace_name()}")
     print(f"[capture] command: {' '.join(sys.argv)}")
     print(f"[capture] started {datetime.now():%Y-%m-%d %H:%M:%S}")
     try:
@@ -965,8 +1072,10 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     """Full training run: loaders, loss, optimizer, epoch loop, eval, checkpoints, logs."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     epochs = cfg["training"]["epochs"]
+    run_id = cfg.setdefault("experiment", {}).get("run_id") or ""
     print("#" * 70)
-    print(f"# \U0001F680 run_experiment: {cfg['experiment']['name']}")
+    print(f"# 🚀 run_experiment: {cfg['experiment']['name']}")
+    print(f"# 🆔 run_id={run_id}  workspace={workspace_name()}")
     print(f"# \U0001F5A5\uFE0F  device={device}  epochs={epochs}")
     print("#" * 70)
     set_seed(cfg["reproducibility"]["seed"], cfg["reproducibility"]["deterministic"])
@@ -979,6 +1088,10 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     ckpt_dir = out / cfg["output"]["checkpoints_dir"]
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     print(f"[paths] results -> {out}")
+    # every file this run writes carries its run_id as a prefix, so nothing collides
+    dbg_dir = out / cfg["output"].get("debug_dir", "debugged_images")
+    cap_dir = out / cfg["output"].get("console_capture_dir", "train_config")
+    cap_dir.mkdir(parents=True, exist_ok=True)
 
     loaders = make_loaders(cfg)
     print_data_summary(loaders, cfg, _LAST_PLAN)
@@ -1037,8 +1150,8 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         best = tr.get("best", -math.inf)
         best_epoch = tr.get("best_epoch", 0)
         top_k_track = tr.get("top_k", [])
-    train_log = CSVLogger(out / cfg["output"]["train_log_csv"])
-    val_log = CSVLogger(out / cfg["output"]["val_log_csv"])
+    train_log = CSVLogger(out / cfg["output"]["train_log_csv"], run_id)
+    val_log = CSVLogger(out / cfg["output"]["val_log_csv"], run_id)
     history = []
     t0 = time.time()
     prev_loss = None
@@ -1111,10 +1224,14 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         print(f"  \U0001F4BE saved last.pt (epoch {epoch})"
               + (f"  \U0001F3C6 top-{len(top_k_track)} kept" if top_k_track else ""))
 
-        (out / cfg["output"]["summary_json"]).write_text(json.dumps({
-            "experiment": cfg["experiment"]["name"], "epoch": epoch, "epochs": epochs,
+        summary = json.dumps({
+            "experiment": cfg["experiment"]["name"], "run_id": run_id,
+            "epoch": epoch, "epochs": epochs,
             "best_score": best, "best_epoch": best_epoch, "monitor": es["monitor"],
-            "last": row, "elapsed": fmt(time.time() - t0)}, indent=2))
+            "last": row, "elapsed": fmt(time.time() - t0)}, indent=2)
+        (out / cfg["output"]["summary_json"]).write_text(summary)
+        # a per-run copy too, so the sync can carry it without clobbering the other side
+        (cap_dir / f"{run_id}_summary.json").write_text(summary)
         if persist_fn:
             persist_fn()
         model.train()
@@ -1166,9 +1283,8 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                           f"(rolling, keep_last_n={cfg['output'].get('keep_last_n', 3)})")
                 dbg = cfg["output"].get("save_debug_images", 0)
                 if dbg and (gstep % dbg == 0 or gstep == 1):
-                    save_debug_batch(prepare_batch(x, cfg, device), cfg,
-                                     out / cfg["output"].get("debug_dir", "debugged_images"),
-                                     epoch, gstep, y)
+                    save_debug_batch(prepare_batch(x, cfg, device), cfg, dbg_dir,
+                                     epoch, gstep, y, prefix=f"{run_id}_")
                 if gstep % cfg["output"]["console_log_every"] == 0 or gstep == 1:
                     d = "" if prev_loss is None else f" ({l - prev_loss:+.4f})"
                     print(f"  Epoch {epoch}/{epochs}  epoch_step: {it // accum}/{steps_per_epoch}"
@@ -1239,6 +1355,48 @@ def modal_image():
 def modal_resources(cfg: dict) -> dict:
     return {"gpu": cfg["modal"]["gpu"],
             "timeout": int(cfg["modal"].get("timeout_hours", 8) * 3600)}
+
+
+def _sync_module():
+    """modal_scripts/sync_runs.py — lazy, because it only exists on this PC."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "modal_scripts"))
+    import sync_runs
+    return sync_runs
+
+
+def launch_run_id(cfg: dict, exp_dir) -> str:
+    """Allocate this launch's runNNN, here on the launching PC.
+
+    The volume is consulted too (a `modal volume ls`, no container), so two
+    workspaces can never hand out the same number.
+    """
+    known = set()
+    try:
+        sr = _sync_module()
+        s = sr.session_from_env()
+        if s:
+            known = sr.remote_run_ids(s, cfg["experiment"]["name"])
+    except Exception as e:                     # offline / no credit: local state still works
+        print(f"  ⚠️  couldn't read run ids off the volume "
+              f"({type(e).__name__}: {e}) - numbering from local state only")
+    rid = allocate_run_id(Path(exp_dir) / cfg["output"]["run_dir"], known)
+    print(f"  🆔 allocated {rid} for {cfg['experiment']['name']}"
+          + (f"  (volume already had {len(known)})" if known else ""))
+    return rid
+
+
+def sync_back(cfg: dict, status: str = "") -> None:
+    """Pull this run's artifacts home. Fires on success AND on crash; never raises."""
+    try:
+        sr = _sync_module()
+        s = sr.session_from_env()
+        if s is None:
+            print("  ⚠️  no MODAL_CONFIG_PATH - skipping the artifact sync")
+            return
+        print(f"\n  \U0001F504 syncing artifacts back ({status}) ...")
+        sr.sync_session(s, cfg["experiment"]["name"])
+    except Exception as e:                     # a failed sync must never mask a training error
+        print(f"  ⚠️  artifact sync failed: {type(e).__name__}: {e}")
 
 
 def remote_cfg(cfg: dict) -> dict:

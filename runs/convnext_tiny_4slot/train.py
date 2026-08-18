@@ -89,9 +89,11 @@ try:
                   volumes={cfg["modal"]["shards_mount"]: _shards,
                            cfg["modal"]["runs_mount"]: _runs},
                   secrets=_secrets, **sc.modal_resources(cfg))
-    def train_remote():
+    def train_remote(run_id: str = ""):
         """Runs inside the Modal container on the GPU named in config.yaml."""
         rcfg = sc.remote_cfg(cfg)                  # same config, container paths
+        if run_id:
+            rcfg["experiment"]["run_id"] = run_id  # allocated on the launching PC
         out_dir = Path(cfg["modal"]["runs_mount"]) / cfg["experiment"]["name"]
         sc.set_seed(rcfg["reproducibility"]["seed"], rcfg["reproducibility"]["deterministic"])
         sc.print_config(rcfg)
@@ -113,7 +115,15 @@ try:
 
     @app.local_entrypoint()                        # what `modal run train.py` calls
     def modal_main():
-        train_remote.remote()
+        run_id = sc.launch_run_id(cfg, EXP_DIR)    # sequential, reserved here
+        status = "crashed"
+        try:
+            train_remote.remote(run_id)
+            status = "finished"
+        finally:
+            # the container can't reach this PC, so the pull happens here — and it
+            # has to happen whether training finished or blew up
+            sc.sync_back(cfg, status)
 
 except ImportError:
     pass
