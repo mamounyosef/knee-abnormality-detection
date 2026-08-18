@@ -230,3 +230,5 @@ data/stats/slice_stats.parquet
 medical_terms.md
 CLAUDE.md
 other_md/outline.md
+data/stats/pipeline_status.md
+test.ipynb

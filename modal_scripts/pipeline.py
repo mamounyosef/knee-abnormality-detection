@@ -84,10 +84,13 @@ def _env(session: int) -> dict:
 
 def _modal(session: int, *args, timeout=180):
     try:
+        # modal prints box-drawing/progress characters; the Windows default
+        # cp1252 decode raises inside subprocess's reader thread and leaves
+        # stdout as None, so decode explicitly and never return None
         r = subprocess.run([sys.executable, "-m", "modal", *args],
                            env=_env(session), capture_output=True, text=True,
-                           timeout=timeout)
-        return r.stdout
+                           encoding="utf-8", errors="replace", timeout=timeout)
+        return r.stdout or ""
     except Exception:                            # noqa: BLE001
         return ""
 
@@ -117,9 +120,23 @@ def _to_gib(s: str) -> float:
 # -----------------------------------------------------------------------------
 # status
 # -----------------------------------------------------------------------------
-def status(session: int) -> dict:
+def live_apps(session: int) -> int:
+    """Running modal apps in this workspace.
+
+    The volume tells you what has landed, never whether anything is still
+    running: a detached job can die and leave its partial zip behind, which
+    reads exactly like a download in progress. This is the liveness signal.
+    """
+    apps = _json_or_none(_modal(session, "app", "list", "--json"))
+    if not apps:
+        return 0
+    return sum(1 for a in apps
+               if "stopped" not in str(a.get("State", "")).lower())
+
+
+def status(session: int, check_apps: bool = True) -> dict:
     st = {"session": session, "zip_gib": 0.0, "shards": 0, "shard_gib": 0.0,
-          "state": "no volumes", "reachable": False}
+          "state": "no volumes", "reachable": False, "apps": 0}
 
     vols = _json_or_none(_modal(session, "volume", "list", "--json"))
     if vols is None:
@@ -140,6 +157,12 @@ def status(session: int) -> dict:
         npz = [r for r in rows if str(r.get("Filename", "")).endswith(".npz")]
         st["shards"] = len(npz)
         st["shard_gib"] = sum(_to_gib(r.get("Size", "0")) for r in npz)
+
+    # each app-list call spawns a modal CLI (~1 min), so only ask where the
+    # answer can change a decision: a workspace holding no data that this run
+    # never launched has nothing running by definition
+    if (check_apps or st["zip_gib"] or st["shards"]) and st["shards"] < EXPECTED_STUDIES:
+        st["apps"] = live_apps(session)
 
     if st["shards"] >= EXPECTED_STUDIES:
         st["state"] = "READY"
@@ -229,6 +252,9 @@ def render_md(rows: list[dict], names: dict[int, str]) -> str:
 # -----------------------------------------------------------------------------
 # launching
 # -----------------------------------------------------------------------------
+LAUNCH_LOG = ROOT / "data" / "stats" / "pipeline_launches"
+
+
 def launch(session: int, st: dict) -> str:
     """Start whichever stage this workspace still needs, detached."""
     if st["state"] == "READY":
@@ -237,9 +263,13 @@ def launch(session: int, st: dict) -> str:
               if st["zip_gib"] >= EXPECTED_ZIP_GIB - 1
               else "modal_scripts/modal_download.py")
     stage = "preprocess" if script.endswith("preprocess.py") else "download"
+    # keep the child's output: a launch that dies instantly (no credit, transient
+    # modal error) is otherwise invisible and silently burns a batch slot
+    LAUNCH_LOG.mkdir(parents=True, exist_ok=True)
+    log = open(LAUNCH_LOG / f"session{session}_{stage}.log", "ab")
     subprocess.Popen([sys.executable, "-m", "modal", "run", "--detach", script],
                      env=_env(session), cwd=str(ROOT),
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                     stdout=log, stderr=subprocess.STDOUT)
     return f"launched {stage}"
 
 
@@ -269,6 +299,14 @@ def main():
                     help="sessions that keep their zip as the archive (default: 1)")
     ap.add_argument("--batch", type=int, default=0,
                     help="with --launch-all: only run this many workspaces at a time")
+    ap.add_argument("--skip", type=int, nargs="*", default=[1],
+                    help="sessions never launched (default: 1, out of credit)")
+    ap.add_argument("--stall", type=int, default=1200,
+                    help="seconds without new bytes/shards before a workspace is "
+                         "treated as dead and relaunched (both stages resume)")
+    ap.add_argument("--warmup", type=int, default=900,
+                    help="seconds a just-launched session counts as active before "
+                         "its first bytes land on the volume")
     args = ap.parse_args()
 
     names = workspaces()
@@ -277,26 +315,68 @@ def main():
     pending = []
     if args.launch is not None or args.launch_all:
         pending = sorted(names) if args.launch_all else (args.launch or [])
+    pending = [s for s in pending if s not in args.skip]
+    if args.skip:
+        print(f"skipping sessions {sorted(args.skip)} (not launched)")
+
+    launched_at: dict[int, float] = {}   # session -> monotonic time of launch
+    progress: dict[int, tuple[float, float]] = {}   # session -> (metric, t_moved)
 
     while True:
         rows = []
         for s in sessions:
             print(f"  polling session {s} ...", end="\r", flush=True)
-            rows.append(status(s))
+            rows.append(status(s, check_apps=s in launched_at))
         by_session = {r["session"]: r for r in rows}
 
         # keep `--batch` workspaces in flight at once: Kaggle throttles many
         # simultaneous downloads from one account
         if pending:
-            active = sum(1 for r in rows
-                         if r["state"] in ("downloading", "preprocessing"))
+            now = time.monotonic()
+
+            # bytes/shards on the volume are the only honest liveness signal: a
+            # detached modal job can die without warning and leaves its partial
+            # data behind, so "has data" never means "is running" — only "moved
+            # since the last poll" does.
+            for r in rows:
+                metric = r["shards"] or r["zip_gib"]
+                prev = progress.get(r["session"])
+                if prev is None or metric > prev[0]:
+                    progress[r["session"]] = (metric, now)
+
+            def moving(s: int) -> bool:
+                m, t = progress.get(s, (0.0, now))
+                return m > 0 and now - t < args.stall
+
+            alive = {r["session"] for r in rows if r["apps"] > 0}
+            # a session launched moments ago has no app registered yet — hold
+            # its slot for --warmup seconds so the cap is not overshot
+            warming = {s for s, t in launched_at.items()
+                       if now - t < args.warmup and s not in alive}
+            working = (alive & set(pending)) | warming
+            active = len(working)
+
+            for s in alive & set(pending):
+                if not moving(s):
+                    print(f"[{s}] {names.get(s,'?')}: app alive but no new data "
+                          f"for {args.stall // 60} min")
+
             cap = args.batch or len(pending)
-            while pending and active < cap:
-                s = pending.pop(0)
+            for s in list(pending):
+                if active >= cap:
+                    break
                 st = by_session.get(s) or status(s)
                 if st["state"] == "READY":
+                    pending.remove(s)
                     continue
-                print(f"[{s}] {names.get(s,'?')}: {launch(s, st)}")
+                if s in working:
+                    continue          # genuinely in flight
+                # partial data but no live app: the job died, resume it
+                note = (" (resuming — no live app)"
+                        if st["state"] in ("downloading", "preprocessing") else "")
+                print(f"[{s}] {names.get(s,'?')}: {launch(s, st)}{note}")
+                launched_at[s] = now
+                progress[s] = (st["shards"] or st["zip_gib"], now)
                 active += 1
 
         if args.auto_delete_zip:
