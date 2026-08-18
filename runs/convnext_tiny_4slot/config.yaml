@@ -5,24 +5,25 @@ experiment:
   name: "convnext_tiny_4slot"
 
 model:
-  name: "convnext_tiny.fb_in22k_ft_in1k"
+  name: "convnext_tiny.fb_in22k_ft_in1k"   # timm id: ConvNeXt-Tiny pretrained on ImageNet-22k
   pretrained: true
-  pool: "mean"                      # mean | max | attn
-  drop_rate: 0.1
+  pool: "mean"                      # how the 96 slice features collapse per study: mean | max | attn
+  drop_rate: 0.1                    # dropout in the head, mild regularization
 
 training:
   epochs: 12
   batch_size: 2                     # 2 studies x 4 slots x 24 slices = 192 images @512
   accum_steps: 8                    # effective 16 studies
   optimizer:
-    lr: 1.0e-4
+    lr: 1.0e-4                      # head learning rate; backbone gets 10% of it
 
+# CPU-side loading; decoding shards is the bottleneck, so keep workers busy
 dataloader:
   num_workers: 8
-  prefetch_factor: 4
-  pin_memory: true
-  persistent_workers: true
-  drop_last: true
+  prefetch_factor: 4                # batches queued per worker
+  pin_memory: true                  # page-locked memory, faster CPU -> GPU copies
+  persistent_workers: true          # don't respawn workers every epoch
+  drop_last: true                   # skip the ragged final batch
 
 modal:
-  gpu: "A100-40GB"
+  gpu: "A100-40GB"                  # 192 images of 512px per step needs the big card
