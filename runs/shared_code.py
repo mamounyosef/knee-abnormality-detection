@@ -461,6 +461,7 @@ def make_loaders(cfg: dict):
             num_workers=dl.get("num_workers", 4),
             pin_memory=dl.get("pin_memory", True),
             persistent_workers=dl.get("persistent_workers", True) and dl.get("num_workers", 4) > 0,
+            worker_init_fn=seed_worker,
             prefetch_factor=dl.get("prefetch_factor", 2) if dl.get("num_workers", 4) > 0 else None,
             drop_last=dl.get("drop_last", True) and train)
     # audit = the 58 studies with real panel labels, scored but never used to pick best.pt
@@ -618,6 +619,143 @@ def build_scheduler(opt, cfg: dict, total_steps: int):
 
 
 # =============================================================================
+# checkpoints & resume
+# =============================================================================
+def _rng_state(device) -> dict:
+    st = {"python": random.getstate(), "numpy": np.random.get_state(),
+          "torch": torch.get_rng_state()}
+    if device.type == "cuda":
+        st["cuda"] = torch.cuda.get_rng_state_all()
+    return st
+
+
+def _restore_rng(st: dict, device):
+    try:
+        random.setstate(st["python"]); np.random.set_state(st["numpy"])
+        torch.set_rng_state(st["torch"].cpu() if hasattr(st["torch"], "cpu") else st["torch"])
+        if device.type == "cuda" and "cuda" in st:
+            torch.cuda.set_rng_state_all([t.cpu() for t in st["cuda"]])
+    except Exception as e:                     # a resumed run must not die over RNG
+        print(f"  [warn] could not restore RNG: {type(e).__name__}: {e}")
+
+
+def save_checkpoint(path: Path, cfg, model, opt=None, sched=None, scaler=None,
+                    epoch=0, step=0, score=None, track=None, device=None,
+                    weights_only=False):
+    """Full state by default, so a run can resume exactly where it stopped."""
+    payload = {"model": model.state_dict(), "cfg": cfg, "epoch": epoch,
+               "step": step, "score": score, "track": track}
+    if not weights_only:
+        if opt is not None:
+            payload["optimizer"] = opt.state_dict()
+        if sched is not None:
+            payload["scheduler"] = sched.state_dict()
+        if scaler is not None:
+            payload["scaler"] = scaler.state_dict()
+        if device is not None:
+            payload["rng"] = _rng_state(device)
+    tmp = path.with_suffix(".tmp")
+    torch.save(payload, tmp)
+    tmp.replace(path)                          # atomic: never leave a half-written ckpt
+    return path
+
+
+def _resolve_resume(resume, ckpt_dir: Path) -> Path | None:
+    """null | 'best' | 'last' | <step int> | <path> -> a file to load."""
+    if resume in (None, False, ""):
+        return None
+    if isinstance(resume, str) and resume not in ("best", "last"):
+        pth = Path(resume)
+        if pth.exists():
+            return pth
+    if resume == "best":
+        pth = ckpt_dir / "best.pt"
+        return pth if pth.exists() else None
+    if resume == "last":
+        cands = sorted(ckpt_dir.glob("step*.pt"), key=lambda q: q.stat().st_mtime)
+        pth = ckpt_dir / "last.pt"
+        if pth.exists():
+            return pth
+        return cands[-1] if cands else None
+    if isinstance(resume, int) or str(resume).isdigit():
+        pth = ckpt_dir / f"step{int(resume)}.pt"
+        return pth if pth.exists() else None
+    return None
+
+
+def load_checkpoint(resume, model, ckpt_dir: Path, opt=None, sched=None,
+                    scaler=None, device=None) -> dict:
+    """Restore whatever the checkpoint holds. Returns {} when there is nothing to do."""
+    path = _resolve_resume(resume, ckpt_dir)
+    if path is None:
+        if resume not in (None, False, ""):
+            print(f"  \u26A0\uFE0F  resume={resume!r} requested but no checkpoint found "
+                  f"in {ckpt_dir}")
+        return {}
+    print(f"  \u21A9\uFE0F  resuming from {path}")
+    ck = torch.load(path, map_location="cpu", weights_only=False)
+    model.load_state_dict(ck["model"])
+    for obj, key in ((opt, "optimizer"), (sched, "scheduler"), (scaler, "scaler")):
+        if obj is not None and key in ck and ck[key] is not None:
+            try:
+                obj.load_state_dict(ck[key])
+            except Exception as e:
+                print(f"  [warn] could not restore {key}: {type(e).__name__}: {e}")
+    if device is not None and "rng" in ck:
+        _restore_rng(ck["rng"], device)
+    print(f"  \u21A9\uFE0F  resumed at epoch {ck.get('epoch')}, step {ck.get('step')}, "
+          f"score={ck.get('score')}")
+    return ck
+
+
+def prune_checkpoints(ckpt_dir: Path, keep_last_n: int, keep_names=()):
+    """Rolling window over the periodic step checkpoints."""
+    if keep_last_n <= 0:
+        return
+    files = sorted(ckpt_dir.glob("step*.pt"), key=lambda q: q.stat().st_mtime)
+    for f in files[:-keep_last_n]:
+        if f.name not in keep_names:
+            try:
+                f.unlink()
+            except OSError:
+                pass
+
+
+def update_top_k(ckpt_dir: Path, cfg, model, epoch: int, step: int, score: float,
+                 track: list, k: int, weights_only: bool = True) -> list:
+    """Keep the K best validations of the whole run, not just the single best.
+
+    best.pt is overwritten every improvement, so every runner-up is otherwise
+    lost -- and those are exactly what ensembling wants.
+    """
+    if k <= 0 or score != score:                # k=0 disables; NaN never ranks
+        return track
+    track = list(track or [])
+    track.append({"step": step, "epoch": epoch, "score": float(score),
+                  "file": f"top_step{step}.pt"})
+    track.sort(key=lambda r: -r["score"])
+    keep, drop = track[:k], track[k:]
+    if any(r["step"] == step for r in keep):
+        save_checkpoint(ckpt_dir / f"top_step{step}.pt", cfg, model, epoch=epoch,
+                        step=step, score=score, weights_only=weights_only)
+    for r in drop:
+        f = ckpt_dir / r["file"]
+        if f.exists():
+            try:
+                f.unlink()
+            except OSError:
+                pass
+    (ckpt_dir / "top_k.json").write_text(json.dumps(keep, indent=2))
+    return keep
+
+
+def seed_worker(worker_id: int):
+    """Give every dataloader worker its own reproducible stream."""
+    seed = torch.initial_seed() % 2**32
+    np.random.seed(seed); random.seed(seed)
+
+
+# =============================================================================
 # eval / train
 # =============================================================================
 @torch.no_grad()                                   # no gradients: eval only, saves memory
@@ -637,6 +775,50 @@ def evaluate(model, loader, loss_fn, cfg, device) -> dict:
     m["loss"] = float(np.mean(losses))
     m["n"] = int(np.concatenate(Y).shape[0])
     return m
+
+
+def save_debug_batch(x_prep: torch.Tensor, cfg: dict, out_dir: Path,
+                     epoch: int, step: int, y: torch.Tensor | None = None):
+    """Dump one study from the batch EXACTLY as the model sees it.
+
+    x_prep is the normalized tensor fed to the backbone, so we invert the
+    ImageNet normalization to make it viewable. Anything wrong with windowing,
+    augmentation, the mm/px rescale or the crop shows up here immediately.
+    """
+    if cv2 is None:
+        return
+    slots, d = len(cfg["input"]["slots"]), cfg["input"]["n_slices"]
+    per = slots * d
+    if x_prep.shape[0] < per:
+        return
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    mean = torch.tensor(cfg["input"]["norm_mean"][:x_prep.shape[1]]).view(1, -1, 1, 1)
+    std = torch.tensor(cfg["input"]["norm_std"][:x_prep.shape[1]]).view(1, -1, 1, 1)
+    v = x_prep[:per].detach().float().cpu() * std + mean       # undo normalization
+    v = (v.clamp(0, 1) * 255).to(torch.uint8)[:, 0].numpy()    # first channel is enough
+
+    cols = min(8, d)
+    picks = np.linspace(0, d - 1, cols).astype(int)
+    h, w = v.shape[1:]
+    sheet = np.zeros((slots * h, cols * w), np.uint8)
+    for r in range(slots):
+        for c, sl in enumerate(picks):
+            sheet[r * h:(r + 1) * h, c * w:(c + 1) * w] = v[r * d + sl]
+
+    sheet = cv2.cvtColor(sheet, cv2.COLOR_GRAY2BGR)
+    for r, name in enumerate(cfg["input"]["slots"]):
+        cv2.putText(sheet, name, (6, r * h + 22), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6, (0, 255, 255), 1, cv2.LINE_AA)
+    if y is not None:
+        pos = [t for t, p_ in zip(cfg["tasks"], y[0].tolist()) if p_ > 0.5]
+        cv2.putText(sheet, "labels>0.5: " + (", ".join(pos) or "none"),
+                    (6, sheet.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.55, (0, 255, 0), 1, cv2.LINE_AA)
+
+    path = out_dir / f"e{epoch}_s{step}.png"
+    cv2.imwrite(str(path), sheet)
+    print(f"  \U0001F5BC\uFE0F  debug image -> {path}")
 
 
 def print_environment(cfg: dict):
@@ -826,6 +1008,16 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     steps_per_epoch = max(1, len(loaders["train"]) // accum)
     total = steps_per_epoch * epochs
     sched = build_scheduler(opt, cfg, total)
+    perf = cfg["training"].get("perf", {})
+    if device.type == "cuda" and perf.get("tf32", True):
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+    if perf.get("compile", False):
+        try:
+            model = torch.compile(model, mode=perf.get("compile_mode", "default"))
+            print(f"  \u26A1 torch.compile enabled (mode={perf.get('compile_mode', 'default')})")
+        except Exception as e:
+            print(f"  [warn] torch.compile failed: {type(e).__name__}: {e}")
     scaler = torch.amp.GradScaler("cuda", enabled=cfg["training"]["amp"] and device.type == "cuda")
     imgs_per_batch = (cfg["training"]["batch_size"] * len(cfg["input"]["slots"])
                       * cfg["input"]["n_slices"])
@@ -836,13 +1028,100 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
 
     es = cfg["training"]["early_stopping"]
     best, best_epoch, bad, gstep = -math.inf, 0, 0, 0
+    start_epoch, top_k_track = 1, []
+    ck = load_checkpoint(cfg.get("resume"), model, ckpt_dir, opt, sched, scaler, device)
+    if ck:
+        gstep = int(ck.get("step") or 0)
+        start_epoch = int(ck.get("epoch") or 0) + 1
+        tr = ck.get("track") or {}
+        best = tr.get("best", -math.inf)
+        best_epoch = tr.get("best_epoch", 0)
+        top_k_track = tr.get("top_k", [])
     train_log = CSVLogger(out / cfg["output"]["train_log_csv"])
     val_log = CSVLogger(out / cfg["output"]["val_log_csv"])
     history = []
     t0 = time.time()
     prev_loss = None
 
-    for epoch in range(1, epochs + 1):
+    last_val_step = -1
+
+    def _validate_and_checkpoint(epoch: int, gstep: int, tag: str = "epoch"):
+        """Score val (and audit), log, checkpoint, update early stopping."""
+        nonlocal best, best_epoch, bad, top_k_track, last_val_step
+        if gstep == last_val_step:            # a step-trigger already covered this step
+            return None
+        last_val_step = gstep
+        el = time.time() - t0
+        eta = el * (total / max(gstep, 1) - 1)
+        print("=" * 70)
+        print(f"\U0001F50E VALIDATION ({tag}) - epoch {epoch}/{epochs}  step {gstep}  "
+              f"({len(loaders['val'])} batches, {len(loaders['val'].dataset)} studies) ...")
+        vm = evaluate(model, loaders["val"], loss_fn, cfg, device)
+        _print_eval("VAL", epoch, epochs, gstep, vm, el, eta, cfg["tasks"])
+
+        row = {"epoch": epoch, "step": gstep, "trigger": tag,
+               "val_loss": round(vm["loss"], 6),
+               "val_macro_auroc": round(vm["macro_auroc"], 6),
+               "val_macro_auprc": round(vm["macro_auprc"], 6),
+               "val_f1": round(vm["f1"], 4), "val_precision": round(vm["precision"], 4),
+               "val_recall": round(vm["recall"], 4),
+               "val_specificity": round(vm["specificity"], 4)}
+        for t in cfg["tasks"]:
+            row[f"val_auroc_{t}"] = round(vm["per_task"][t]["auroc"], 6)
+            row[f"val_auprc_{t}"] = round(vm["per_task"][t]["auprc"], 6)
+
+        if "audit" in loaders:
+            am = evaluate(model, loaders["audit"], loss_fn, cfg, device)
+            _print_eval("AUDIT-58", epoch, epochs, gstep, am, el, eta, cfg["tasks"],
+                        "\U0001F9EA")
+            print("     \u2139\uFE0F  report only - the panel's labels, never drives best.pt")
+            row["audit_macro_auroc"] = round(am["macro_auroc"], 6)
+            for t in cfg["tasks"]:
+                row[f"audit_auroc_{t}"] = round(am["per_task"][t]["auroc"], 6)
+
+        row["elapsed_s"] = round(el, 1)
+        val_log.log(row)
+        history.append(row)
+        if log_fn:
+            log_fn({f"val/{k}": v for k, v in row.items() if isinstance(v, (int, float))},
+                   gstep)
+
+        score = row.get(es["monitor"], vm["macro_auroc"])
+        improved = score > best if es["mode"] == "max" else score < best
+        if improved:
+            prev = best
+            best, best_epoch, bad = score, epoch, 0
+            save_checkpoint(ckpt_dir / cfg["output"]["best_name"], cfg, model, opt, sched,
+                            scaler, epoch, gstep, score,
+                            track={"best": best, "best_epoch": best_epoch,
+                                   "top_k": top_k_track}, device=device)
+            delta = "" if prev == -math.inf else f"  (was {prev:.4f}, +{score - prev:.4f})"
+            print(f"  \u2B50 new best {es['monitor']} = {score:.4f}{delta} -> best.pt")
+        else:
+            bad += 1
+            print(f"  \u23F3 no improvement ({bad}/{es['patience']})  "
+                  f"best {best:.4f} @ epoch {best_epoch}")
+
+        save_checkpoint(ckpt_dir / "last.pt", cfg, model, opt, sched, scaler, epoch, gstep,
+                        score, track={"best": best, "best_epoch": best_epoch,
+                                      "top_k": top_k_track}, device=device)
+        top_k_track = update_top_k(ckpt_dir, cfg, model, epoch, gstep, score, top_k_track,
+                                   cfg["output"].get("keep_top_k", 0),
+                                   cfg["output"].get("top_k_weights_only", True))
+        print(f"  \U0001F4BE saved last.pt (epoch {epoch})"
+              + (f"  \U0001F3C6 top-{len(top_k_track)} kept" if top_k_track else ""))
+
+        (out / cfg["output"]["summary_json"]).write_text(json.dumps({
+            "experiment": cfg["experiment"]["name"], "epoch": epoch, "epochs": epochs,
+            "best_score": best, "best_epoch": best_epoch, "monitor": es["monitor"],
+            "last": row, "elapsed": fmt(time.time() - t0)}, indent=2))
+        if persist_fn:
+            persist_fn()
+        model.train()
+        return score
+
+
+    for epoch in range(start_epoch, epochs + 1):
         print("\n" + "=" * 70)
         print(f"\U0001F4DA EPOCH {epoch}/{epochs}")
         print("=" * 70)
@@ -873,6 +1152,23 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                                "global_step": gstep, "loss": round(l, 6), "lr": lr,
                                "gnorm": round(gnorm, 4), "img_s": round(ips, 1),
                                "gpu_mem_gb": round(mem, 2), "elapsed_s": round(el, 1)})
+                ev = cfg["evaluation"].get("eval_every_steps", 0)
+                if ev and gstep % ev == 0:
+                    _validate_and_checkpoint(epoch, gstep, f"every {ev} steps")
+                every = cfg["output"].get("checkpoint_every_steps", 0)
+                if every and gstep % every == 0:
+                    save_checkpoint(ckpt_dir / f"step{gstep}.pt", cfg, model, opt, sched,
+                                    scaler, epoch, gstep,
+                                    track={"best": best, "best_epoch": best_epoch,
+                                           "top_k": top_k_track}, device=device)
+                    prune_checkpoints(ckpt_dir, cfg["output"].get("keep_last_n", 3))
+                    print(f"  \U0001F4BE periodic checkpoint @ step {gstep} "
+                          f"(rolling, keep_last_n={cfg['output'].get('keep_last_n', 3)})")
+                dbg = cfg["output"].get("save_debug_images", 0)
+                if dbg and (gstep % dbg == 0 or gstep == 1):
+                    save_debug_batch(prepare_batch(x, cfg, device), cfg,
+                                     out / cfg["output"].get("debug_dir", "debugged_images"),
+                                     epoch, gstep, y)
                 if gstep % cfg["output"]["console_log_every"] == 0 or gstep == 1:
                     d = "" if prev_loss is None else f" ({l - prev_loss:+.4f})"
                     print(f"  Epoch {epoch}/{epochs}  epoch_step: {it // accum}/{steps_per_epoch}"
@@ -883,62 +1179,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                     if log_fn:
                         log_fn({"train/loss": l, "train/lr": lr, "train/gnorm": gnorm}, gstep)
 
-        el = time.time() - t0
-        eta = el * (total / max(gstep, 1) - 1)
-        print("=" * 70)
-        print(f"\U0001F50E VALIDATION - epoch {epoch}/{epochs}  step {gstep}  "
-              f"({len(loaders['val'])} batches, {len(loaders['val'].dataset)} studies) ...")
-        vm = evaluate(model, loaders["val"], loss_fn, cfg, device)
-        _print_eval("VAL", epoch, epochs, gstep, vm, el, eta, cfg["tasks"])
-
-        row = {"epoch": epoch, "step": gstep, "val_loss": round(vm["loss"], 6),
-               "val_macro_auroc": round(vm["macro_auroc"], 6),
-               "val_macro_auprc": round(vm["macro_auprc"], 6),
-               "val_f1": round(vm["f1"], 4), "val_precision": round(vm["precision"], 4),
-               "val_recall": round(vm["recall"], 4),
-               "val_specificity": round(vm["specificity"], 4)}
-        for t in cfg["tasks"]:
-            row[f"val_auroc_{t}"] = round(vm["per_task"][t]["auroc"], 6)
-            row[f"val_auprc_{t}"] = round(vm["per_task"][t]["auprc"], 6)
-
-        if "audit" in loaders:
-            am = evaluate(model, loaders["audit"], loss_fn, cfg, device)
-            _print_eval("AUDIT-58", epoch, epochs, gstep, am, el, eta, cfg["tasks"],
-                        "\U0001F9EA")
-            print("     \u2139\uFE0F  report only - the panel's own labels, never drives best.pt")
-            row["audit_macro_auroc"] = round(am["macro_auroc"], 6)
-            for t in cfg["tasks"]:
-                row[f"audit_auroc_{t}"] = round(am["per_task"][t]["auroc"], 6)
-
-        row["elapsed_s"] = round(el, 1)
-        val_log.log(row)
-        history.append(row)
-        if log_fn:
-            log_fn({f"val/{k}": v for k, v in row.items() if isinstance(v, (int, float))}, gstep)
-
-        score = row.get(es["monitor"], vm["macro_auroc"])
-        improved = score > best if es["mode"] == "max" else score < best
-        if improved:
-            prev = best
-            best, best_epoch, bad = score, epoch, 0
-            torch.save({"model": model.state_dict(), "cfg": cfg, "epoch": epoch,
-                        "step": gstep, "score": score}, ckpt_dir / cfg["output"]["best_name"])
-            delta = "" if prev == -math.inf else f"  (was {prev:.4f}, +{score - prev:.4f})"
-            print(f"  \u2B50 new best {es['monitor']} = {score:.4f}{delta} -> best.pt")
-        else:
-            bad += 1
-            print(f"  \u23F3 no improvement ({bad}/{es['patience']})  "
-                  f"best {best:.4f} @ epoch {best_epoch}")
-        torch.save({"model": model.state_dict(), "cfg": cfg, "epoch": epoch, "step": gstep},
-                   ckpt_dir / "last.pt")
-        print(f"  \U0001F4BE saved last.pt (epoch {epoch})")
-
-        (out / cfg["output"]["summary_json"]).write_text(json.dumps({
-            "experiment": cfg["experiment"]["name"], "epoch": epoch, "epochs": epochs,
-            "best_score": best, "best_epoch": best_epoch, "monitor": es["monitor"],
-            "last": row, "elapsed": fmt(time.time() - t0)}, indent=2))
-        if persist_fn:
-            persist_fn()
+        _validate_and_checkpoint(epoch, gstep, "epoch")
 
         if es["enable"] and bad >= es["patience"]:
             print(f"\n\U0001F6D1 early stop: no improvement for {bad} epochs")
