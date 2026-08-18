@@ -1,0 +1,127 @@
+# shared_config.yaml — settings common to every knee experiment.
+# Each run's config.yaml is deep-merged on top of this (the run wins).
+
+paths:
+  data_dir:     "d:/My Projects/knee_abnormality_detection/data"
+  shards_dir:   "d:/My Projects/knee_abnormality_detection/data/shards"
+  train_csv:    "05_train.csv"          # 3,639 studies, soft LLM labels
+  val_csv:      "05_val.csv"            # 704 studies, soft LLM labels
+  audit_csv:    "05_audit58.csv"        # 58 studies, the panel's 0/1 labels
+  series_index: "07_series_index.csv"
+
+# order fixes every label tensor, metric vector and submission column
+tasks:
+  - ACL
+  - MCL
+  - Medial Meniscus
+  - Lateral Meniscus
+  - Medial OA
+  - Lateral OA
+  - PF OA
+  - Effusion
+  - Synovitis
+  - Baker's
+  - Contusion
+  - Fracture
+
+input:
+  slots: ["sag_plain", "sag_fluid", "cor_fluid", "ax_fluid"]
+  fallback_same_plane: true         # covers the 12.6% missing a slot
+  duplicate_rule: "coverage"        # coverage | resolution | slices | series_number | random
+
+  n_slices: 24                      # real slices, never interpolated
+  slice_margin: 0.05                # skip the outer 5% of the stack (edge slices are empty)
+  slice_sampling: "even"            # even | random
+  train_slice_sampling: "random"    # doubles as augmentation
+
+  mm_per_px: 0.40                   # null = skip physical resampling
+  size: 512                         # 0.40 x 512 = 205 mm, full anatomy in frame
+  interpolation: "area"
+
+  # shards were stored with a wide 0.1-99.9 window, which leaves tissue in the bottom
+  # ~15% of the range (p50=9/255). Re-window at run time to use the full range.
+  window: "volume"                  # shard | volume | slice
+  window_pct: [1.0, 99.0]
+  channels: 3
+  norm_mean: [0.485, 0.456, 0.406]
+  norm_std:  [0.229, 0.224, 0.225]
+
+# train split only
+augmentation:
+  enable: true
+  rotation:   {p: 0.3, deg: 10}
+  translate:  {p: 0.3, frac: 0.05}
+  scale:      {p: 0.3, range: [0.90, 1.10]}
+  brightness: {p: 0.3, factor: 0.15}
+  contrast:   {p: 0.3, factor: 0.15}
+  hflip:      {p: 0.0}              # would swap medial <-> lateral
+  slice_dropout: {p: 0.1, frac: 0.1}
+
+target:
+  mode: "soft"                      # soft | hard
+  hard_threshold: 0.5
+  label_smoothing: 0.0              # hard mode only
+
+# epochs, batch_size, accum_steps and optimizer.lr are per-run
+training:
+  amp: true
+  channels_last: true
+  grad_clip: 1.0
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    backbone_lr_mult: 0.1
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05
+    min_lr_mult: 0.01
+  loss:
+    name: "bce"                     # bce | focal
+    pos_weight: null                # null | "auto"
+    focal_gamma: 2.0
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 4
+
+evaluation:
+  eval_every_epochs: 1
+  eval_every_steps: 0               # 0 = epoch-end only
+  audit:
+    enable: true                    # report-only, never drives best.pt (58 studies, +/-0.05)
+    csv: "05_audit58.csv"
+
+reproducibility:
+  seed: 42
+  deterministic: false
+
+# dataloader settings are per-run: num_workers, prefetch_factor, pin_memory,
+# persistent_workers, drop_last
+
+# modal.gpu is per-run
+modal:
+  timeout_hours: 8
+  shards_volume: "knee-shards"
+  shards_mount: "/shards"
+  runs_volume: "knee-runs"
+  runs_mount: "/runs"
+  wandb_secret: "wandb-secret"
+
+wandb:
+  enabled: false
+  project: "knee-abnormality"
+  log_every: 20
+
+output:
+  run_dir: "results"
+  checkpoints_dir: "checkpoints"
+  best_name: "best.pt"
+  train_log_csv: "train_log.csv"
+  val_log_csv: "val_log.csv"
+  summary_json: "training_summary.json"
+  console_log_every: 20
+  keep_last_n: 3
+  save_debug_images: 0
+
+resume: null                        # null | "best" | "last" | <step> | <path>

@@ -1,0 +1,28 @@
+# Baseline: ConvNeXt-Tiny, 2D per slice, mean-pooled over slices and slots.
+# Only what differs from shared_config.yaml.
+
+experiment:
+  name: "convnext_tiny_4slot"
+
+model:
+  name: "convnext_tiny.fb_in22k_ft_in1k"
+  pretrained: true
+  pool: "mean"                      # mean | max | attn
+  drop_rate: 0.1
+
+training:
+  epochs: 12
+  batch_size: 2                     # 2 studies x 4 slots x 24 slices = 192 images @512
+  accum_steps: 8                    # effective 16 studies
+  optimizer:
+    lr: 1.0e-4
+
+dataloader:
+  num_workers: 8
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: true
+
+modal:
+  gpu: "A100-40GB"
