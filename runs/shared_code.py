@@ -38,6 +38,61 @@ try:
 except ImportError:
     cv2 = None
 
+# box-drawing glyphs need utf-8; Windows consoles default to cp1252
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+
+# =============================================================================
+# pretty printing
+# =============================================================================
+W = 78
+
+
+def _rule(ch: str = "\u2500"):
+    print(ch * W)
+
+
+def _banner(title: str, emoji: str = ""):
+    """Big section header."""
+    print()
+    print("\u2554" + "\u2550" * (W - 2) + "\u2557")
+    label = f" {emoji} {title} ".ljust(W - 2)
+    print("\u2551" + label + "\u2551")
+    print("\u255A" + "\u2550" * (W - 2) + "\u255D")
+
+
+def _kv(title: str, pairs, emoji: str = ""):
+    """Boxed key/value block. `pairs` may contain (k, v) or None for a separator."""
+    head = f" {emoji} {title} ".rstrip()
+    print("\u250C\u2500" + head + "\u2500" * max(0, W - len(head) - 3) + "\u2510")
+    for row in pairs:
+        if row is None:
+            print("\u251C" + "\u2500" * (W - 2) + "\u2524")
+            continue
+        k, v = row
+        text = f" {k:<22}\u2502 {v}"
+        if len(text) > W - 2:
+            text = text[:W - 5] + "..."
+        print("\u2502" + text.ljust(W - 2) + "\u2502")
+    print("\u2514" + "\u2500" * (W - 2) + "\u2518")
+
+
+def _table(title: str, headers, rows, emoji: str = ""):
+    """Boxed table. Title sits above the box so it never overflows the border."""
+    cols = [[str(h)] + [str(r[i]) for r in rows] for i, h in enumerate(headers)]
+    wid = [max(len(c) for c in col) for col in cols]
+    print(f"  {emoji} {title}".rstrip())
+    print("┌" + "┬".join("─" * (w + 2) for w in wid) + "┐")
+    print("│ " + " │ ".join(str(h).ljust(w) for h, w in zip(headers, wid)) + " │")
+    print("├" + "┼".join("─" * (w + 2) for w in wid) + "┤")
+    for r in rows:
+        print("│ " + " │ ".join(str(c).ljust(w) for c, w in zip(r, wid)) + " │")
+    print("└" + "┴".join("─" * (w + 2) for w in wid) + "┘")
+
 
 # =============================================================================
 # config
@@ -63,83 +118,112 @@ def load_config(experiment_dir, config_name: str = "config.yaml", verbose: bool 
 
 
 def print_config(cfg: dict):
-    """Full, verbatim record of what this run is doing — structured, then raw YAML."""
-    i, t, o, m = cfg["input"], cfg["training"], cfg["output"], cfg.get("modal", {})
-    dl, aug = cfg.get("dataloader", {}), cfg["augmentation"]
-    line = "=" * 70
-    print(line); print("CONFIGURATION"); print(line)
-    print(f"  experiment        : {cfg['experiment']['name']}")
-    print(f"  model             : {cfg.get('model', {}).get('name', '?')}  "
-          f"(pretrained={cfg.get('model', {}).get('pretrained')})")
-    print(f"  resume            : {cfg.get('resume')}")
-    print(f"  tasks ({len(cfg['tasks'])})         : {cfg['tasks']}")
-    print("  --- paths " + "-" * 56)
-    print(f"  data_dir          : {cfg['paths']['data_dir']}")
-    print(f"  shards_dir        : {cfg['paths']['shards_dir']}")
-    print(f"  train / val csv   : {cfg['paths']['train_csv']}  |  {cfg['paths']['val_csv']}")
-    print(f"  audit csv         : {cfg['paths']['audit_csv']}")
-    print("  --- input " + "-" * 56)
-    print(f"  slots ({len(i['slots'])})          : {i['slots']}")
-    print(f"  fallback/dup rule : same_plane={i['fallback_same_plane']}  "
-          f"duplicate={i['duplicate_rule']}")
-    print(f"  slices            : n={i['n_slices']}  margin={i.get('slice_margin', 0)}  "
-          f"train={i['train_slice_sampling']}  eval={i['slice_sampling']}")
-    print(f"  geometry          : {i['size']}x{i['size']} px @ {i['mm_per_px']} mm/px "
-          f"= {i['size'] * (i['mm_per_px'] or 0):.0f} mm field  interp={i['interpolation']}")
-    print(f"  intensity         : window={i['window']} pct={i['window_pct']}  "
-          f"channels={i['channels']}")
-    print(f"  normalize         : mean={i['norm_mean']}  std={i['norm_std']}")
-    print(f"  images per study  : {len(i['slots'])} slots x {i['n_slices']} slices = "
-          f"{len(i['slots']) * i['n_slices']}")
-    print(f"  augmentation      : {'ENABLED (train only)' if aug['enable'] else 'DISABLED'}")
+    """Everything this run is doing, as boxed tables, then the raw merged YAML."""
+    i, t, o = cfg["input"], cfg["training"], cfg["output"]
+    m, dl, aug = cfg.get("modal", {}), cfg.get("dataloader", {}), cfg["augmentation"]
+    mo = cfg.get("model", {})
+    n_img = len(i["slots"]) * i["n_slices"]
+    field = i["size"] * (i["mm_per_px"] or 0)
+
+    _banner("CONFIGURATION", "\u2699\uFE0F")
+
+    _kv("run", [
+        ("experiment", cfg["experiment"]["name"]),
+        ("model", f"{mo.get('name', '?')}  (pretrained={mo.get('pretrained')})"),
+        ("pooling", mo.get("pool")),
+        ("findings", f"{len(cfg['tasks'])}  {', '.join(cfg['tasks'][:4])} ..."),
+        ("resume", cfg.get("resume")),
+        ("seed", f"{cfg['reproducibility']['seed']}  "
+                 f"deterministic={cfg['reproducibility']['deterministic']}"),
+    ], "\U0001F3AF")
+
+    _kv("paths", [
+        ("data_dir", cfg["paths"]["data_dir"]),
+        ("shards_dir", cfg["paths"]["shards_dir"]),
+        ("train csv", cfg["paths"]["train_csv"]),
+        ("val csv", cfg["paths"]["val_csv"]),
+        ("audit csv", cfg["paths"]["audit_csv"]),
+    ], "\U0001F4C1")
+
+    _table("input slots", ["#", "slot", "plane", "setting"],
+           [[n + 1, sl, PLANE_OF.get(sl, "?"),
+             "fluid (bright water)" if sl.endswith("fluid") else "plain (anatomy)"]
+            for n, sl in enumerate(i["slots"])], "\U0001F5BC\uFE0F")
+
+    _kv("geometry & intensity", [
+        ("images per study", f"{len(i['slots'])} slots x {i['n_slices']} slices = {n_img}"),
+        ("resolution", f"{i['size']} x {i['size']} px @ {i['mm_per_px']} mm/px "
+                       f"= {field:.0f} mm field"),
+        ("slice sampling", f"train={i['train_slice_sampling']}  eval={i['slice_sampling']}  "
+                           f"margin={i.get('slice_margin', 0)}"),
+        ("missing slots", f"fallback_same_plane={i['fallback_same_plane']}"),
+        ("duplicate rule", i["duplicate_rule"]),
+        None,
+        ("window", f"{i['window']}  pct={i['window_pct']}"),
+        ("channels", i["channels"]),
+        ("norm mean/std", f"{i['norm_mean']} / {i['norm_std']}"),
+    ], "\U0001F4D0")
+
     if aug["enable"]:
-        for k in ("rotation", "translate", "scale", "brightness", "contrast",
-                  "hflip", "slice_dropout"):
-            if k in aug:
-                print(f"      {k:14s}: {aug[k]}")
-    print("  --- target " + "-" * 55)
-    print(f"  mode              : {cfg['target']['mode']}  "
-          f"threshold={cfg['target']['hard_threshold']}  "
-          f"smoothing={cfg['target']['label_smoothing']}")
-    print("  --- dataloader " + "-" * 51)
-    print(f"  batch_size        : {t.get('batch_size')}  accum_steps={t.get('accum_steps', 1)}  "
-          f"-> effective {t.get('batch_size', 0) * t.get('accum_steps', 1)} studies")
-    print(f"  num_workers       : {dl.get('num_workers')}  pin_memory={dl.get('pin_memory')}  "
-          f"drop_last={dl.get('drop_last')}")
-    print(f"  prefetch_factor   : {dl.get('prefetch_factor')}  "
-          f"persistent={dl.get('persistent_workers')}")
-    print("  --- training " + "-" * 53)
-    print(f"  epochs            : {t.get('epochs')}")
-    print(f"  optimizer         : {t['optimizer']['name']}  lr={t['optimizer'].get('lr'):.4e}  "
-          f"wd={t['optimizer'].get('weight_decay')}  "
-          f"backbone_mult={t['optimizer'].get('backbone_lr_mult')}")
-    print(f"  scheduler         : {t['scheduler']['name']}  "
-          f"warmup_frac={t['scheduler']['warmup_frac']}  "
-          f"min_lr_mult={t['scheduler']['min_lr_mult']}")
-    print(f"  loss              : {t['loss']['name']}  pos_weight={t['loss']['pos_weight']}")
-    print(f"  amp               : {t['amp']}  grad_clip={t['grad_clip']}  "
-          f"channels_last={t['channels_last']}")
-    es = t["early_stopping"]
-    print(f"  early_stopping    : enable={es['enable']}  monitor={es['monitor']}  "
-          f"mode={es['mode']}  patience={es['patience']}")
-    print("  --- evaluation / repro / output " + "-" * 34)
-    print(f"  eval cadence      : every_epochs={cfg['evaluation']['eval_every_epochs']}  "
-          f"every_steps={cfg['evaluation']['eval_every_steps']}")
-    print(f"  audit set         : enable={cfg['evaluation']['audit']['enable']}  "
-          f"(report only, never drives best.pt)")
-    print(f"  seed              : {cfg['reproducibility']['seed']}  "
-          f"deterministic={cfg['reproducibility']['deterministic']}")
-    print(f"  run_dir           : {o['run_dir']}  (logs: {o['train_log_csv']}, {o['val_log_csv']})")
-    print(f"  checkpoints       : {o['checkpoints_dir']}/  best={o['best_name']}  "
-          f"keep_last_n={o['keep_last_n']}")
-    print(f"  console_log_every : {o['console_log_every']}  "
-          f"capture_dir={o.get('console_capture_dir')}")
+        rows = [[k, v.get("p", "-"),
+                 ", ".join(f"{kk}={vv}" for kk, vv in v.items() if kk != "p") or "-"]
+                for k, v in aug.items() if isinstance(v, dict)]
+        _table("augmentation (train split only)", ["transform", "p", "params"], rows,
+               "\U0001F3B2")
+    else:
+        _kv("augmentation", [("enabled", False)], "\U0001F3B2")
+
+    eff = t.get("batch_size", 0) * t.get("accum_steps", 1)
+    _kv("training", [
+        ("epochs", t.get("epochs")),
+        ("batch", f"{t.get('batch_size')} studies x accum {t.get('accum_steps', 1)} "
+                  f"= {eff} studies ({eff * n_img} images) per update"),
+        ("optimizer", f"{t['optimizer']['name']}  lr={t['optimizer'].get('lr'):.2e}  "
+                      f"wd={t['optimizer'].get('weight_decay')}  "
+                      f"backbone x{t['optimizer'].get('backbone_lr_mult')}"),
+        ("scheduler", f"{t['scheduler']['name']}  warmup={t['scheduler']['warmup_frac']:.0%}  "
+                      f"floor={t['scheduler']['min_lr_mult']:.0%} of base"),
+        ("loss", f"{t['loss']['name']}  pos_weight={t['loss']['pos_weight']}"),
+        ("target", f"{cfg['target']['mode']}  (LLM probabilities, 0.895 macro AUROC vs the 58)"),
+        ("precision", f"amp={t['amp']}  channels_last={t['channels_last']}  "
+                      f"grad_clip={t['grad_clip']}"),
+        ("early stopping", f"{t['early_stopping']['monitor']} "
+                           f"({t['early_stopping']['mode']}), "
+                           f"patience={t['early_stopping']['patience']}"),
+    ], "\U0001F3CB\uFE0F")
+
+    _kv("dataloader", [
+        ("num_workers", dl.get("num_workers")),
+        ("prefetch/persist", f"{dl.get('prefetch_factor')} / {dl.get('persistent_workers')}"),
+        ("pin_memory", dl.get("pin_memory")),
+        ("drop_last", dl.get("drop_last")),
+    ], "\U0001F69A")
+
+    _kv("evaluation & output", [
+        ("eval cadence", f"every {cfg['evaluation']['eval_every_epochs']} epoch(s), "
+                         f"every_steps={cfg['evaluation']['eval_every_steps']}"),
+        ("audit set", f"enable={cfg['evaluation']['audit']['enable']}  "
+                      f"(58 studies, report only)"),
+        ("run_dir", o["run_dir"]),
+        ("checkpoints", f"{o['checkpoints_dir']}/  best={o['best_name']}  "
+                        f"keep_last_n={o['keep_last_n']}"),
+        ("logs", f"{o['train_log_csv']}, {o['val_log_csv']}, {o['summary_json']}"),
+        ("console", f"log_every={o['console_log_every']}  "
+                    f"capture={o.get('console_capture_dir')}"),
+    ], "\U0001F4CB")
+
     if m:
-        print(f"  modal (cloud)     : gpu={m.get('gpu')}  timeout={m.get('timeout_hours')}h  "
-              f"shards={m.get('shards_volume')}  runs={m.get('runs_volume')}")
-    print("  --- raw merged config (verbatim) " + "-" * 33)
+        _kv("modal (cloud)", [
+            ("gpu", m.get("gpu")),
+            ("timeout", f"{m.get('timeout_hours')} h"),
+            ("shards volume", f"{m.get('shards_volume')} -> {m.get('shards_mount')}"),
+            ("runs volume", f"{m.get('runs_volume')} -> {m.get('runs_mount')}"),
+        ], "\u2601\uFE0F")
+
+    print()
+    print("\u2500\u2500 raw merged config (verbatim) " + "\u2500" * (W - 31))
     print(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True).rstrip())
-    print(line)
+    _rule()
 
 
 def num_output_logits(cfg: dict) -> int:
@@ -216,6 +300,9 @@ def pick_slices(n_available: int, n_want: int, mode: str, rng,
     # too few slices: repeat rather than interpolate (17.8% of series at n=24)
     idx = np.linspace(0, n_available - 1, n_want)
     return np.round(idx).astype(int)
+
+
+_LAST_PLAN: dict = {}          # slot plan of the most recent make_loaders call
 
 
 # =============================================================================
@@ -363,6 +450,7 @@ def make_loaders(cfg: dict):
     """Build the train / val (/ audit) DataLoaders, all sharing one slot plan."""
     idx = pd.read_csv(resolve(cfg["paths"]["series_index"], cfg))   # one row per series
     plan = plan_slots(idx, cfg)
+    _LAST_PLAN.clear(); _LAST_PLAN.update(plan)   # so the data summary can report coverage
     dl = cfg.get("dataloader", {})
     out = {}
     for split, key, train in [("train", "train_csv", True), ("val", "val_csv", False)]:
@@ -551,6 +639,105 @@ def evaluate(model, loader, loss_fn, cfg, device) -> dict:
     return m
 
 
+def print_environment(cfg: dict):
+    """Hardware and software this run is actually executing on."""
+    import platform
+
+    _banner("ENVIRONMENT", "\U0001F5A5\uFE0F")
+
+    rows = [("host", platform.node()),
+            ("platform", f"{platform.system()} {platform.release()}"),
+            ("python", platform.python_version()),
+            ("torch", torch.__version__),
+            ("cuda (torch)", torch.version.cuda or "cpu build")]
+    try:
+        import timm
+        rows.append(("timm", timm.__version__))
+    except Exception:
+        pass
+    rows.append(("numpy / pandas", f"{np.__version__} / {pd.__version__}"))
+    if cv2 is not None:
+        rows.append(("opencv", cv2.__version__))
+    _kv("software", rows, "\U0001F4E6")
+
+    # ---- CPU / RAM ---------------------------------------------------------
+    cpu_rows = [("logical cores", os.cpu_count())]
+    try:
+        import psutil
+        vm = psutil.virtual_memory()
+        cpu_rows += [("physical cores", psutil.cpu_count(logical=False)),
+                     ("RAM total", f"{vm.total / 1024**3:.1f} GiB"),
+                     ("RAM available", f"{vm.available / 1024**3:.1f} GiB")]
+    except ImportError:
+        cpu_rows.append(("RAM", "install psutil for memory details"))
+    try:                                   # the cgroup limit is what Modal actually gives us
+        with open("/sys/fs/cgroup/memory.max") as fh:
+            v = fh.read().strip()
+            if v.isdigit():
+                cpu_rows.append(("container RAM limit", f"{int(v) / 1024**3:.1f} GiB"))
+    except Exception:
+        pass
+    _kv("cpu / memory", cpu_rows, "\U0001F9EE")
+
+    # ---- GPU ---------------------------------------------------------------
+    if torch.cuda.is_available():
+        rows = []
+        for i in range(torch.cuda.device_count()):
+            d = torch.cuda.get_device_properties(i)
+            rows.append([i, d.name, f"{d.total_memory / 1024**3:.1f} GiB",
+                         f"{d.major}.{d.minor}", d.multi_processor_count])
+        _table("gpu", ["#", "device", "memory", "capability", "SMs"], rows,
+               "\U0001F3AE")
+        print(f"  cudnn benchmark={torch.backends.cudnn.benchmark}  "
+              f"tf32_matmul={torch.backends.cuda.matmul.allow_tf32}  "
+              f"tf32_cudnn={torch.backends.cudnn.allow_tf32}")
+    else:
+        _kv("gpu", [("available", "NO - running on CPU")], "\U0001F3AE")
+
+
+def print_data_summary(loaders: dict, cfg: dict, plan: dict | None = None):
+    """What actually got loaded: split sizes, batches, label balance, slot coverage."""
+    _banner("DATA", "\U0001F4E6")
+
+    rows = []
+    for name in ("train", "val", "audit"):
+        if name not in loaders:
+            continue
+        ld = loaders[name]
+        n = len(ld.dataset)
+        rows.append([name, f"{n:,}", f"{len(ld):,}",
+                     f"{n * len(cfg['input']['slots']) * cfg['input']['n_slices']:,}",
+                     "soft LLM" if name != "audit" else "panel 0/1"])
+    _table("splits", ["split", "studies", "batches", "images", "labels"], rows,
+           "\U0001F4CA")
+
+    # label balance, so a collapsed prediction is obvious later
+    rows = []
+    for t in cfg["tasks"]:
+        cells = [t]
+        for name in ("train", "val"):
+            if name in loaders:
+                col = loaders[name].dataset.df[t].astype(float)
+                cells += [f"{col.mean():.3f}", f"{(col > 0.5).mean():.1%}"]
+        if "audit" in loaders:
+            cells.append(f"{loaders['audit'].dataset.df[t].astype(float).mean():.1%}")
+        rows.append(cells)
+    heads = ["finding", "train mean p", "train >0.5", "val mean p", "val >0.5"]
+    if "audit" in loaders:
+        heads.append("audit pos")
+    _table("label balance", heads, rows, "\u2696\uFE0F")
+
+    if plan:
+        filled = {}
+        for slots in plan.values():
+            for sl in slots:
+                filled[sl] = filled.get(sl, 0) + 1
+        n_studies = len(plan)
+        _table("slot coverage (after fallback)", ["slot", "studies", "%"],
+               [[sl, filled.get(sl, 0), f"{filled.get(sl, 0) / n_studies:.1%}"]
+                for sl in cfg["input"]["slots"]], "\U0001F9E9")
+
+
 def run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None, log_fn=None):
     """Public entry: tee the whole console into results/train_config/<timestamp>.txt,
     then train. Streams are restored even if the run crashes, traceback included."""
@@ -603,6 +790,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     set_seed(cfg["reproducibility"]["seed"], cfg["reproducibility"]["deterministic"])
     print(f"[set_seed] seed={cfg['reproducibility']['seed']}  "
           f"deterministic={cfg['reproducibility']['deterministic']}")
+    print_environment(cfg)
     print_config(cfg)
 
     out = Path(out_dir) / cfg["output"]["run_dir"]
@@ -611,6 +799,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     print(f"[paths] results -> {out}")
 
     loaders = make_loaders(cfg)
+    print_data_summary(loaders, cfg, _LAST_PLAN)
     train_df = pd.read_csv(resolve(cfg["paths"]["train_csv"], cfg))
 
     model = model.to(device)
@@ -618,15 +807,18 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         model = model.to(memory_format=torch.channels_last)
     tot_p = sum(q.numel() for q in model.parameters())
     tr_p = sum(q.numel() for q in model.parameters() if q.requires_grad)
-    print("=" * 70); print("MODEL"); print("=" * 70)
-    print(f"  architecture      : {cfg.get('model', {}).get('name', '?')}")
-    print(f"  pretrained        : {cfg.get('model', {}).get('pretrained')}")
-    print(f"  pooling           : {cfg.get('model', {}).get('pool')}")
-    print(f"  output logits     : {num_output_logits(cfg)}  (one per finding)")
-    print(f"  total params      : {tot_p:,}  ({tot_p/1e6:.2f} M)")
-    print(f"  trainable params  : {tr_p:,}  ({tr_p/1e6:.2f} M, {100*tr_p/max(tot_p,1):.1f}%)")
-    print(f"  frozen params     : {tot_p-tr_p:,}  ({(tot_p-tr_p)/1e6:.2f} M)")
-    print("=" * 70)
+    _banner("MODEL", "\U0001F9E0")
+    _kv("architecture", [
+        ("backbone", cfg.get("model", {}).get("name", "?")),
+        ("pretrained", cfg.get("model", {}).get("pretrained")),
+        ("pooling", f"{cfg.get('model', {}).get('pool')} over "
+                    f"{len(cfg['input']['slots']) * cfg['input']['n_slices']} images/study"),
+        ("output logits", f"{num_output_logits(cfg)}  (one per finding)"),
+        None,
+        ("total params", f"{tot_p:,}  ({tot_p/1e6:.2f} M)"),
+        ("trainable", f"{tr_p:,}  ({tr_p/1e6:.2f} M, {100*tr_p/max(tot_p,1):.1f}%)"),
+        ("frozen", f"{tot_p-tr_p:,}  ({(tot_p-tr_p)/1e6:.2f} M)"),
+    ], "\U0001F9F1")
 
     loss_fn = build_loss(cfg, train_df, device)
     opt = build_optimizer(model, cfg)
