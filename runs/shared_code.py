@@ -18,11 +18,13 @@ import csv
 import io
 import json
 import math
+import multiprocessing as _mp
 import os
 import random
 import re
 import sys
 import time
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -399,6 +401,20 @@ _LAST_PLAN: dict = {}          # slot plan of the most recent make_loaders call
 # =============================================================================
 # dataset
 # =============================================================================
+# cross-worker counters isolating the raw shard read (npz open + decompress) from
+# the resample/window/augment CPU work. Created at import, before the DataLoader
+# forks, so every worker bumps the same three ints. Windows spawns instead of
+# forking, so locally they stay 0 and the retrieval line simply does not print.
+_RETR_NS = _mp.Value("q", 0)       # summed read time, nanoseconds
+_RETR_BYTES = _mp.Value("q", 0)    # summed bytes decompressed
+_RETR_IMGS = _mp.Value("q", 0)     # summed slices actually used
+
+
+def _retr_snapshot():
+    """(imgs, bytes, ns) totals so far - cheap lock-free read."""
+    return _RETR_IMGS.value, _RETR_BYTES.value, _RETR_NS.value
+
+
 class KneeShardDataset(Dataset):
     """One item = one study: 4 slot volumes of n_slices each, plus its 12 labels."""
 
@@ -423,12 +439,18 @@ class KneeShardDataset(Dataset):
 
     def _load(self, study: str, series: str, rng) -> np.ndarray:
         """One series -> (n_slices, size, size) float array, resampled and windowed."""
+        _t = time.perf_counter()
         with np.load(self.shards / f"{study}.npz") as z:
             if series not in z.files:
                 return np.zeros((self.n_slices, self.size, self.size), np.uint8)   # missing series
             arr = z[series]                                  # (all_slices, H, W) uint8, native res
             idx = pick_slices(arr.shape[0], self.n_slices, self.mode, rng, self.margin)
             vol = arr[idx].astype(np.float32)
+        # only the volume read is timed; resample/window/augment come after
+        with _RETR_NS.get_lock():
+            _RETR_NS.value += int((time.perf_counter() - _t) * 1e9)
+            _RETR_BYTES.value += int(arr.nbytes)
+            _RETR_IMGS.value += len(idx)
 
         # native spacing varies 5x across scanners; rescale so a knee is the same size
         if self.mm_per_px:
@@ -1390,18 +1412,38 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         return score
 
 
+    retr_prev = (0, 0, 0, 0.0)      # last retrieval snapshot
     for epoch in range(start_epoch, epochs + 1):
         print("\n" + "=" * 70)
         print(f"\U0001F4DA EPOCH {epoch}/{epochs}")
         print("=" * 70)
         model.train()
         ep_t0, seen = time.time(), 0
-        for it, (x, y) in enumerate(loaders["train"], 1):
+        # two throughput numbers so a slow volume can't hide behind a fast GPU:
+        #   compute = images / GPU time only, real = images / wall incl. the data wait.
+        # next() is timed by hand (not via `for`) so eval/checkpoint time between
+        # steps never gets miscounted as waiting on data.
+        roll = deque(maxlen=20)          # (imgs, wall, data_wait) for the last 20 steps
+        win_imgs, win_t0, win_data, win_first = 0, time.time(), 0.0, 0.0
+        _train_it, it = iter(loaders["train"]), 0
+        while True:
+            _tf = time.time()
+            try:
+                x, y = next(_train_it)
+            except StopIteration:
+                break
+            data_dt = time.time() - _tf              # blocked purely on this batch
+            it += 1
+            if (it - 1) % accum == 0:                # fresh accumulation window
+                win_imgs, win_t0 = 0, time.time()
+                win_data, win_first = 0.0, data_dt
+            win_data += data_dt
             y = y.to(device, non_blocking=True)
             with torch.autocast("cuda", enabled=scaler.is_enabled()):
                 loss = loss_fn(model(prepare_batch(x, cfg, device)), y) / accum
             scaler.scale(loss).backward()
             seen += imgs_per_batch
+            win_imgs += imgs_per_batch
             if it % accum == 0:
                 gnorm = float("nan")
                 if cfg["training"]["grad_clip"]:
@@ -1410,16 +1452,30 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                                                            cfg["training"]["grad_clip"]))
                 scaler.step(opt); scaler.update(); opt.zero_grad(set_to_none=True); sched.step()
                 gstep += 1
-                lr = sched.get_last_lr()[-1]
+                lrs = sched.get_last_lr()
+                lr, lr_lo, lr_hi = lrs[-1], min(lrs), max(lrs)
                 l = loss.item() * accum
-                ips = seen / max(time.time() - ep_t0, 1e-9)
+                # dt spans the whole window; the waits inside it aren't compute
+                dt = time.time() - win_t0
+                wall = win_first + dt
+                comp_t = max(dt - (win_data - win_first), 1e-9)
+                roll.append((win_imgs, wall, win_data))
+                r_i = sum(a for a, _, _ in roll)
+                r_w = max(sum(b for _, b, _ in roll), 1e-9)
+                r_d = sum(c for _, _, c in roll)
+                ips = win_imgs / comp_t                      # compute-only
+                real_ips = r_i / r_w                         # incl. data wait, 20-step
+                wait_pct = 100.0 * r_d / r_w
                 mem = (torch.cuda.max_memory_allocated() / 1024**3
                        if device.type == "cuda" else 0.0)
                 el = time.time() - t0
                 eta = el * (total / gstep - 1)
                 train_log.log({"epoch": epoch, "epoch_step": it // accum,
                                "global_step": gstep, "loss": round(l, 6), "lr": lr,
+                               "lr_min": lr_lo, "lr_max": lr_hi,
                                "gnorm": round(gnorm, 4), "img_s": round(ips, 1),
+                               "real_img_s": round(real_ips, 1),
+                               "data_wait_pct": round(wait_pct, 1),
                                "gpu_mem_gb": round(mem, 2), "elapsed_s": round(el, 1)})
                 ev = cfg["evaluation"].get("eval_every_steps", 0)
                 if ev and gstep % ev == 0:
@@ -1439,10 +1495,28 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                                      epoch, gstep, y, prefix=f"{run_id}_")
                 if gstep % cfg["output"]["console_log_every"] == 0 or gstep == 1:
                     d = "" if prev_loss is None else f" ({l - prev_loss:+.4f})"
+                    # one lr when every group shares it, both ends when LLRD or
+                    # backbone_lr_mult splits them
+                    lr_s = (f"lr={lr_hi:.3e}" if lr_lo == lr_hi
+                            else f"lr[head={lr_hi:.3e} backbone={lr_lo:.3e}]")
+                    print("─" * 70)
                     print(f"  Epoch {epoch}/{epochs}  epoch_step: {it // accum}/{steps_per_epoch}"
-                          f"  global_step: {gstep}/{total}  loss={l:.4f}{d}  lr={lr:.4e}"
-                          f"  gnorm={gnorm:.2f}  {ips:.0f} img/s  elapsed={fmt(el)}"
-                          f"  ETA={fmt(eta)}  gpu_mem(peak)={mem:.2f}GB", flush=True)
+                          f"  global_step: {gstep}/{total}")
+                    print(f"     loss={l:.4f}{d}  {lr_s}  gnorm={gnorm:.2f}  "
+                          f"elapsed={fmt(el)}  ETA={fmt(eta)}  gpu_mem(peak)={mem:.2f}GB")
+                    print(f"     throughput: {ips:.0f} img/s compute | {real_ips:.0f} img/s real "
+                          f"({len(roll)}-step) | data-wait {wait_pct:.0f}%")
+                    # slices/s and MB/s off the shard volume, summed over every worker,
+                    # for the window since the last print. ms/img is per-slice latency.
+                    _ri, _rb, _rns = _retr_snapshot()
+                    _pi, _pb, _pns, _pel = retr_prev
+                    d_i, d_b, d_ns = _ri - _pi, _rb - _pb, _rns - _pns
+                    d_el = max(el - _pel, 1e-6)
+                    retr_prev = (_ri, _rb, _rns, el)
+                    if d_i > 0:
+                        print(f"     retrieval:  {d_i / d_el:.0f} img/s | "
+                              f"{d_b / 1e6 / d_el:.0f} MB/s | "
+                              f"{d_ns / 1e6 / d_i:.1f} ms/img avg read (shards)", flush=True)
                     prev_loss = l
                     if log_fn:
                         log_fn({"train/loss": l, "train/lr": lr, "train/gnorm": gnorm}, gstep)
