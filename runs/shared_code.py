@@ -34,7 +34,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import yaml
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, Sampler
 
 try:
     import cv2
@@ -244,6 +244,8 @@ def print_config(cfg: dict):
     if m:
         _kv("modal (cloud)", [
             ("gpu", m.get("gpu")),
+            ("cpu / memory", f"{m.get('cpu') or 'modal default'} cores / "
+                             f"{str(m.get('memory_gb')) + ' GB' if m.get('memory_gb') else 'modal default'}"),
             ("timeout", f"{m.get('timeout_hours')} h"),
             ("shards volume", f"{m.get('shards_volume')} -> {m.get('shards_mount')}"),
             ("runs volume", f"{m.get('runs_volume')} -> {m.get('runs_mount')}"),
@@ -586,6 +588,42 @@ def prepare_batch(x: torch.Tensor, cfg: dict, device) -> torch.Tensor:
     return (x - mean) / std
 
 
+class ResumableSampler(Sampler):
+    """Shuffling sampler whose permutation is a pure function of (seed, epoch).
+
+    torch's default RandomSampler draws from the global RNG, so the order an epoch
+    sees depends on everything consumed before it — a resumed run gets a different
+    permutation and there is no way to say "continue where you stopped".
+
+    Here each epoch's order is torch.randperm under a generator seeded seed+epoch,
+    identical whether or not the run was interrupted. set_epoch(epoch, skip=k) then
+    drops the first k indices, so the workers never even load the studies already
+    trained on this epoch, and the epoch finishes on exactly the tail it would have.
+    The skip clears after that one epoch.
+
+    __len__ stays the full epoch size so steps_per_epoch and the lr schedule are
+    unaffected; only the resumed epoch yields fewer batches.
+    """
+
+    def __init__(self, n: int, seed: int):
+        self.n, self.seed, self.epoch, self.skip = int(n), int(seed), 0, 0
+
+    def set_epoch(self, epoch: int, skip: int = 0):
+        self.epoch, self.skip = int(epoch), max(0, int(skip))
+
+    def __iter__(self):
+        g = torch.Generator()
+        g.manual_seed(self.seed + self.epoch)
+        perm = torch.randperm(self.n, generator=g).tolist()
+        if self.skip:
+            perm = perm[self.skip:]
+            self.skip = 0
+        return iter(perm)
+
+    def __len__(self):
+        return self.n
+
+
 def val_loader_settings(cfg: dict) -> tuple[int, int]:
     """(batch_size, num_workers) for eval loaders — val_* keys, else the train values."""
     dl = cfg.get("dataloader", {})
@@ -606,8 +644,12 @@ def make_loaders(cfg: dict):
         df = pd.read_csv(resolve(cfg["paths"][key], cfg))
         ds = KneeShardDataset(df, cfg, plan, train)
         nw = dl.get("num_workers", 4) if train else vnw
+        # train shuffles through ResumableSampler so a mid-epoch resume can skip
+        # exactly the studies it already saw; val keeps its fixed order
+        smp = ResumableSampler(len(ds), cfg["reproducibility"]["seed"]) if train else None
         out[split] = DataLoader(
-            ds, batch_size=train_batch_size(cfg) if train else vbs, shuffle=train,
+            ds, batch_size=train_batch_size(cfg) if train else vbs,
+            sampler=smp, shuffle=False,
             num_workers=nw,
             pin_memory=dl.get("pin_memory", True),
             persistent_workers=dl.get("persistent_workers", True) and nw > 0,
@@ -922,10 +964,15 @@ def build_optimizer(model: nn.Module, cfg: dict):
     return torch.optim.AdamW(groups, lr=head_lr, weight_decay=o.get("weight_decay", 0.05))
 
 
+def warmup_steps(cfg: dict, total_steps: int) -> int:
+    """How many steps the lr ramp lasts — same formula build_scheduler uses."""
+    return max(1, int(total_steps * cfg["training"]["scheduler"].get("warmup_frac", 0.05)))
+
+
 def build_scheduler(opt, cfg: dict, total_steps: int):
     """Learning-rate schedule: ramp up over the first few %, then cosine-decay to min_lr_mult."""
     s = cfg["training"]["scheduler"]
-    warm = max(1, int(total_steps * s.get("warmup_frac", 0.05)))
+    warm = warmup_steps(cfg, total_steps)
     lo = s.get("min_lr_mult", 0.01)
 
     def fn(step):                                    # returns a multiplier on the base lr
@@ -1184,6 +1231,13 @@ def print_environment(cfg: dict):
                      ("RAM available", f"{vm.available / 1024**3:.1f} GiB")]
     except ImportError:
         cpu_rows.append(("RAM", "install psutil for memory details"))
+    try:                                   # cpu.max = "quota period"; quota/period = real cores
+        with open("/sys/fs/cgroup/cpu.max") as fh:
+            q, per = fh.read().split()
+            if q != "max":
+                cpu_rows.append(("container CPU limit", f"{int(q) / int(per):.2f} cores"))
+    except Exception:
+        pass
     try:                                   # the cgroup limit is what Modal actually gives us
         with open("/sys/fs/cgroup/memory.max") as fh:
             v = fh.read().strip()
@@ -1353,6 +1407,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     steps_per_epoch = max(1, len(loaders["train"]) // accum)
     total = steps_per_epoch * epochs
     sched = build_scheduler(opt, cfg, total)
+    warm = warmup_steps(cfg, total)
     perf = cfg["training"].get("perf", {})
     if device.type == "cuda" and perf.get("tf32", True):
         torch.backends.cuda.matmul.allow_tf32 = True
@@ -1380,7 +1435,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     start_epoch, top_k_track = 1, []
     ck = load_checkpoint(cfg.get("resume"), model, ckpt_dir, opt, sched, scaler,
                          device, cfg_now=cfg)
-    resumed_elapsed, history = 0.0, []
+    resumed_elapsed, history, resume_skip = 0.0, [], 0
     if ck:
         gstep = int(ck.get("step") or 0)
         ck_epoch = int(ck.get("epoch") or 0)
@@ -1394,11 +1449,15 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         if ck.get("epoch_complete", True):
             start_epoch = ck_epoch + 1
         else:
-            # written part-way through ck_epoch: replay it rather than lose its tail
+            # mid-epoch: skip the studies this epoch already trained on. Derived from
+            # gstep, not a stored counter, so the skip always lands on an accumulation
+            # boundary. ResumableSampler makes the epoch's order reproducible.
             start_epoch = ck_epoch
-            gstep = (ck_epoch - 1) * steps_per_epoch
-            print(f"  ↩️  checkpoint was mid-epoch - replaying epoch {ck_epoch} "
-                  f"from step {gstep}")
+            done = gstep - (ck_epoch - 1) * steps_per_epoch
+            resume_skip = max(0, done) * accum          # in micro-batches
+            print(f"  ↩️  mid-epoch resume: epoch {ck_epoch} continues at "
+                  f"optimizer step {done}/{steps_per_epoch} "
+                  f"({resume_skip} micro-batches skipped, never re-loaded)")
         print(f"  ↩️  restored: best={best:.4f} @ epoch {best_epoch}  "
               f"patience={bad}/{es['patience']}  top_k={len(top_k_track)}  "
               f"elapsed={fmt(resumed_elapsed)}")
@@ -1504,6 +1563,10 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         print(f"\U0001F4DA EPOCH {epoch}/{epochs}")
         print("=" * 70)
         _EPOCH.value = epoch          # workers seed their augmentation off this
+        skip = resume_skip if epoch == start_epoch else 0
+        smp = getattr(loaders["train"], "sampler", None)
+        if hasattr(smp, "set_epoch"):
+            smp.set_epoch(epoch, skip * train_batch_size(cfg))   # sampler counts studies
         model.train()
         ep_t0, seen = time.time(), 0
         # two throughput numbers so a slow volume can't hide behind a fast GPU:
@@ -1512,7 +1575,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         # steps never gets miscounted as waiting on data.
         roll = deque(maxlen=20)          # (imgs, wall, data_wait) for the last 20 steps
         win_imgs, win_t0, win_data, win_first = 0, time.time(), 0.0, 0.0
-        _train_it, it = iter(loaders["train"]), 0
+        _train_it, it = iter(loaders["train"]), skip
         while True:
             _tf = time.time()
             try:
@@ -1582,6 +1645,13 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                 if dbg and (gstep % dbg == 0 or gstep == 1):
                     save_debug_batch(prepare_batch(x, cfg, device), cfg, dbg_dir,
                                      epoch, gstep, y, prefix=f"{run_id}_")
+                if gstep == 1:
+                    print(f"  🔥 warmup STARTED - lr ramps from 0 to base over "
+                          f"{warm} step(s) ({cfg['training']['scheduler']['warmup_frac']:.0%} "
+                          f"of {total})")
+                if gstep == warm:            # not elif: warm can be 1 on tiny runs
+                    print(f"  ✅ warmup COMPLETE at step {warm} - base lr reached "
+                          f"(backbone {lr_lo:.3e}, head {lr_hi:.3e}); cosine decay begins")
                 if gstep % cfg["output"]["console_log_every"] == 0 or gstep == 1:
                     d = "" if prev_loss is None else f" ({l - prev_loss:+.4f})"
                     # one lr when every group shares it, both ends when LLRD or
@@ -1691,7 +1761,7 @@ def modal_image():
             .apt_install("libgl1", "libglib2.0-0")     # OpenCV needs these system libs
             .pip_install("torch", "torchvision", "timm", "numpy", "pandas",
                          "opencv-python-headless", "scikit-learn", "pyyaml", "wandb",
-                         "matplotlib")
+                         "matplotlib", "psutil")
             .add_local_dir(str(Path(__file__).parent), "/root/runs")
             # only the small split CSVs travel in the image; stats/ alone is 824 MB of
             # local analysis output the container never opens
@@ -1701,8 +1771,14 @@ def modal_image():
 
 
 def modal_resources(cfg: dict) -> dict:
-    return {"gpu": cfg["modal"]["gpu"],
-            "timeout": int(cfg["modal"].get("timeout_hours", 8) * 3600)}
+    """gpu/timeout always; cpu and memory only when the run config asks for them."""
+    m = cfg["modal"]
+    kw = {"gpu": m["gpu"], "timeout": int(m.get("timeout_hours", 8) * 3600)}
+    if m.get("cpu"):
+        kw["cpu"] = float(m["cpu"])              # cores, a reservation not a cap
+    if m.get("memory_gb"):
+        kw["memory"] = int(float(m["memory_gb"]) * 1024)   # config is GB, modal wants MiB
+    return kw
 
 
 def _sync_module():

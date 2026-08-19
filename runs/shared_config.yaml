@@ -79,7 +79,7 @@ training:
 
 evaluation:
   eval_every_epochs: 1
-  eval_every_steps: 0               # 0 = epoch-end only
+  eval_every_steps: 200             # ~2 validations per epoch (455 steps/epoch)
   audit:
     enable: true                    # report-only, never drives best.pt (58 studies, +/-0.05)
     csv: "05_audit58.csv"

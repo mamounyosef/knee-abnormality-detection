@@ -40,12 +40,13 @@ training:
 
 # CPU-side loading; decoding shards is the bottleneck, so keep workers busy
 dataloader:
-  batch_size: 4                     # 4 studies x 4 slots x 24 slices = 384 images @512
-  accum_steps: 2                    # effective 8 studies per update -> 454 steps/epoch;
-                                    # 910 micro-batches divides by 2, so no discarded tail
-  val_batch_size: 12                # no backward pass, so no stored activations -> 3x fits
+  batch_size: 2                     # 2 studies x 4 slots x 24 slices = 192 images @512.
+                                    # 4 studies (384 images) OOMs an 80GB A100
+  accum_steps: 4                    # effective 8 studies per update -> 455 steps/epoch,
+                                    # same as 4x2 but half the peak memory
+  val_batch_size: 4                 # no backward pass, so no stored activations -> 2x fits
 
-  num_workers: 8
+  num_workers: 16
   val_num_workers: null             # null = same as num_workers
   
   prefetch_factor: 4                # batches queued per worker
@@ -54,4 +55,8 @@ dataloader:
   drop_last: false                  # keep the ragged final batch
 
 modal:
-  gpu: "A100-80GB"                  # 384 images of 512px per step needs the room
+  gpu: "A100-80GB"                  # 192 images of 512px per step needs the room
+  cpu: 10.0                         # one core per dataloader worker; decoding npz is CPU-bound
+  memory_gb: 24                     # 16 workers x prefetch 4 holding uint8 volumes
+
+resume: 200                       # continue from checkpoints/step200.pt
