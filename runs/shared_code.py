@@ -2128,7 +2128,10 @@ def evaluate_official(cfg: dict, model, experiment_dir, device=None,
         m = (compute_metrics(y_true, y_prob, tasks, cut, [thr_map[t] for t in tasks])
              if y_true is not None else None)
         rep = {"experiment": cfg.get("experiment", {}).get("name"),
-               "run_id": cfg.get("experiment", {}).get("run_id"),
+               # outside a training run the live cfg has no run_id: use the checkpoint's
+               "run_id": (cfg.get("experiment", {}).get("run_id")
+                          or (ck.get("cfg", {}).get("experiment", {}) or {}).get("run_id")
+                          or "?"),
                "set": label, "csv": str(csv_name), "checkpoint": str(ck_path),
                "checkpoint_step": ck.get("step"), "checkpoint_epoch": ck.get("epoch"),
                "n_studies": int(len(df)), "device": str(device),
