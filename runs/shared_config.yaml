@@ -76,14 +76,19 @@ training:
     name: "adamw"
     weight_decay: 0.05
     backbone_lr_mult: 0.1           # pretrained backbone learns 10x slower than the fresh head
+    layer_decay: null               # layer-wise lr decay, e.g. 0.75: each layer down gets 75%
+                                    # of the one above. Replaces backbone_lr_mult when set.
   scheduler:
     name: "cosine"                  # learning rate warms up, then decays along a cosine curve
     warmup_frac: 0.05
     min_lr_mult: 0.01               # floor: ends at 1% of the base learning rate
   loss:
     name: "bce"                     # bce = binary cross-entropy | focal = focuses on hard cases
+                                    # aucm = pairwise surrogate for AUROC, the actual metric
     pos_weight: null                # "auto" up-weights rare labels
     focal_gamma: 2.0
+    aucm_margin: 1.0                # how far apart aucm pushes a positive from a negative
+    aucm_bce_mix: 0.1               # bit of bce mixed in, keeps the probabilities sane
   perf:
     tf32: true                      # tensor-float32 matmuls, free speed on Ampere+
     compile: false                  # torch.compile: faster steps, slow first epoch
@@ -107,6 +112,10 @@ reproducibility:
 
 # dataloader settings are per-run: num_workers, prefetch_factor, pin_memory,
 # persistent_workers, drop_last
+dataloader:
+  val_batch_size: null              # null = same as training.batch_size; no backward pass,
+                                    # so validation can afford a much bigger batch
+  val_num_workers: null             # null = same as num_workers
 
 # modal.gpu is per-run
 # Modal = the cloud GPU service real training runs on; volumes are its persistent disks
@@ -138,5 +147,8 @@ output:
   checkpoint_every_steps: 0         # 0 = epoch-end only
   save_debug_images: 200            # every N steps dump a batch exactly as the model sees it
   debug_dir: "debugged_images"
+  make_plots: true                  # training-curve PNGs at the end of every run
+  plots_dir: "plots"
+  thresholds_json: "thresholds.json"   # frozen per-finding cut-offs from calibration
 
 resume: null                        # where to continue from: null | "best" | "last" | <step> | <path>

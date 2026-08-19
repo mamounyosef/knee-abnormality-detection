@@ -13,6 +13,7 @@ applied here from config.
 
 from __future__ import annotations
 
+import copy
 import csv
 import io
 import json
@@ -99,10 +100,12 @@ def _table(title: str, headers, rows, emoji: str = ""):
 # config
 # =============================================================================
 def _deep_merge(base: dict, over: dict) -> dict:
-    # recursive dict merge; `over` wins on scalars, dicts get merged key by key
-    out = dict(base)
+    # recursive dict merge; `over` wins on scalars, dicts get merged key by key.
+    # copy.deepcopy so an untouched nested dict isn't shared with `base` — otherwise
+    # two configs off one load alias each other and swap run_ids.
+    out = copy.deepcopy(base)
     for k, v in (over or {}).items():
-        out[k] = _deep_merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
+        out[k] = _deep_merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else copy.deepcopy(v)
     return out
 
 
@@ -534,31 +537,40 @@ def prepare_batch(x: torch.Tensor, cfg: dict, device) -> torch.Tensor:
     return (x - mean) / std
 
 
+def val_loader_settings(cfg: dict) -> tuple[int, int]:
+    """(batch_size, num_workers) for eval loaders — val_* keys, else the train values."""
+    dl = cfg.get("dataloader", {})
+    nw = dl.get("val_num_workers")
+    return (int(dl.get("val_batch_size") or cfg["training"]["batch_size"]),
+            int(dl.get("num_workers", 4) if nw is None else nw))
+
+
 def make_loaders(cfg: dict):
     """Build the train / val (/ audit) DataLoaders, all sharing one slot plan."""
     idx = pd.read_csv(resolve(cfg["paths"]["series_index"], cfg))   # one row per series
     plan = plan_slots(idx, cfg)
     _LAST_PLAN.clear(); _LAST_PLAN.update(plan)   # so the data summary can report coverage
     dl = cfg.get("dataloader", {})
+    vbs, vnw = val_loader_settings(cfg)      # no backward pass -> val can go much wider
     out = {}
     for split, key, train in [("train", "train_csv", True), ("val", "val_csv", False)]:
         df = pd.read_csv(resolve(cfg["paths"][key], cfg))
         ds = KneeShardDataset(df, cfg, plan, train)
+        nw = dl.get("num_workers", 4) if train else vnw
         out[split] = DataLoader(
-            ds, batch_size=cfg["training"]["batch_size"], shuffle=train,
-            num_workers=dl.get("num_workers", 4),
+            ds, batch_size=cfg["training"]["batch_size"] if train else vbs, shuffle=train,
+            num_workers=nw,
             pin_memory=dl.get("pin_memory", True),
-            persistent_workers=dl.get("persistent_workers", True) and dl.get("num_workers", 4) > 0,
+            persistent_workers=dl.get("persistent_workers", True) and nw > 0,
             worker_init_fn=seed_worker,
-            prefetch_factor=dl.get("prefetch_factor", 2) if dl.get("num_workers", 4) > 0 else None,
+            prefetch_factor=dl.get("prefetch_factor", 2) if nw > 0 else None,
             drop_last=dl.get("drop_last", True) and train)
     # audit = the 58 studies with real panel labels, scored but never used to pick best.pt
     if cfg["evaluation"]["audit"]["enable"]:
         df = pd.read_csv(resolve(cfg["evaluation"]["audit"]["csv"], cfg))
         df = df.rename(columns={f"official_{t}": t for t in cfg["tasks"]})   # match task column names
         out["audit"] = DataLoader(KneeShardDataset(df, cfg, plan, False),
-                                  batch_size=cfg["training"]["batch_size"],
-                                  shuffle=False, num_workers=dl.get("num_workers", 4))
+                                  batch_size=vbs, shuffle=False, num_workers=vnw)
     return out
 
 
@@ -633,24 +645,39 @@ class CSVLogger:
 # metrics / loss / optim
 # =============================================================================
 def compute_metrics(y_true: np.ndarray, y_prob: np.ndarray, tasks: list,
-                    thr: float = 0.5) -> dict:
-    """Per-task AUROC + AUPRC and the operating-point stats at `thr`."""
+                    thr: float = 0.5, pred_thr=None) -> dict:
+    """Per-task AUROC + AUPRC and the operating-point stats at `thr`.
+
+    pred_thr: scalar or one value per task for cutting the PREDICTIONS; defaults to thr.
+    """
     from sklearn.metrics import average_precision_score, roc_auc_score
+
+    # targets always binarize at thr; predictions may use calibrated per-task cuts
+    pt = np.asarray(thr if pred_thr is None else pred_thr, dtype=float)
+    pt = np.broadcast_to(pt, (len(tasks),)).astype(float)
 
     per = {}
     for i, t in enumerate(tasks):
         yt = (y_true[:, i] > thr).astype(int)          # soft targets need a threshold to score
         yp = y_prob[:, i]
         one_class = yt.min() == yt.max()
+        pbi = (yp > pt[i]).astype(int)
+        tp_ = int(((yt == 1) & (pbi == 1)).sum()); fp_ = int(((yt == 0) & (pbi == 1)).sum())
+        fn_ = int(((yt == 1) & (pbi == 0)).sum()); tn_ = int(((yt == 0) & (pbi == 0)).sum())
+        p_ = tp_ / max(tp_ + fp_, 1); r_ = tp_ / max(tp_ + fn_, 1)
         per[t] = {
             "auroc": float("nan") if one_class else roc_auc_score(yt, yp),
             "auprc": float("nan") if one_class else average_precision_score(yt, yp),
             "pos": int(yt.sum()),
+            "threshold": float(pt[i]),
+            "precision": float(p_), "recall": float(r_),
+            "f1": float(2 * p_ * r_ / max(p_ + r_, 1e-9)),
+            "specificity": float(tn_ / max(tn_ + fp_, 1)),
         }
     au = [v["auroc"] for v in per.values() if not math.isnan(v["auroc"])]
     ap = [v["auprc"] for v in per.values() if not math.isnan(v["auprc"])]
 
-    yb, pb = (y_true > thr).astype(int), (y_prob > thr).astype(int)
+    yb, pb = (y_true > thr).astype(int), (y_prob > pt[None, :]).astype(int)
     tp = ((yb == 1) & (pb == 1)).sum(); fp = ((yb == 0) & (pb == 1)).sum()
     fn = ((yb == 1) & (pb == 0)).sum(); tn = ((yb == 0) & (pb == 0)).sum()
     prec = tp / max(tp + fp, 1); rec = tp / max(tp + fn, 1)
@@ -678,6 +705,32 @@ class FocalBCE(nn.Module):
         return (mod * bce).mean()
 
 
+class AUCMarginLoss(nn.Module):
+    """Pairwise squared-hinge surrogate for AUROC — the competition metric itself.
+
+    Every positive/negative pair in the batch is pushed `margin` apart; the pair
+    weight is y_i*(1-y_j), so soft LLM targets work without rounding. Self-contained
+    (no libauc), so it needs no extra dependency and plain AdamW drives it. A small
+    BCE mix keeps the probabilities calibrated and covers batches with no pairs.
+    """
+
+    def __init__(self, margin: float = 1.0, bce_mix: float = 0.1, pos_weight=None):
+        super().__init__()
+        self.margin = float(margin); self.bce_mix = float(bce_mix)
+        self.register_buffer("pw", pos_weight)
+
+    def forward(self, logits, target):
+        p = torch.sigmoid(logits)                       # (B, T) in 0-1, the AUC is over these
+        d = p.unsqueeze(1) - p.unsqueeze(0)             # (B, B, T) pairwise score gaps
+        w = target.unsqueeze(1) * (1 - target).unsqueeze(0)     # i positive, j negative
+        hinge = torch.clamp(self.margin - d, min=0) ** 2
+        loss = (w * hinge).sum() / w.sum().clamp(min=1e-6)
+        if self.bce_mix > 0 or w.sum() <= 0:
+            bce = F.binary_cross_entropy_with_logits(logits, target, pos_weight=self.pw)
+            loss = loss + max(self.bce_mix, 1e-3) * bce
+        return loss
+
+
 def build_loss(cfg: dict, train_df: pd.DataFrame | None, device) -> nn.Module:
     """Plain or focal binary cross-entropy, optionally re-weighted for rare labels."""
     lc = cfg["training"]["loss"]
@@ -688,13 +741,105 @@ def build_loss(cfg: dict, train_df: pd.DataFrame | None, device) -> nn.Module:
         pw = torch.tensor((1 - prev) / np.maximum(prev, 1e-3), dtype=torch.float32, device=device)
     if lc["name"] == "focal":
         return FocalBCE(lc.get("focal_gamma", 2.0), pw).to(device)
+    if lc["name"] == "aucm":
+        return AUCMarginLoss(lc.get("aucm_margin", 1.0), lc.get("aucm_bce_mix", 0.1), pw).to(device)
     return nn.BCEWithLogitsLoss(pos_weight=pw)
+
+
+def _llrd_depths(backbone: nn.Module) -> tuple[dict, int]:
+    """Map backbone param name -> depth (0 = nearest the pixels), plus the head depth.
+
+    Handles the two timm layouts we use: ViT-style `blocks.<i>` and ConvNeXt-style
+    `stages.<i>.blocks.<j>`. Anything unrecognized sits at the deepest backbone level.
+    """
+    names = [n for n, _ in backbone.named_parameters()]
+    blocks = getattr(backbone, "blocks", None)
+    stages = getattr(backbone, "stages", None)
+    depth = {}
+    if blocks is not None and hasattr(blocks, "__len__"):          # ViT / Swin-ish
+        n_layers = len(blocks) + 1                                 # + the head
+        for n in names:
+            m = re.match(r"blocks\.(\d+)\.", n)
+            if m:
+                depth[n] = int(m.group(1)) + 1
+            elif any(n.startswith(k) for k in ("patch_embed", "cls_token", "pos_embed", "stem")):
+                depth[n] = 0
+            else:
+                depth[n] = n_layers - 1                            # final norm rides with the last block
+        return depth, n_layers
+    if stages is not None and hasattr(stages, "__len__"):          # ConvNeXt / ResNet-ish
+        counts = [len(getattr(s, "blocks", [])) for s in stages]
+        offset = np.cumsum([0] + counts).tolist()                  # blocks before each stage
+        n_layers = int(offset[-1]) + 1
+        for n in names:
+            m = re.match(r"stages\.(\d+)\.blocks\.(\d+)\.", n)
+            if m:
+                depth[n] = offset[int(m.group(1))] + int(m.group(2)) + 1
+            elif (m2 := re.match(r"stages\.(\d+)\.", n)):          # that stage's downsample
+                depth[n] = offset[int(m2.group(1))]
+            elif n.startswith("stem"):
+                depth[n] = 0
+            else:
+                depth[n] = n_layers - 1
+        return depth, n_layers
+    return {n: 0 for n in names}, 1                                # unknown layout: one backbone level
+
+
+def _param_groups_llrd(model: nn.Module, base_lr: float, weight_decay: float,
+                       layer_decay: float) -> list:
+    """One param group per (depth, decay flag): lr = base_lr * layer_decay**(top - depth).
+
+    Early layers barely move, the head trains at full lr. 1-D params (norms, biases)
+    get no weight decay, the usual fine-tuning convention.
+    """
+    backbone = getattr(model, "backbone", None)
+    bdepth, n_layers = _llrd_depths(backbone) if backbone is not None else ({}, 1)
+    top = n_layers                                    # head sits one level above the backbone
+    scales = [layer_decay ** (top - d) for d in range(top + 1)]
+    groups = {}
+    for n, p in model.named_parameters():
+        if not p.requires_grad:
+            continue
+        d = bdepth.get(n[len("backbone."):], top) if n.startswith("backbone.") else top
+        nd = p.ndim == 1
+        key = (d, nd)
+        g = groups.setdefault(key, {"params": [], "lr": base_lr * scales[d],
+                                    "weight_decay": 0.0 if nd else weight_decay,
+                                    "lr_scale": scales[d], "layer_id": d})
+        g["params"].append(p)
+    return [groups[k] for k in sorted(groups)]
+
+
+def _print_llrd(groups: list, base_lr: float, layer_decay: float, top: int):
+    """Boxed per-depth learning rates, so the decay can be eyeballed before it runs."""
+    per = {}
+    for g in groups:
+        per.setdefault(g["layer_id"], g["lr"])
+        per[g["layer_id"]] = g["lr"]
+    depths = sorted(per)
+    show = depths if len(depths) <= 8 else depths[:3] + [None] + depths[-3:]
+    rows = []
+    for d in show:
+        if d is None:
+            rows.append(["...", "...", "..."])
+            continue
+        label = "stem / embed" if d == 0 else ("head + pool" if d == top else f"block {d - 1}")
+        rows.append([d, label, f"{per[d]:.3e}"])
+    _table(f"LLRD layer_decay={layer_decay}  base_lr={base_lr:.2e}  "
+           f"({len(depths)} depths, {len(groups)} groups)",
+           ["depth", "what", "lr"], rows, "\U0001FA9C")
 
 
 def build_optimizer(model: nn.Module, cfg: dict):
     """AdamW with two learning rates: full for the new head, slower for the backbone."""
     o = cfg["training"]["optimizer"]
     lr, mult = o["lr"], o.get("backbone_lr_mult", 1.0)
+    ld = o.get("layer_decay")
+    if ld:
+        # LLRD replaces the flat backbone_lr_mult: every depth gets its own lr
+        groups = _param_groups_llrd(model, lr, o.get("weight_decay", 0.05), float(ld))
+        _print_llrd(groups, lr, float(ld), max(g["layer_id"] for g in groups))
+        return torch.optim.AdamW(groups, lr=lr, weight_decay=o.get("weight_decay", 0.05))
     head, backbone = [], []
     for n, p in model.named_parameters():
         if not p.requires_grad:
@@ -1138,6 +1283,10 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
           f"scheduler={cfg['training']['scheduler']['name']}  amp={scaler.is_enabled()}")
     print(f"[setup] steps/epoch={steps_per_epoch}  total_steps={total}  accum={accum}  "
           f"images/optimizer-step={imgs_per_batch * accum}")
+    _vbs, _vnw = val_loader_settings(cfg)
+    print(f"[setup] loss={cfg['training']['loss']['name']}  "
+          f"train bs={cfg['training']['batch_size']}/{cfg.get('dataloader', {}).get('num_workers', 4)}w  "
+          f"val bs={_vbs}/{_vnw}w")
 
     es = cfg["training"]["early_stopping"]
     best, best_epoch, bad, gstep = -math.inf, 0, 0, 0
@@ -1327,6 +1476,13 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     print(f"  \U0001F4DD logs              : {out / cfg['output']['train_log_csv']}")
     print(f"                        {out / cfg['output']['val_log_csv']}")
     print("=" * 70)
+
+    # curves for every run, and a plotting bug must never sink a finished run
+    if cfg["output"].get("make_plots", True):
+        _safe("make_plots", make_plots, cfg, out,
+              cfg["output"].get("plots_dir", "plots"))
+        if persist_fn:
+            persist_fn()
     return best
 
 
@@ -1346,7 +1502,8 @@ def modal_image():
     return (modal.Image.debian_slim(python_version="3.11")
             .apt_install("libgl1", "libglib2.0-0")     # OpenCV needs these system libs
             .pip_install("torch", "torchvision", "timm", "numpy", "pandas",
-                         "opencv-python-headless", "scikit-learn", "pyyaml", "wandb")
+                         "opencv-python-headless", "scikit-learn", "pyyaml", "wandb",
+                         "matplotlib")
             .add_local_dir(str(Path(__file__).parent), "/root/runs")
             .add_local_dir(str(Path(__file__).parent.parent / "data"), "/root/data",
                            ignore=["shards", "raw", "backups", "*.jsonl"]))  # big data is a volume
@@ -1405,3 +1562,595 @@ def remote_cfg(cfg: dict) -> dict:
     r["paths"]["data_dir"] = "/root/data"
     r["paths"]["shards_dir"] = cfg["modal"]["shards_mount"]
     return r
+
+
+# =============================================================================
+# plots — post-hoc PNGs from the two CSVs. CPU only, no torch needed.
+# =============================================================================
+def _safe(label: str, fn, *args, **kwargs):
+    """Run fn but never let it kill a run; warn and carry on."""
+    try:
+        return fn(*args, **kwargs)
+    except Exception as e:
+        print(f"  ⚠️  {label} failed (continuing): {type(e).__name__}: {e}")
+        return None
+
+
+def _smooth(series, window: int):
+    """Trailing rolling mean; min_periods=1 so the start of the curve survives."""
+    if window and window > 1:
+        return pd.Series(series).rolling(window, min_periods=1).mean()
+    return pd.Series(series)
+
+
+def _epoch_boundary_steps(df) -> list:
+    """Steps where a new epoch starts — drawn as faint guides."""
+    steps, prev = [], None
+    if df is None or "epoch" not in df.columns:
+        return steps
+    for st, ep in zip(df["global_step"], df["epoch"]):
+        if prev is not None and ep != prev:
+            steps.append(st)
+        prev = ep
+    return steps
+
+
+def _vlines(ax, steps):
+    for s in steps:
+        ax.axvline(s, color="0.85", lw=0.8, zorder=0)
+
+
+def _mark_extreme(ax, x, y, mode: str = "max", color: str = "crimson"):
+    """Star the best point of a curve and label it."""
+    y = np.asarray(y, dtype=float)
+    if len(y) == 0 or np.all(np.isnan(y)):
+        return
+    i = int(np.nanargmax(y)) if mode == "max" else int(np.nanargmin(y))
+    xi = float(np.asarray(x)[i])
+    ax.scatter([xi], [y[i]], marker="*", s=200, color=color, zorder=6)
+    ax.annotate(f"{y[i]:.4f}\n@ step {int(xi)}", (xi, y[i]), textcoords="offset points",
+                xytext=(8, -14), fontsize=8, color=color)
+
+
+def _runs_in(df, col="run_id") -> list:
+    """Run ids present, in first-seen order. Never blend two runs into one line."""
+    if df is None or col not in df.columns:
+        return [None]
+    ids = [r for r in dict.fromkeys(df[col].astype(str).tolist()) if r and r != "nan"]
+    return ids or [None]
+
+
+def _run_slice(df, rid):
+    if df is None:
+        return None
+    if rid is None or "run_id" not in df.columns:
+        return df
+    sub = df[df["run_id"].astype(str) == rid]
+    return sub if len(sub) else None
+
+
+def make_plots(cfg: dict, results_dir, out_subdir: str = "plots",
+               smooth_window: int = 25, dpi: int = 130) -> list:
+    """Training-curve PNGs from train_log.csv + val_log.csv -> results/plots/.
+
+    Both CSVs can hold several runs (the run_id column), so every run is drawn as
+    its own series and never averaged together.
+    """
+    import matplotlib
+    matplotlib.use("Agg")                     # headless: write files, never open a window
+    import matplotlib.pyplot as plt
+
+    results_dir = Path(results_dir)
+    o, tasks = cfg["output"], cfg["tasks"]
+    name = cfg.get("experiment", {}).get("name", "experiment")
+    tr_path, va_path = results_dir / o["train_log_csv"], results_dir / o["val_log_csv"]
+    plots_dir = results_dir / out_subdir
+    plots_dir.mkdir(parents=True, exist_ok=True)
+
+    _banner("PLOTS", "\U0001F4C8")
+    print(f"  train log : {tr_path}")
+    print(f"  val   log : {va_path}")
+    print(f"  output    : {plots_dir}")
+    tr = pd.read_csv(tr_path) if tr_path.exists() else None
+    va = pd.read_csv(va_path) if va_path.exists() else None
+    if tr is None:
+        print("  ⚠️  no train_log.csv - skipping the train-based plots")
+    if va is None:
+        print("  ⚠️  no val_log.csv - skipping the validation-based plots")
+    if tr is None and va is None:
+        return []
+
+    runs = _runs_in(tr if tr is not None else va)
+    for df in (tr, va):                       # a run may appear in only one of the two
+        for r in _runs_in(df):
+            if r not in runs:
+                runs.append(r)
+    colors = plt.get_cmap("tab10").colors
+    cmap = {r: colors[i % len(colors)] for i, r in enumerate(runs)}
+    single = len(runs) == 1
+    bsteps = _epoch_boundary_steps(tr) if (single and tr is not None) else []
+    print(f"  runs      : {', '.join(str(r) for r in runs)}")
+    saved = []
+
+    def _save(fig, fname):
+        fig.tight_layout(); fig.savefig(plots_dir / fname, dpi=dpi); plt.close(fig)
+        saved.append(fname); print(f"  ✅ {fname}")
+
+    def _lbl(rid, extra=""):
+        base = str(rid) if rid else "run"
+        return f"{base}{extra}"
+
+    # 1) loss: raw + smoothed train, val as markers, one colour per run
+    def _plot_loss():
+        fig, ax = plt.subplots(figsize=(9, 5))
+        for r in runs:
+            c = cmap[r]
+            t = _run_slice(tr, r)
+            if t is not None and "loss" in t.columns:
+                ax.plot(t["global_step"], t["loss"], color=c, alpha=0.2, lw=0.8)
+                ax.plot(t["global_step"], _smooth(t["loss"].values, smooth_window),
+                        color=c, lw=1.8, label=_lbl(r, " train"))
+            v = _run_slice(va, r)
+            if v is not None and "val_loss" in v.columns:
+                ax.plot(v["step"], v["val_loss"], color=c, ls="--", marker="o", ms=4,
+                        lw=1.4, label=_lbl(r, " val"))
+        _vlines(ax, bsteps)
+        ax.set_xlabel("global step"); ax.set_ylabel("loss")
+        ax.set_title(f"{name} - loss (train smoothed x{smooth_window})")
+        ax.legend(fontsize=8); ax.grid(True, alpha=0.3)
+        _save(fig, "loss_curves.png")
+
+    # 2) one macro metric over steps, best point starred per run
+    def _plot_macro(col, title, fname, mode="max", extra_col=None):
+        if va is None or col not in va.columns:
+            return
+        fig, ax = plt.subplots(figsize=(9, 5))
+        for r in runs:
+            v = _run_slice(va, r)
+            if v is None:
+                continue
+            ax.plot(v["step"], v[col], color=cmap[r], marker="o", ms=4, lw=1.8,
+                    label=_lbl(r))
+            _mark_extreme(ax, v["step"].values, v[col].values, mode, cmap[r])
+            if extra_col and extra_col in v.columns and v[extra_col].notna().any():
+                ax.plot(v["step"], v[extra_col], color=cmap[r], ls=":", marker="^",
+                        ms=4, lw=1.2, alpha=0.7, label=_lbl(r, " audit-58"))
+        _vlines(ax, bsteps)
+        ax.set_xlabel("global step"); ax.set_ylabel(col)
+        ax.set_title(f"{name} - {title}"); ax.legend(fontsize=8); ax.grid(True, alpha=0.3)
+        _save(fig, fname)
+
+    # 3) per-task small multiples, one panel per finding, one line per run
+    def _plot_per_task(prefix, title, fname):
+        if va is None:
+            return
+        cols = [(t, f"val_{prefix}_{t}") for t in tasks if f"val_{prefix}_{t}" in va.columns]
+        if not cols:
+            return
+        ncol = 4
+        nrow = int(math.ceil(len(cols) / ncol))
+        fig, axes = plt.subplots(nrow, ncol, figsize=(3.2 * ncol, 2.4 * nrow),
+                                 sharex=True, sharey=True)
+        axes = np.atleast_1d(axes).ravel()
+        for ax, (t, c) in zip(axes, cols):
+            for r in runs:
+                v = _run_slice(va, r)
+                if v is not None:
+                    ax.plot(v["step"], v[c], color=cmap[r], marker="o", ms=2.5, lw=1.3,
+                            label=_lbl(r))
+            ax.axhline(0.5, color="0.6", lw=0.7, ls=":")     # chance level
+            ax.set_title(t, fontsize=9); ax.grid(True, alpha=0.3)
+        for ax in axes[len(cols):]:
+            ax.axis("off")
+        if len(runs) > 1 or runs[0]:
+            axes[0].legend(fontsize=7, loc="lower right", framealpha=0.7)
+        fig.suptitle(f"{name} - {title}", fontsize=11)
+        _save(fig, fname)
+
+    # 4) macro F1 / precision / recall / specificity at 0.5
+    def _plot_op_point():
+        if va is None:
+            return
+        series = [("val_f1", "F1"), ("val_precision", "precision"),
+                  ("val_recall", "recall"), ("val_specificity", "specificity")]
+        series = [s for s in series if s[0] in va.columns]
+        if not series:
+            return
+        fig, ax = plt.subplots(figsize=(9, 5))
+        styles = ["-", "--", ":", "-."]
+        for r in runs:
+            v = _run_slice(va, r)
+            if v is None:
+                continue
+            for (col, lbl), st in zip(series, styles):
+                ax.plot(v["step"], v[col], color=cmap[r], ls=st, lw=1.5, marker="o",
+                        ms=3, label=_lbl(r, f" {lbl}"))
+        _vlines(ax, bsteps)
+        ax.set_xlabel("global step"); ax.set_ylabel("score @ threshold 0.5")
+        ax.set_title(f"{name} - operating point (threshold 0.5)")
+        ax.legend(fontsize=7, ncol=2); ax.grid(True, alpha=0.3)
+        _save(fig, "macro_f1_precision_recall.png")
+
+    # 5) learning rate
+    def _plot_lr():
+        if tr is None or "lr" not in tr.columns:
+            return
+        fig, ax = plt.subplots(figsize=(9, 4))
+        for r in runs:
+            t = _run_slice(tr, r)
+            if t is not None:
+                ax.plot(t["global_step"], t["lr"], color=cmap[r], lw=1.6, label=_lbl(r))
+        _vlines(ax, bsteps)
+        ax.set_xlabel("global step"); ax.set_ylabel("learning rate")
+        ax.set_title(f"{name} - learning rate (warmup + cosine)")
+        ax.legend(fontsize=8); ax.grid(True, alpha=0.3)
+        _save(fig, "learning_rate.png")
+
+    # 6) throughput / GPU memory / gradient norm, stacked
+    def _plot_diagnostics():
+        if tr is None:
+            return
+        fig, axes = plt.subplots(3, 1, figsize=(9, 9), sharex=True)
+        panels = [("img_s", "images / s"), ("gpu_mem_gb", "GPU mem peak (GB)"),
+                  ("gnorm", "grad norm")]
+        for ax, (col, ylab) in zip(axes, panels):
+            for r in runs:
+                t = _run_slice(tr, r)
+                if t is None or col not in t.columns:
+                    continue
+                ax.plot(t["global_step"], t[col], color=cmap[r], alpha=0.25, lw=0.8)
+                ax.plot(t["global_step"], _smooth(t[col].values, smooth_window),
+                        color=cmap[r], lw=1.6, label=_lbl(r))
+            ax.set_ylabel(ylab); ax.grid(True, alpha=0.3); _vlines(ax, bsteps)
+        axes[0].set_title(f"{name} - throughput / memory / gradients")
+        axes[0].legend(fontsize=8); axes[-1].set_xlabel("global step")
+        _save(fig, "training_diagnostics.png")
+
+    _safe("plot:loss", _plot_loss)
+    _safe("plot:macro_auroc", _plot_macro, "val_macro_auroc", "validation macro AUROC",
+          "macro_auroc.png", "max", "audit_macro_auroc")
+    _safe("plot:macro_auprc", _plot_macro, "val_macro_auprc", "validation macro AUPRC",
+          "macro_auprc.png", "max")
+    _safe("plot:per_task_auroc", _plot_per_task, "auroc", "per-finding AUROC",
+          "per_task_auroc.png")
+    _safe("plot:per_task_auprc", _plot_per_task, "auprc", "per-finding AUPRC",
+          "per_task_auprc.png")
+    _safe("plot:op_point", _plot_op_point)
+    _safe("plot:lr", _plot_lr)
+    _safe("plot:diagnostics", _plot_diagnostics)
+    print(f"  \U0001F4C8 wrote {len(saved)} plot(s) -> {plots_dir}")
+    return saved
+
+
+# =============================================================================
+# standalone inference, threshold calibration, official scoring
+# =============================================================================
+def _json_safe(obj):
+    """Make a dict JSON-valid: NaN/inf -> null, numpy scalars -> python."""
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    if isinstance(obj, (float, np.floating)):
+        v = float(obj)
+        return v if math.isfinite(v) else None
+    if isinstance(obj, (int, np.integer)):
+        return int(obj)
+    return obj
+
+
+def _resolve_eval_ckpt(checkpoint, ckpt_dir: Path) -> Path | None:
+    """best | last | top1..topK | <step> | <path> -> a file."""
+    if isinstance(checkpoint, str) and re.fullmatch(r"top\d+", checkpoint):
+        rank = int(checkpoint[3:])
+        try:
+            track = json.loads((ckpt_dir / "top_k.json").read_text())
+            return ckpt_dir / track[rank - 1]["file"]
+        except Exception as e:
+            print(f"  ⚠️  no {checkpoint} in top_k.json ({type(e).__name__}: {e})")
+            return None
+    return _resolve_resume(checkpoint, ckpt_dir)
+
+
+def _load_ckpt_weights(model, ckpt_dir: Path, checkpoint, device):
+    """Load the requested checkpoint's weights. Returns (ckpt_dict, path)."""
+    path = _resolve_eval_ckpt(checkpoint, ckpt_dir)
+    if path is None:
+        raise FileNotFoundError(f"no checkpoint {checkpoint!r} under {ckpt_dir}")
+    ck = torch.load(path, map_location="cpu", weights_only=False)
+    model.load_state_dict(ck["model"])
+    return ck, path
+
+
+def _eval_df(cfg: dict, csv_name: str) -> pd.DataFrame:
+    """Read a split CSV; the audit file names its columns official_<task>."""
+    df = pd.read_csv(resolve(csv_name, cfg))
+    return df.rename(columns={f"official_{t}": t for t in cfg["tasks"]})
+
+
+@torch.no_grad()
+def _predict_dataframe(cfg: dict, model, df: pd.DataFrame, device, loss_fn=None,
+                       plan: dict | None = None, batch_size: int | None = None,
+                       num_workers: int | None = None, amp: bool | None = None,
+                       desc: str = "") -> tuple:
+    """Score one dataframe with the eval transforms. -> (y_true, y_prob, mean_loss)."""
+    if plan is None:
+        plan = plan_slots(pd.read_csv(resolve(cfg["paths"]["series_index"], cfg)), cfg)
+    vbs, vnw = val_loader_settings(cfg)
+    bs = int(batch_size or vbs)
+    nw = vnw if num_workers is None else int(num_workers)
+    amp = (cfg["training"]["amp"] and device.type == "cuda") if amp is None else amp
+    has_y = all(t in df.columns for t in cfg["tasks"])
+    if not has_y:                          # a test split has no labels; feed zeros
+        df = df.copy()
+        for t in cfg["tasks"]:
+            df[t] = 0.0
+    loader = DataLoader(KneeShardDataset(df, cfg, plan, False), batch_size=bs,
+                        shuffle=False, num_workers=nw, pin_memory=device.type == "cuda")
+    model.eval().to(device)
+    P, Y, losses, seen = [], [], [], 0
+    t0 = last = time.time()
+    print(f"     [infer] {desc}: {len(df)} studies | {len(loader)} batches x{bs} | "
+          f"{nw} workers | amp={amp}", flush=True)
+    for bi, (x, y) in enumerate(loader, 1):
+        y = y.to(device, non_blocking=True)
+        with torch.autocast("cuda", enabled=amp):
+            logits = model(prepare_batch(x, cfg, device))
+            if loss_fn is not None:
+                losses.append(float(loss_fn(logits, y)) * y.shape[0])
+        P.append(torch.sigmoid(logits.float()).cpu().numpy()); Y.append(y.cpu().numpy())
+        seen += y.shape[0]
+        now = time.time()
+        if now - last >= 5.0 or bi == len(loader):     # throttled progress line
+            sps = seen / max(now - t0, 1e-9)
+            print(f"     [infer] {desc}: batch {bi}/{len(loader)} | study {seen}/{len(df)} "
+                  f"({100 * seen / max(len(df), 1):.0f}%) | {sps:.1f} studies/s | "
+                  f"elapsed {fmt(now - t0)} | ETA {fmt((len(df) - seen) / max(sps, 1e-9))}",
+                  flush=True)
+            last = now
+    y_true = np.concatenate(Y) if has_y else None
+    return y_true, np.concatenate(P), (float(np.sum(losses) / max(seen, 1)) if losses else float("nan"))
+
+
+def _best_f1_threshold(y_true_col, y_prob_col) -> tuple:
+    """Exact max-F1 cut for one task, read off the precision-recall curve."""
+    from sklearn.metrics import precision_recall_curve
+
+    yt, yp = np.asarray(y_true_col), np.asarray(y_prob_col)
+    n_pos = int(yt.sum())
+    if n_pos == 0 or n_pos == len(yt):            # degenerate task: nothing to optimize
+        return 0.5, float("nan")
+    prec, rec, thr = precision_recall_curve(yt, yp)
+    f1 = (2 * prec * rec / (prec + rec + 1e-12))[:-1]    # last point has no threshold
+    if len(f1) == 0 or np.all(np.isnan(f1)):
+        return 0.5, float("nan")
+    i = int(np.nanargmax(f1))
+    # sklearn cuts at p >= thr, compute_metrics at p > thr; nudge down so they agree
+    return float(np.nextafter(thr[i], -np.inf)), float(f1[i])
+
+
+def calibrate_thresholds(cfg: dict, model, df_val: pd.DataFrame, device, **kw) -> tuple:
+    """Per-task max-F1 threshold on the validation split. -> (thresholds, y_true, y_prob)."""
+    y_true, y_prob, _ = _predict_dataframe(cfg, model, df_val, device,
+                                           desc="calibrate/val", **kw)
+    cut = float(cfg.get("target", {}).get("hard_threshold", 0.5))
+    thr = {}
+    for i, t in enumerate(cfg["tasks"]):
+        thr[t], _ = _best_f1_threshold((y_true[:, i] > cut).astype(int), y_prob[:, i])
+    return thr, y_true, y_prob
+
+
+def _thresholds_path(results_dir, cfg) -> Path:
+    return Path(results_dir) / cfg["output"].get("thresholds_json", "thresholds.json")
+
+
+def load_thresholds(results_dir, cfg) -> tuple:
+    """Frozen per-task thresholds from results/thresholds.json, or (None, path)."""
+    path = _thresholds_path(results_dir, cfg)
+    if not path.exists():
+        return None, path
+    try:
+        thr = json.loads(path.read_text(encoding="utf-8")).get("thresholds", {})
+    except Exception as e:
+        print(f"  ⚠️  unreadable {path.name}: {type(e).__name__}: {e}")
+        return None, path
+    if not all(t in thr for t in cfg["tasks"]):
+        return None, path
+    return {t: float(thr[t]) for t in cfg["tasks"]}, path
+
+
+def _threshold_payload(cfg, thresholds, y_true, y_prob, ckpt, ckpt_path, n_val) -> tuple:
+    """thresholds.json content + the val metrics those thresholds achieve."""
+    tasks = cfg["tasks"]
+    cut = float(cfg.get("target", {}).get("hard_threshold", 0.5))
+    m = compute_metrics(y_true, y_prob, tasks, cut, [thresholds[t] for t in tasks])
+    payload = {
+        "experiment": cfg.get("experiment", {}).get("name"),
+        "run_id": cfg.get("experiment", {}).get("run_id"),
+        "objective": "f1", "scope": "per_task",
+        "calibration_set": str(cfg["paths"]["val_csv"]),
+        "checkpoint": str(ckpt_path),
+        "checkpoint_step": ckpt.get("step"), "checkpoint_epoch": ckpt.get("epoch"),
+        "n_val_studies": int(n_val),
+        "thresholds": {t: float(thresholds[t]) for t in tasks},
+        "val_metrics_at_threshold": {k: m[k] for k in
+                                     ("macro_auroc", "macro_auprc", "f1", "precision",
+                                      "recall", "specificity", "per_task")},
+        "calibrated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    return payload, m
+
+
+def run_calibration(cfg: dict, model, experiment_dir, device=None, checkpoint: str = "best",
+                    **kw) -> dict:
+    """Pick and freeze the per-task max-F1 thresholds -> results/thresholds.json.
+
+    AUROC is threshold-free, so this only affects the reported F1/precision/recall
+    and any future hard-label output (submission, error analysis).
+    """
+    experiment_dir = Path(experiment_dir)
+    res = experiment_dir / cfg["output"]["run_dir"]
+    ckpt_dir = res / cfg["output"]["checkpoints_dir"]
+    device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    tasks = cfg["tasks"]
+
+    _banner("THRESHOLD CALIBRATION", "\U0001F39A️")
+    ck, ck_path = _load_ckpt_weights(model, ckpt_dir, checkpoint, device)
+    _kv("setup", [("experiment", cfg.get("experiment", {}).get("name")),
+                  ("checkpoint", ck_path.name),
+                  ("from", f"epoch {ck.get('epoch')}, step {ck.get('step')}, "
+                           f"score={ck.get('score')}"),
+                  ("device", str(device)),
+                  ("set", str(cfg["paths"]["val_csv"])),
+                  ("objective", "max F1 per finding")], "⚙️")
+
+    df_val = _eval_df(cfg, cfg["paths"]["val_csv"])
+    thr, y_true, y_prob = calibrate_thresholds(cfg, model, df_val, device, **kw)
+    payload, m = _threshold_payload(cfg, thr, y_true, y_prob, ck, ck_path, len(df_val))
+
+    def f(x):
+        return f"{x:.4f}" if isinstance(x, float) and math.isfinite(x) else "nan"
+
+    _table("per-finding thresholds", ["finding", "thr", "F1", "Prec", "Rec", "AUROC"],
+           [[t, f"{thr[t]:.3f}", f(m["per_task"][t]["f1"]), f(m["per_task"][t]["precision"]),
+             f(m["per_task"][t]["recall"]), f(m["per_task"][t]["auroc"])] for t in tasks],
+           "\U0001F39A️")
+    print(f"  \U0001F4CA macro @ thresholds: F1={m['f1']:.4f}  P={m['precision']:.4f}  "
+          f"R={m['recall']:.4f}   (AUROC={m['macro_auroc']:.4f}, threshold-free)")
+    path = _thresholds_path(res, cfg)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(_json_safe(payload), indent=2), encoding="utf-8")
+    print(f"  \U0001F4BE saved frozen thresholds -> {path}")
+    return thr
+
+
+def _render_report_txt(rep: dict) -> str:
+    """Readable twin of <set>_results.json."""
+    L = ["=" * 86,
+         f"EVALUATION - {rep['set']}   ({rep['csv']})",
+         "=" * 86,
+         f"  experiment : {rep['experiment']}   run_id: {rep.get('run_id')}",
+         f"  checkpoint : {rep['checkpoint']}  (epoch {rep.get('checkpoint_epoch')}, "
+         f"step {rep.get('checkpoint_step')})",
+         f"  studies    : {rep['n_studies']}    device: {rep['device']}    amp: {rep['amp']}",
+         f"  thresholds : {rep['threshold_source']}"]
+    if rep.get("macro") is None:
+        L += ["-" * 86, "  no label columns in this CSV - predictions only.", "=" * 86]
+        return "\n".join(L)
+    mac = rep["macro"]
+    L += ["-" * 86,
+          "  MACRO (mean over the 12 findings)   [AUROC / AUPRC are threshold-free]",
+          f"    macro AUROC : {mac['macro_auroc']:.4f}        macro AUPRC : {mac['macro_auprc']:.4f}",
+          f"    F1 : {mac['f1']:.4f}    precision : {mac['precision']:.4f}    "
+          f"recall : {mac['recall']:.4f}    specificity : {mac['specificity']:.4f}",
+          f"    loss : {rep['loss']:.5f}",
+          "-" * 86, "  PER-FINDING",
+          f"    {'finding':<18}{'thr':>7}{'AUROC':>8}{'AUPRC':>8}{'F1':>8}{'Prec':>8}"
+          f"{'Rec':>8}{'Spec':>8}{'n_pos':>8}"]
+    for t, m in rep["per_task"].items():
+        def f(x):
+            return f"{x:.4f}" if isinstance(x, float) and math.isfinite(x) else "nan"
+        L.append(f"    {t:<18}{m['threshold']:>7.3f}{f(m['auroc']):>8}{f(m['auprc']):>8}"
+                 f"{f(m['f1']):>8}{f(m['precision']):>8}{f(m['recall']):>8}"
+                 f"{f(m['specificity']):>8}{m['pos']:>8}")
+    L.append("=" * 86)
+    return "\n".join(L)
+
+
+def evaluate_official(cfg: dict, model, experiment_dir, device=None,
+                      checkpoint: str = "best", eval_sets=("val", "audit"),
+                      calibrate_if_missing: bool = True, batch_size: int | None = None,
+                      num_workers: int | None = None, amp: bool | None = None) -> dict:
+    """Score a saved checkpoint on whole splits, outside any training run.
+
+    eval_sets names a split ("train"/"val"/"audit") or any CSV under data_dir. Each
+    writes results/<set>_predictions.csv plus a <set>_results.json/.txt report. A CSV
+    with no label columns (the test set) gets predictions only - that is the submission.
+    """
+    experiment_dir = Path(experiment_dir)
+    res = experiment_dir / cfg["output"]["run_dir"]
+    ckpt_dir = res / cfg["output"]["checkpoints_dir"]
+    device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    tasks = cfg["tasks"]
+
+    _banner("EVALUATION", "\U0001F9EA")
+    ck, ck_path = _load_ckpt_weights(model, ckpt_dir, checkpoint, device)
+    model = model.to(device)
+    _kv("setup", [("experiment", cfg.get("experiment", {}).get("name")),
+                  ("checkpoint", str(ck_path)),
+                  ("from", f"epoch {ck.get('epoch')}, step {ck.get('step')}, "
+                           f"score={ck.get('score')}"),
+                  ("device", str(device)), ("sets", ", ".join(eval_sets))], "⚙️")
+
+    plan = plan_slots(pd.read_csv(resolve(cfg["paths"]["series_index"], cfg)), cfg)
+    loss_fn = build_loss(cfg, None, device)
+    kw = dict(batch_size=batch_size, num_workers=num_workers, amp=amp, plan=plan)
+
+    thr_map, thr_path = load_thresholds(res, cfg)
+    thr_source = f"per-task max-F1 on {cfg['paths']['val_csv']}"
+    if thr_map is None and calibrate_if_missing:
+        print(f"  ⚠️  no usable {thr_path.name} - calibrating now on "
+              f"{cfg['paths']['val_csv']} ...")
+        df_val = _eval_df(cfg, cfg["paths"]["val_csv"])
+        thr_map, y_t, y_p = calibrate_thresholds(cfg, model, df_val, device, **kw)
+        payload, _ = _threshold_payload(cfg, thr_map, y_t, y_p, ck, ck_path, len(df_val))
+        thr_path.write_text(json.dumps(_json_safe(payload), indent=2), encoding="utf-8")
+        print(f"  \U0001F4BE saved frozen thresholds -> {thr_path}")
+    elif thr_map is None:
+        thr_map, thr_source = {t: 0.5 for t in tasks}, "uncalibrated (0.5)"
+        print("  ⚠️  no thresholds.json - using 0.5 (AUROC/AUPRC unaffected)")
+    else:
+        print(f"  \U0001F39A️  frozen thresholds from {thr_path}")
+
+    named = {"train": cfg["paths"]["train_csv"], "val": cfg["paths"]["val_csv"],
+             "audit": cfg["evaluation"]["audit"]["csv"]}
+    cut = float(cfg.get("target", {}).get("hard_threshold", 0.5))
+    reports = {}
+    for name in eval_sets:
+        csv_name = named.get(name, name)
+        # a raw csv path is labelled by its stem, so nothing gets written outside results/
+        label = name if name in named else Path(name).stem
+        path = resolve(csv_name, cfg)
+        print("=" * 70)
+        print(f"\U0001F9EA evaluating on {label}  ({path})")
+        if not path.exists():
+            print(f"  ⚠️  CSV not found - skipping {label}")
+            continue
+        df = _eval_df(cfg, csv_name)
+        y_true, y_prob, loss = _predict_dataframe(cfg, model, df, device, loss_fn,
+                                                  desc=f"eval/{label}", **kw)
+        ids = df.get("StudyInstanceUID", pd.Series(range(len(df)))).astype(str).values
+        pred = pd.DataFrame(y_prob, columns=[f"p_{t}" for t in tasks])
+        pred.insert(0, "StudyInstanceUID", ids)
+        pred_path = res / f"{label}_predictions.csv"
+        pred.to_csv(pred_path, index=False)
+
+        m = (compute_metrics(y_true, y_prob, tasks, cut, [thr_map[t] for t in tasks])
+             if y_true is not None else None)
+        rep = {"experiment": cfg.get("experiment", {}).get("name"),
+               "run_id": cfg.get("experiment", {}).get("run_id"),
+               "set": label, "csv": str(csv_name), "checkpoint": str(ck_path),
+               "checkpoint_step": ck.get("step"), "checkpoint_epoch": ck.get("epoch"),
+               "n_studies": int(len(df)), "device": str(device),
+               "amp": bool(cfg["training"]["amp"] if amp is None else amp),
+               "threshold_source": thr_source,
+               "thresholds": {t: float(thr_map[t]) for t in tasks},
+               "loss": loss,
+               "macro": None if m is None else {k: m[k] for k in
+                                                ("macro_auroc", "macro_auprc", "f1",
+                                                 "precision", "recall", "specificity")},
+               "per_task": None if m is None else m["per_task"],
+               "predictions_csv": str(pred_path),
+               "evaluated_at": datetime.now().isoformat(timespec="seconds")}
+        txt = _render_report_txt(rep)
+        (res / f"{label}_results.json").write_text(json.dumps(_json_safe(rep), indent=2),
+                                                  encoding="utf-8")
+        (res / f"{label}_results.txt").write_text(txt + "\n", encoding="utf-8")
+        print(txt)
+        print(f"  \U0001F4BE {res / f'{label}_results.json'}")
+        print(f"  \U0001F4BE {res / f'{label}_results.txt'}")
+        print(f"  \U0001F4BE {pred_path}")
+        reports[label] = rep
+
+    print(f"\U0001F3C1 evaluation done - {len(reports)} set(s) scored.")
+    return reports
