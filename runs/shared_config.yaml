@@ -67,7 +67,7 @@ target:
   hard_threshold: 0.5
   label_smoothing: 0.0              # hard mode only
 
-# epochs, batch_size, accum_steps, grad_clip and the whole optimizer / scheduler /
+# epochs, grad_clip and the whole optimizer / scheduler /
 # loss / early_stopping blocks are per-run — see each run's config.yaml
 training:
   amp: true                         # mixed precision: half-precision math, ~2x faster, less VRAM
@@ -88,8 +88,9 @@ reproducibility:
   seed: 42
   deterministic: false              # true = bit-identical reruns but noticeably slower
 
-# the whole dataloader block is per-run: batch_size, num_workers, prefetch_factor,
-# pin_memory, persistent_workers, drop_last, val_batch_size, val_num_workers
+# the whole dataloader block is per-run: batch_size, accum_steps, num_workers,
+# prefetch_factor, pin_memory, persistent_workers, drop_last,
+# val_batch_size, val_num_workers
 
 # modal.gpu is per-run
 # Modal = the cloud GPU service real training runs on; volumes are its persistent disks

@@ -135,6 +135,13 @@ def train_batch_size(cfg: dict) -> int:
     return int(bs)
 
 
+def accum_steps(cfg: dict) -> int:
+    """Micro-batches per weight update. Lives under dataloader, next to batch_size;
+    training.accum_steps still works for older run configs."""
+    dl = cfg.get("dataloader", {})
+    return int(dl.get("accum_steps", cfg["training"].get("accum_steps", 1)))
+
+
 def print_config(cfg: dict):
     """Everything this run is doing, as boxed tables, then the raw merged YAML."""
     i, t, o = cfg["input"], cfg["training"], cfg["output"]
@@ -193,10 +200,11 @@ def print_config(cfg: dict):
         _kv("augmentation", [("enabled", False)], "\U0001F3B2")
 
     bs = train_batch_size(cfg)
-    eff = bs * t.get("accum_steps", 1)
+    acc = accum_steps(cfg)
+    eff = bs * acc
     _kv("training", [
         ("epochs", t.get("epochs")),
-        ("batch", f"{bs} studies x accum {t.get('accum_steps', 1)} "
+        ("batch", f"{bs} studies x accum {acc} "
                   f"= {eff} studies ({eff * n_img} images) per update"),
         ("optimizer", f"{t['optimizer']['name']}  lr={t['optimizer'].get('lr'):.2e}  "
                       f"wd={t['optimizer'].get('weight_decay')}  "
@@ -1312,7 +1320,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
 
     loss_fn = build_loss(cfg, train_df, device)
     opt = build_optimizer(model, cfg)
-    accum = cfg["training"].get("accum_steps", 1)
+    accum = accum_steps(cfg)
     steps_per_epoch = max(1, len(loaders["train"]) // accum)
     total = steps_per_epoch * epochs
     sched = build_scheduler(opt, cfg, total)

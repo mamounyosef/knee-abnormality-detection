@@ -12,13 +12,13 @@ model:
 
 training:
   epochs: 12
-  accum_steps: 8                    # effective 16 studies
   grad_clip: 1.0                    # cap gradient size so one bad batch can't blow up training
   optimizer:
     name: "adamw"
-    lr: 1.0e-4                      # head learning rate; backbone gets 10% of it
+    lr: 1.0e-4                      # head learning rate; backbone gets half of it
+    backbone_lr_mult: 0.5           # -> backbone 5.0e-5. Knee MRI is far from ImageNet,
+                                    # so the pretrained trunk needs real adaptation
     weight_decay: 0.05
-    backbone_lr_mult: 0.1           # pretrained backbone learns 10x slower than the fresh head
     layer_decay: null               # layer-wise lr decay, e.g. 0.75: each layer down gets 75%
                                     # of the one above. Replaces backbone_lr_mult when set.
   scheduler:
@@ -40,8 +40,9 @@ training:
 
 # CPU-side loading; decoding shards is the bottleneck, so keep workers busy
 dataloader:
-  batch_size: 2                     # 2 studies x 4 slots x 24 slices = 192 images @512
-  val_batch_size: 6                 # no backward pass, so no stored activations -> 3x fits
+  batch_size: 4                     # 4 studies x 4 slots x 24 slices = 384 images @512
+  accum_steps: 4                    # effective 16 studies per weight update
+  val_batch_size: 12                # no backward pass, so no stored activations -> 3x fits
 
   num_workers: 8
   val_num_workers: null             # null = same as num_workers
@@ -52,4 +53,4 @@ dataloader:
   drop_last: false                  # keep the ragged final batch
 
 modal:
-  gpu: "A100-40GB"                  # 192 images of 512px per step needs the big card
+  gpu: "A100-80GB"                  # 384 images of 512px per step needs the room
