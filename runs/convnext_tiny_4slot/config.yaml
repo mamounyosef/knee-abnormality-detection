@@ -16,9 +16,9 @@ training:
   optimizer:
     name: "adamw"
     weight_decay: 0.05
-    lr: 1.0e-4                      # head learning rate; backbone gets half of it
-    backbone_lr_mult: 0.5           # -> backbone 5.0e-5. Knee MRI is far from ImageNet,
-                                    # so the pretrained trunk needs real adaptation
+    lr: 5.0e-5                      # BACKBONE lr — the trunk is 99.9% of the weights
+    backbone_lr_mult: 0.5           # head = lr / 0.5 = 1.0e-4, twice the trunk. Knee MRI
+                                    # is far from ImageNet, so the trunk needs real adaptation
     layer_decay: null               # layer-wise lr decay, e.g. 0.75: each layer down gets 75%
                                     # of the one above. Replaces backbone_lr_mult when set.
   scheduler:
@@ -41,7 +41,8 @@ training:
 # CPU-side loading; decoding shards is the bottleneck, so keep workers busy
 dataloader:
   batch_size: 4                     # 4 studies x 4 slots x 24 slices = 384 images @512
-  accum_steps: 4                    # effective 16 studies per weight update
+  accum_steps: 2                    # effective 8 studies per update -> 454 steps/epoch;
+                                    # 910 micro-batches divides by 2, so no discarded tail
   val_batch_size: 12                # no backward pass, so no stored activations -> 3x fits
 
   num_workers: 8

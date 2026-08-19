@@ -206,9 +206,10 @@ def print_config(cfg: dict):
         ("epochs", t.get("epochs")),
         ("batch", f"{bs} studies x accum {acc} "
                   f"= {eff} studies ({eff * n_img} images) per update"),
-        ("optimizer", f"{t['optimizer']['name']}  lr={t['optimizer'].get('lr'):.2e}  "
-                      f"wd={t['optimizer'].get('weight_decay')}  "
-                      f"backbone x{t['optimizer'].get('backbone_lr_mult')}"),
+        ("optimizer", f"{t['optimizer']['name']}  "
+                      f"backbone lr={t['optimizer'].get('lr'):.2e}  "
+                      f"head lr={t['optimizer'].get('lr') / (t['optimizer'].get('backbone_lr_mult') or 1):.2e}  "
+                      f"wd={t['optimizer'].get('weight_decay')}"),
         ("scheduler", f"{t['scheduler']['name']}  warmup={t['scheduler']['warmup_frac']:.0%}  "
                       f"floor={t['scheduler']['min_lr_mult']:.0%} of base"),
         ("loss", f"{t['loss']['name']}  pos_weight={t['loss']['pos_weight']}"),
@@ -882,15 +883,23 @@ def _print_llrd(groups: list, base_lr: float, layer_decay: float, top: int):
 
 
 def build_optimizer(model: nn.Module, cfg: dict):
-    """AdamW with two learning rates: full for the new head, slower for the backbone."""
+    """AdamW with two learning rates.
+
+    `optimizer.lr` is the BACKBONE rate — the pretrained trunk is ~99.9% of the
+    parameters, so that is the number worth setting directly. The fresh head is
+    derived: head_lr = lr / backbone_lr_mult (mult 0.5 -> head runs 2x faster).
+    """
     o = cfg["training"]["optimizer"]
-    lr, mult = o["lr"], o.get("backbone_lr_mult", 1.0)
+    lr = o["lr"]                                      # backbone
+    mult = o.get("backbone_lr_mult", 1.0) or 1.0      # 0 would divide by zero
+    head_lr = lr / mult
     ld = o.get("layer_decay")
     if ld:
-        # LLRD replaces the flat backbone_lr_mult: every depth gets its own lr
-        groups = _param_groups_llrd(model, lr, o.get("weight_decay", 0.05), float(ld))
-        _print_llrd(groups, lr, float(ld), max(g["layer_id"] for g in groups))
-        return torch.optim.AdamW(groups, lr=lr, weight_decay=o.get("weight_decay", 0.05))
+        # LLRD replaces the flat mult: depths decay downward from the head, so the
+        # head still sits at head_lr and `lr` stays "what the trunk's top layer gets"
+        groups = _param_groups_llrd(model, head_lr, o.get("weight_decay", 0.05), float(ld))
+        _print_llrd(groups, head_lr, float(ld), max(g["layer_id"] for g in groups))
+        return torch.optim.AdamW(groups, lr=head_lr, weight_decay=o.get("weight_decay", 0.05))
     # split structurally, not by name: everything under .backbone is the pretrained
     # trunk, the rest is freshly initialized. Substring matching got this wrong -
     # "fc" also matches every mlp.fc1/fc2 inside a ConvNeXt block.
@@ -907,10 +916,10 @@ def build_optimizer(model: nn.Module, cfg: dict):
             n_bb += p.numel()
         else:
             n_head += p.numel()
-    groups = [{"params": backbone, "lr": lr * mult}, {"params": head, "lr": lr}]
-    print(f"  \U0001F9EE lr groups: head {n_head / 1e6:.2f}M @ {lr:.2e}  |  "
-          f"backbone {n_bb / 1e6:.2f}M @ {lr * mult:.2e}  (x{mult})")
-    return torch.optim.AdamW(groups, lr=lr, weight_decay=o.get("weight_decay", 0.05))
+    groups = [{"params": backbone, "lr": lr}, {"params": head, "lr": head_lr}]
+    print(f"  \U0001F9EE lr groups: backbone {n_bb / 1e6:.2f}M @ {lr:.2e} (config lr)  |  "
+          f"head {n_head / 1e6:.2f}M @ {head_lr:.2e}  (lr / {mult})")
+    return torch.optim.AdamW(groups, lr=head_lr, weight_decay=o.get("weight_decay", 0.05))
 
 
 def build_scheduler(opt, cfg: dict, total_steps: int):
@@ -1285,8 +1294,10 @@ def _print_eval(tag: str, epoch: int, epochs: int, gstep: int, m: dict,
           f"Spec={m['specificity']:.3f}")
     for t in tasks:
         v = m["per_task"][t]
-        print(f"        {t:18s} AUROC={v['auroc']:.4f}  AUPRC={v['auprc']:.4f}  "
-              f"(pos={v['pos']})")
+        # a finding with no positives in the split has no defined AUROC/AUPRC
+        au = "   n/a" if v["auroc"] != v["auroc"] else f"{v['auroc']:.4f}"
+        ap = "   n/a" if v["auprc"] != v["auprc"] else f"{v['auprc']:.4f}"
+        print(f"        {t:18s} AUROC={au}  AUPRC={ap}  (pos={v['pos']})")
 
 
 def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None, log_fn=None):
@@ -1629,12 +1640,25 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         print(f"  \U0001F4CA macro AUPRC       : {best_row.get('val_macro_auprc')}")
         if "audit_macro_auroc" in best_row:
             print(f"  \U0001F9EA audit-58 AUROC    : {best_row['audit_macro_auroc']}  (report only)")
-        print("\n  per-finding AUROC at the best epoch (bar = AUROC above chance):")
+        # the only place the 12 findings are printed; every validation writes them
+        # to val_log.csv but printing them each time buries the run log
+        has_audit = "audit_macro_auroc" in best_row
+        rows = []
         ranked = sorted(((t, best_row.get(f"val_auroc_{t}", float("nan")))
                          for t in cfg["tasks"]), key=lambda kv: -(kv[1] if kv[1] == kv[1] else 0))
         for t, v in ranked:
-            bar = "\u2588" * int(max(0.0, v - 0.5) * 40) if v == v else ""
-            print(f"    {t:18s} {v:.4f}  {bar}")
+            cells = [t, "  n/a" if v != v else f"{v:.4f}",
+                     ("  n/a" if best_row.get(f"val_auprc_{t}", float("nan"))
+                      != best_row.get(f"val_auprc_{t}", float("nan"))
+                      else f"{best_row[f'val_auprc_{t}']:.4f}")]
+            if has_audit:
+                a = best_row.get(f"audit_auroc_{t}", float("nan"))
+                cells.append("  n/a" if a != a else f"{a:.4f}")
+            cells.append("\u2588" * int(max(0.0, v - 0.5) * 40) if v == v else "")
+            rows.append(cells)
+        heads = ["finding", "val AUROC", "val AUPRC"] + (["audit-58"] if has_audit else []) \
+            + ["above chance"]
+        _table(f"per-finding at the best epoch ({best_epoch})", heads, rows, "\U0001F50D")
         print("\n  \U0001F4C8 reference: keyword labeler 0.700, LLM labels 0.895 (vs the 58)")
     print(f"  \U0001F4BE checkpoints       : {ckpt_dir}")
     print(f"  \U0001F4DD logs              : {out / cfg['output']['train_log_csv']}")

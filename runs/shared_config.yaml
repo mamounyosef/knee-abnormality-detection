@@ -116,10 +116,10 @@ output:
   summary_json: "training_summary.json"
   console_log_every: 20
   console_capture_dir: "train_config"   # full terminal capture per run
-  keep_last_n: 8                    # rolling window over periodic step checkpoints
+  checkpoint_every_steps: 100         # 0 = epoch-end only
+  keep_last_n: 15                    # rolling window over periodic step checkpoints
   keep_top_k: 8                     # best K validations of the whole run, for ensembling
   top_k_weights_only: true          # top-K store weights only, ~3x smaller
-  checkpoint_every_steps: 0         # 0 = epoch-end only
   save_debug_images: 200            # every N steps dump a batch exactly as the model sees it
   debug_dir: "debugged_images"
   make_plots: true                  # training-curve PNGs at the end of every run
