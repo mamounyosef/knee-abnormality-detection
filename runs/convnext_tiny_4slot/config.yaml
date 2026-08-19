@@ -11,14 +11,14 @@ model:
   drop_rate: 0.1                    # dropout in the head, mild regularization
 
 training:
-  epochs: 12
+  epochs: 8
   grad_clip: 1.0                    # cap gradient size so one bad batch can't blow up training
   optimizer:
     name: "adamw"
+    weight_decay: 0.05
     lr: 1.0e-4                      # head learning rate; backbone gets half of it
     backbone_lr_mult: 0.5           # -> backbone 5.0e-5. Knee MRI is far from ImageNet,
                                     # so the pretrained trunk needs real adaptation
-    weight_decay: 0.05
     layer_decay: null               # layer-wise lr decay, e.g. 0.75: each layer down gets 75%
                                     # of the one above. Replaces backbone_lr_mult when set.
   scheduler:
@@ -36,7 +36,7 @@ training:
     enable: true
     monitor: "val_macro_auroc"
     mode: "max"
-    patience: 4                     # epochs without improvement before quitting
+    patience: 7                     # epochs without improvement before quitting
 
 # CPU-side loading; decoding shards is the bottleneck, so keep workers busy
 dataloader:

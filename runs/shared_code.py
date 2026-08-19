@@ -429,6 +429,7 @@ _LAST_PLAN: dict = {}          # slot plan of the most recent make_loaders call
 _RETR_NS = _mp.Value("q", 0)       # summed read time, nanoseconds
 _RETR_BYTES = _mp.Value("q", 0)    # summed bytes decompressed
 _RETR_IMGS = _mp.Value("q", 0)     # summed slices actually used
+_EPOCH = _mp.Value("q", 0)         # current epoch, so train augmentation varies per epoch
 
 
 def _retr_snapshot():
@@ -451,6 +452,7 @@ class KneeShardDataset(Dataset):
         self.mode = i["train_slice_sampling"] if train else i["slice_sampling"]
         self.margin = i.get("slice_margin", 0.0)
         self.aug = cfg["augmentation"] if train and cfg["augmentation"]["enable"] else None
+        self.seed = int(cfg["reproducibility"]["seed"])
         # per-series mm-per-pixel, needed to rescale every scan to one physical scale
         self.geo = (pd.read_csv(resolve(cfg["paths"]["series_index"], cfg))
                     .set_index("series")[["pixel_spacing_c", "pixel_spacing_r"]])
@@ -544,8 +546,11 @@ class KneeShardDataset(Dataset):
         """Build one study's tensor: stack the 4 slot volumes, attach its 12 labels."""
         row = self.df.iloc[i]
         study = row["StudyInstanceUID"]                 # one study = one patient's knee exam
-        # val/audit get a per-study fixed seed so their sampling is reproducible
-        rng = np.random.default_rng(None if self.train else (hash(study) & 0xFFFFFFFF))
+        # every item's randomness is a pure function of (seed, epoch, index) for train
+        # and (seed, study) for val/audit - so a run is reproducible and a resumed run
+        # sees the same stream it would have seen uninterrupted
+        rng = np.random.default_rng([self.seed, int(_EPOCH.value), i] if self.train
+                                    else [self.seed, hash(study) & 0xFFFFFFFF])
         chosen = self.plan.get(study, {})               # {slot: series} picked by plan_slots
 
         vols = []
@@ -993,7 +998,7 @@ def _resolve_resume(resume, ckpt_dir: Path) -> Path | None:
 
 
 def load_checkpoint(resume, model, ckpt_dir: Path, opt=None, sched=None,
-                    scaler=None, device=None) -> dict:
+                    scaler=None, device=None, cfg_now: dict | None = None) -> dict:
     """Restore whatever the checkpoint holds. Returns {} when there is nothing to do."""
     path = _resolve_resume(resume, ckpt_dir)
     if path is None:
@@ -1014,6 +1019,13 @@ def load_checkpoint(resume, model, ckpt_dir: Path, opt=None, sched=None,
         _restore_rng(ck["rng"], device)
     print(f"  \u21A9\uFE0F  resumed at epoch {ck.get('epoch')}, step {ck.get('step')}, "
           f"score={ck.get('score')}")
+    # the cosine schedule spans epochs x steps_per_epoch, so resuming under a
+    # different `epochs` silently trains on a different lr curve
+    was = ((ck.get("cfg") or {}).get("training") or {}).get("epochs")
+    now = ((cfg_now or {}).get("training") or {}).get("epochs")
+    if was is not None and now is not None and was != now:
+        print(f"  ⚠️  epochs changed {was} -> {now}: the lr curve is NOT the "
+              f"one this checkpoint was trained under")
     return ck
 
 
@@ -1355,7 +1367,8 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     es = cfg["training"]["early_stopping"]
     best, best_epoch, bad, gstep = -math.inf, 0, 0, 0
     start_epoch, top_k_track = 1, []
-    ck = load_checkpoint(cfg.get("resume"), model, ckpt_dir, opt, sched, scaler, device)
+    ck = load_checkpoint(cfg.get("resume"), model, ckpt_dir, opt, sched, scaler,
+                         device, cfg_now=cfg)
     resumed_elapsed, history = 0.0, []
     if ck:
         gstep = int(ck.get("step") or 0)
@@ -1479,6 +1492,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         print("\n" + "=" * 70)
         print(f"\U0001F4DA EPOCH {epoch}/{epochs}")
         print("=" * 70)
+        _EPOCH.value = epoch          # workers seed their augmentation off this
         model.train()
         ep_t0, seen = time.time(), 0
         # two throughput numbers so a slow volume can't hide behind a fast GPU:
@@ -1584,6 +1598,15 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                     prev_loss = l
                     if log_fn:
                         log_fn({"train/loss": l, "train/lr": lr, "train/gnorm": gnorm}, gstep)
+
+        # drop_last=false leaves a ragged tail: those micro-batches ran backward() but
+        # never reached opt.step(), so without this their gradients leak into the first
+        # step of the next epoch (and a resumed run, being a fresh process, would not
+        # have them - the two trajectories then diverge).
+        if it % accum:
+            opt.zero_grad(set_to_none=True)
+            print(f"  \U0001F9F9 discarded {it % accum} trailing micro-batch(es) "
+                  f"(not a full accumulation window)")
 
         _validate_and_checkpoint(epoch, gstep, "epoch")
 
