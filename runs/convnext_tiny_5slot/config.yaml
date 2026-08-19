@@ -1,0 +1,67 @@
+# Ablation: same as convnext_tiny_4slot but with a 5th slot, coronal plain (T1).
+# cor_plain is present for 77.3% of studies and is the standard sequence for the
+# meniscus and collateral ligaments - the two weakest findings in the 4-slot run.
+# Everything else is identical, so the comparison isolates the extra view.
+
+experiment:
+  name: "convnext_tiny_5slot"
+
+input:
+  # 4-slot order plus coronal plain; ax_plain is deliberately left out (19.4% presence)
+  slots: ["sag_plain", "sag_fluid", "cor_fluid", "ax_fluid", "cor_plain"]
+
+model:
+  name: "convnext_tiny.fb_in22k_ft_in1k"   # timm id: ConvNeXt-Tiny pretrained on ImageNet-22k
+  pretrained: true
+  pool: "mean"                      # how the 96 slice features collapse per study: mean | max | attn
+  drop_rate: 0.1                    # dropout in the head, mild regularization
+
+training:
+  epochs: 8
+  grad_clip: 1.0                    # cap gradient size so one bad batch can't blow up training
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-5                      # BACKBONE lr — the trunk is 99.9% of the weights
+    backbone_lr_mult: 0.5           # head = lr / 0.5 = 1.0e-4, twice the trunk. Knee MRI
+                                    # is far from ImageNet, so the trunk needs real adaptation
+    layer_decay: null               # layer-wise lr decay, e.g. 0.75: each layer down gets 75%
+                                    # of the one above. Replaces backbone_lr_mult when set.
+  scheduler:
+    name: "cosine"                  # learning rate warms up, then decays along a cosine curve
+    warmup_frac: 0.05
+    min_lr_mult: 0.01               # floor: ends at 1% of the base learning rate
+  loss:
+    name: "bce"                     # bce = binary cross-entropy | focal = focuses on hard cases
+                                    # aucm = pairwise surrogate for AUROC, the actual metric
+    pos_weight: null                # "auto" up-weights rare labels
+    focal_gamma: 2.0
+    aucm_margin: 1.0                # how far apart aucm pushes a positive from a negative
+    aucm_bce_mix: 0.1               # bit of bce mixed in, keeps the probabilities sane
+  early_stopping:                   # stop once val stops improving, saves GPU hours
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 7                     # epochs without improvement before quitting
+
+# CPU-side loading; decoding shards is the bottleneck, so keep workers busy
+dataloader:
+  batch_size: 2                     # 2 studies x 5 slots x 24 slices = 240 images @512
+  accum_steps: 4                    # effective 8 studies per update -> 455 steps/epoch,
+                                    # same as 4x2 but half the peak memory
+  val_batch_size: 3                 # no backward pass, but 5 slots is 25% more per study
+
+  num_workers: 16
+  val_num_workers: null             # null = same as num_workers
+  
+  prefetch_factor: 4                # batches queued per worker
+  pin_memory: true                  # page-locked memory, faster CPU -> GPU copies
+  persistent_workers: true          # don't respawn workers every epoch
+  drop_last: false                  # keep the ragged final batch
+
+modal:
+  gpu: "A100-80GB"                  # 240 images of 512px per step needs the room
+  cpu: 10.0                         # one core per dataloader worker; decoding npz is CPU-bound
+  memory_gb: 32                     # 16 workers x prefetch 4 holding uint8 volumes
+
+resume: null
