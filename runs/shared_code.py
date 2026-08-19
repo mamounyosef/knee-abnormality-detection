@@ -945,10 +945,15 @@ def _restore_rng(st: dict, device):
 
 def save_checkpoint(path: Path, cfg, model, opt=None, sched=None, scaler=None,
                     epoch=0, step=0, score=None, track=None, device=None,
-                    weights_only=False):
-    """Full state by default, so a run can resume exactly where it stopped."""
+                    weights_only=False, elapsed_sec=0.0, epoch_complete=True):
+    """Full state by default, so a run can resume exactly where it stopped.
+
+    epoch_complete=False marks a checkpoint written part-way through an epoch, so
+    resume replays that epoch instead of silently skipping the rest of its data.
+    """
     payload = {"model": model.state_dict(), "cfg": cfg, "epoch": epoch,
-               "step": step, "score": score, "track": track}
+               "step": step, "score": score, "track": track,
+               "elapsed_sec": elapsed_sec, "epoch_complete": epoch_complete}
     if not weights_only:
         if opt is not None:
             payload["optimizer"] = opt.state_dict()
@@ -1066,19 +1071,20 @@ def seed_worker(worker_id: int):
 def evaluate(model, loader, loss_fn, cfg, device) -> dict:
     """Run the whole loader and return macro AUROC, per-label AUROC and mean loss."""
     model.eval()
-    P, Y, losses = [], [], []                      # predictions, targets, per-batch losses
-    amp = cfg["training"]["amp"] and device.type == "cuda"
-    for x, y in loader:
-        y = y.to(device, non_blocking=True)
-        with torch.autocast("cuda", enabled=amp):
-            logits = model(prepare_batch(x, cfg, device))
-            losses.append(loss_fn(logits, y).item())
+    all_predictions, all_targets, batch_losses = [], [], []
+    use_amp = cfg["training"]["amp"] and device.type == "cuda"
+    for images, targets in loader:
+        targets = targets.to(device, non_blocking=True)
+        with torch.autocast("cuda", enabled=use_amp):
+            logits = model(prepare_batch(images, cfg, device))
+            batch_losses.append(loss_fn(logits, targets).item())
         # sigmoid turns raw logits into 0-1 probabilities
-        P.append(torch.sigmoid(logits.float()).cpu().numpy()); Y.append(y.cpu().numpy())
-    m = compute_metrics(np.concatenate(Y), np.concatenate(P), cfg["tasks"])
-    m["loss"] = float(np.mean(losses))
-    m["n"] = int(np.concatenate(Y).shape[0])
-    return m
+        all_predictions.append(torch.sigmoid(logits.float()).cpu().numpy())
+        all_targets.append(targets.cpu().numpy())
+    metrics = compute_metrics(np.concatenate(all_targets), np.concatenate(all_predictions), cfg["tasks"])
+    metrics["loss"] = float(np.mean(batch_losses))
+    metrics["n"] = int(np.concatenate(all_targets).shape[0])
+    return metrics
 
 
 def save_debug_batch(x_prep: torch.Tensor, cfg: dict, out_dir: Path,
@@ -1350,17 +1356,31 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     best, best_epoch, bad, gstep = -math.inf, 0, 0, 0
     start_epoch, top_k_track = 1, []
     ck = load_checkpoint(cfg.get("resume"), model, ckpt_dir, opt, sched, scaler, device)
+    resumed_elapsed, history = 0.0, []
     if ck:
         gstep = int(ck.get("step") or 0)
-        start_epoch = int(ck.get("epoch") or 0) + 1
+        ck_epoch = int(ck.get("epoch") or 0)
         tr = ck.get("track") or {}
         best = tr.get("best", -math.inf)
         best_epoch = tr.get("best_epoch", 0)
+        bad = int(tr.get("bad", 0))               # keep counting toward patience
         top_k_track = tr.get("top_k", [])
+        history = list(tr.get("history", []))     # so the final summary sees the whole run
+        resumed_elapsed = float(ck.get("elapsed_sec") or 0.0)
+        if ck.get("epoch_complete", True):
+            start_epoch = ck_epoch + 1
+        else:
+            # written part-way through ck_epoch: replay it rather than lose its tail
+            start_epoch = ck_epoch
+            gstep = (ck_epoch - 1) * steps_per_epoch
+            print(f"  ↩️  checkpoint was mid-epoch - replaying epoch {ck_epoch} "
+                  f"from step {gstep}")
+        print(f"  ↩️  restored: best={best:.4f} @ epoch {best_epoch}  "
+              f"patience={bad}/{es['patience']}  top_k={len(top_k_track)}  "
+              f"elapsed={fmt(resumed_elapsed)}")
     train_log = CSVLogger(out / cfg["output"]["train_log_csv"], run_id)
     val_log = CSVLogger(out / cfg["output"]["val_log_csv"], run_id)
-    history = []
-    t0 = time.time()
+    t0 = time.time() - resumed_elapsed            # ETA/elapsed span the whole run
     prev_loss = None
 
     last_val_step = -1
@@ -1406,15 +1426,27 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
             log_fn({f"val/{k}": v for k, v in row.items() if isinstance(v, (int, float))},
                    gstep)
 
+        done = (tag == "epoch")          # mid-epoch checkpoints must replay their epoch
+
+        def _track():
+            return {"best": best, "best_epoch": best_epoch, "bad": bad,
+                    "top_k": top_k_track, "history": history}
+
         score = row.get(es["monitor"], vm["macro_auroc"])
+        # update the top-K board FIRST, so best.pt/last.pt carry the current board.
+        # Saving before it left the board a step stale, and a resumed run then could
+        # not evict files it did not know about (keep_top_k=2 kept 3).
+        top_k_track = update_top_k(ckpt_dir, cfg, model, epoch, gstep, score, top_k_track,
+                                   cfg["output"].get("keep_top_k", 0),
+                                   cfg["output"].get("top_k_weights_only", True))
+
         improved = score > best if es["mode"] == "max" else score < best
         if improved:
             prev = best
             best, best_epoch, bad = score, epoch, 0
             save_checkpoint(ckpt_dir / cfg["output"]["best_name"], cfg, model, opt, sched,
-                            scaler, epoch, gstep, score,
-                            track={"best": best, "best_epoch": best_epoch,
-                                   "top_k": top_k_track}, device=device)
+                            scaler, epoch, gstep, score, track=_track(), device=device,
+                            elapsed_sec=el, epoch_complete=done)
             delta = "" if prev == -math.inf else f"  (was {prev:.4f}, +{score - prev:.4f})"
             print(f"  \u2B50 new best {es['monitor']} = {score:.4f}{delta} -> best.pt")
         else:
@@ -1423,11 +1455,8 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                   f"best {best:.4f} @ epoch {best_epoch}")
 
         save_checkpoint(ckpt_dir / "last.pt", cfg, model, opt, sched, scaler, epoch, gstep,
-                        score, track={"best": best, "best_epoch": best_epoch,
-                                      "top_k": top_k_track}, device=device)
-        top_k_track = update_top_k(ckpt_dir, cfg, model, epoch, gstep, score, top_k_track,
-                                   cfg["output"].get("keep_top_k", 0),
-                                   cfg["output"].get("top_k_weights_only", True))
+                        score, track=_track(), device=device,
+                        elapsed_sec=el, epoch_complete=done)
         print(f"  \U0001F4BE saved last.pt (epoch {epoch})"
               + (f"  \U0001F3C6 top-{len(top_k_track)} kept" if top_k_track else ""))
 
@@ -1518,7 +1547,9 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                     save_checkpoint(ckpt_dir / f"step{gstep}.pt", cfg, model, opt, sched,
                                     scaler, epoch, gstep,
                                     track={"best": best, "best_epoch": best_epoch,
-                                           "top_k": top_k_track}, device=device)
+                                           "bad": bad, "top_k": top_k_track,
+                                           "history": history},
+                                    device=device, elapsed_sec=el, epoch_complete=False)
                     prune_checkpoints(ckpt_dir, cfg["output"].get("keep_last_n", 3))
                     print(f"  \U0001F4BE periodic checkpoint @ step {gstep} "
                           f"(rolling, keep_last_n={cfg['output'].get('keep_last_n', 3)})")
