@@ -1,0 +1,1999 @@
+[capture] full console of this run -> /runs/convnext_tiny_4slot/results/train_config/run003_2026-08-19_18-27-26.txt
+[capture] run_id: run003  workspace: local
+[capture] command: /pkg/modal/_container_entrypoint.py
+[capture] started 2026-08-19 18:27:26
+######################################################################
+# 🚀 run_experiment: convnext_tiny_4slot
+# 🆔 run_id=run003  workspace=local
+# 🖥️  device=cuda  epochs=8
+######################################################################
+[set_seed] seed=42  deterministic=False
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║ 🖥️ ENVIRONMENT                                                             ║
+╚════════════════════════════════════════════════════════════════════════════╝
+┌─ 📦 software────────────────────────────────────────────────────────────────┐
+│ host                  │ modal                                              │
+│ platform              │ Linux 4.19.0-gvisor                                │
+│ python                │ 3.11.12                                            │
+│ torch                 │ 2.13.0+cu130                                       │
+│ cuda (torch)          │ 13.0                                               │
+│ timm                  │ 1.0.28                                             │
+│ numpy / pandas        │ 2.4.6 / 3.0.5                                      │
+│ opencv                │ 5.0.0                                              │
+└────────────────────────────────────────────────────────────────────────────┘
+┌─ 🧮 cpu / memory────────────────────────────────────────────────────────────┐
+│ logical cores         │ 26                                                 │
+│ physical cores        │ 26                                                 │
+│ RAM total             │ 1024.0 GiB                                         │
+│ RAM available         │ 1020.2 GiB                                         │
+└────────────────────────────────────────────────────────────────────────────┘
+  🎮 gpu
+┌───┬───────────────────────┬──────────┬────────────┬─────┐
+│ # │ device                │ memory   │ capability │ SMs │
+├───┼───────────────────────┼──────────┼────────────┼─────┤
+│ 0 │ NVIDIA A100-SXM4-80GB │ 79.3 GiB │ 8.0        │ 108 │
+└───┴───────────────────────┴──────────┴────────────┴─────┘
+  cudnn benchmark=True  tf32_matmul=False  tf32_cudnn=True
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║ ⚙️ CONFIGURATION                                                           ║
+╚════════════════════════════════════════════════════════════════════════════╝
+┌─ 🎯 run─────────────────────────────────────────────────────────────────────┐
+│ experiment            │ convnext_tiny_4slot                                │
+│ run_id                │ run003                                             │
+│ model                 │ convnext_tiny.fb_in22k_ft_in1k  (pretrained=True)  │
+│ pooling               │ mean                                               │
+│ findings              │ 12  ACL, MCL, Medial Meniscus, Lateral Meniscus ...│
+│ resume                │ None                                               │
+│ seed                  │ 42  deterministic=False                            │
+└────────────────────────────────────────────────────────────────────────────┘
+┌─ 📁 paths───────────────────────────────────────────────────────────────────┐
+│ data_dir              │ /root/data                                         │
+│ shards_dir            │ /shards                                            │
+│ train csv             │ 05_train.csv                                       │
+│ val csv               │ 05_val.csv                                         │
+│ audit csv             │ 05_audit58.csv                                     │
+└────────────────────────────────────────────────────────────────────────────┘
+  🖼️ input slots
+┌───┬───────────┬──────────┬──────────────────────┐
+│ # │ slot      │ plane    │ setting              │
+├───┼───────────┼──────────┼──────────────────────┤
+│ 1 │ sag_plain │ sagittal │ plain (anatomy)      │
+│ 2 │ sag_fluid │ sagittal │ fluid (bright water) │
+│ 3 │ cor_fluid │ coronal  │ fluid (bright water) │
+│ 4 │ ax_fluid  │ axial    │ fluid (bright water) │
+└───┴───────────┴──────────┴──────────────────────┘
+┌─ 📐 geometry & intensity────────────────────────────────────────────────────┐
+│ images per study      │ 4 slots x 24 slices = 96                           │
+│ resolution            │ 512 x 512 px @ 0.4 mm/px = 205 mm field            │
+│ slice sampling        │ train=random  eval=even  margin=0.05               │
+│ missing slots         │ fallback_same_plane=True                           │
+│ duplicate rule        │ coverage                                           │
+├────────────────────────────────────────────────────────────────────────────┤
+│ window                │ volume  pct=[1.0, 99.0]                            │
+│ channels              │ 3                                                  │
+│ norm mean/std         │ [0.485, 0.456, 0.406] / [0.229, 0.224, 0.225]      │
+└────────────────────────────────────────────────────────────────────────────┘
+  🎲 augmentation (train split only)
+┌───────────────┬─────┬──────────────────┐
+│ transform     │ p   │ params           │
+├───────────────┼─────┼──────────────────┤
+│ rotation      │ 0.3 │ deg=10           │
+│ translate     │ 0.3 │ frac=0.05        │
+│ scale         │ 0.3 │ range=[0.9, 1.1] │
+│ brightness    │ 0.3 │ factor=0.15      │
+│ contrast      │ 0.3 │ factor=0.15      │
+│ hflip         │ 0.0 │ -                │
+│ slice_dropout │ 0.1 │ frac=0.1         │
+└───────────────┴─────┴──────────────────┘
+┌─ 🏋️ training───────────────────────────────────────────────────────────────┐
+│ epochs                │ 8                                                  │
+│ batch                 │ 2 studies x accum 4 = 8 studies (768 images) per...│
+│ optimizer             │ adamw  backbone lr=5.00e-05  head lr=1.00e-04  w...│
+│ scheduler             │ cosine  warmup=5%  floor=1% of base                │
+│ loss                  │ bce  pos_weight=None                               │
+│ target                │ soft  (LLM probabilities, 0.895 macro AUROC vs t...│
+│ precision             │ amp=True  channels_last=True  grad_clip=1.0        │
+│ early stopping        │ val_macro_auroc (max), patience=7                  │
+└────────────────────────────────────────────────────────────────────────────┘
+┌─ 🚚 dataloader──────────────────────────────────────────────────────────────┐
+│ num_workers           │ 16                                                 │
+│ prefetch/persist      │ 4 / True                                           │
+│ pin_memory            │ True                                               │
+│ drop_last             │ False                                              │
+└────────────────────────────────────────────────────────────────────────────┘
+┌─ 📋 evaluation & output─────────────────────────────────────────────────────┐
+│ eval cadence          │ 400 steps until epoch 3, then every 200 steps      │
+│ audit set             │ enable=True  (58 studies, report only)             │
+│ run_dir               │ results                                            │
+│ checkpoints           │ checkpoints/  best=best.pt  keep_last_n=15         │
+│ logs                  │ train_log.csv, val_log.csv, training_summary.json  │
+│ console               │ log_every=20  capture=train_config                 │
+└────────────────────────────────────────────────────────────────────────────┘
+┌─ ☁️ modal (cloud)──────────────────────────────────────────────────────────┐
+│ gpu                   │ A100-80GB                                          │
+│ cpu / memory          │ 10.0 cores / 24 GB                                 │
+│ timeout               │ 8 h                                                │
+│ shards volume         │ knee-shards -> /shards                             │
+│ runs volume           │ knee-runs -> /runs                                 │
+└────────────────────────────────────────────────────────────────────────────┘
+
+── raw merged config (verbatim) ───────────────────────────────────────────────
+paths:
+  data_dir: /root/data
+  shards_dir: /shards
+  train_csv: 05_train.csv
+  val_csv: 05_val.csv
+  audit_csv: 05_audit58.csv
+  series_index: 07_series_index.csv
+tasks:
+- ACL
+- MCL
+- Medial Meniscus
+- Lateral Meniscus
+- Medial OA
+- Lateral OA
+- PF OA
+- Effusion
+- Synovitis
+- Baker's
+- Contusion
+- Fracture
+input:
+  slots:
+  - sag_plain
+  - sag_fluid
+  - cor_fluid
+  - ax_fluid
+  fallback_same_plane: true
+  duplicate_rule: coverage
+  n_slices: 24
+  slice_margin: 0.05
+  slice_sampling: even
+  train_slice_sampling: random
+  mm_per_px: 0.4
+  size: 512
+  interpolation: area
+  window: volume
+  window_pct:
+  - 1.0
+  - 99.0
+  channels: 3
+  norm_mean:
+  - 0.485
+  - 0.456
+  - 0.406
+  norm_std:
+  - 0.229
+  - 0.224
+  - 0.225
+augmentation:
+  enable: true
+  rotation:
+    p: 0.3
+    deg: 10
+  translate:
+    p: 0.3
+    frac: 0.05
+  scale:
+    p: 0.3
+    range:
+    - 0.9
+    - 1.1
+  brightness:
+    p: 0.3
+    factor: 0.15
+  contrast:
+    p: 0.3
+    factor: 0.15
+  hflip:
+    p: 0.0
+  slice_dropout:
+    p: 0.1
+    frac: 0.1
+target:
+  mode: soft
+  hard_threshold: 0.5
+  label_smoothing: 0.0
+training:
+  amp: true
+  channels_last: true
+  perf:
+    tf32: true
+    compile: false
+    compile_mode: default
+  epochs: 8
+  grad_clip: 1.0
+  optimizer:
+    name: adamw
+    weight_decay: 0.05
+    lr: 5.0e-05
+    backbone_lr_mult: 0.5
+    layer_decay: null
+  scheduler:
+    name: cosine
+    warmup_frac: 0.05
+    min_lr_mult: 0.01
+  loss:
+    name: bce
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  early_stopping:
+    enable: true
+    monitor: val_macro_auroc
+    mode: max
+    patience: 7
+evaluation:
+  eval_every_steps_before: 400
+  eval_every_steps_after: 200
+  eval_every_steps_epoch_threshold: 3
+  eval_every_epochs: null
+  audit:
+    enable: true
+    csv: 05_audit58.csv
+reproducibility:
+  seed: 42
+  deterministic: false
+modal:
+  timeout_hours: 8
+  shards_volume: knee-shards
+  shards_mount: /shards
+  runs_volume: knee-runs
+  runs_mount: /runs
+  wandb_secret: wandb-secret
+  gpu: A100-80GB
+  cpu: 10.0
+  memory_gb: 24
+wandb:
+  enabled: false
+  project: knee-abnormality
+  log_every: 20
+output:
+  run_dir: results
+  checkpoints_dir: checkpoints
+  best_name: best.pt
+  train_log_csv: train_log.csv
+  val_log_csv: val_log.csv
+  summary_json: training_summary.json
+  console_log_every: 20
+  console_capture_dir: train_config
+  commit_every_steps: 25
+  checkpoint_every_steps: 100
+  keep_last_n: 15
+  keep_top_k: 8
+  top_k_weights_only: true
+  save_debug_images: 200
+  debug_dir: debugged_images
+  make_plots: true
+  plots_dir: plots
+  thresholds_json: thresholds.json
+resume: null
+experiment:
+  name: convnext_tiny_4slot
+  run_id: run003
+model:
+  name: convnext_tiny.fb_in22k_ft_in1k
+  pretrained: true
+  pool: mean
+  drop_rate: 0.1
+dataloader:
+  batch_size: 2
+  accum_steps: 4
+  val_batch_size: 4
+  num_workers: 16
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+──────────────────────────────────────────────────────────────────────────────
+[paths] results -> /runs/convnext_tiny_4slot/results
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║ 📦 DATA                                                                     ║
+╚════════════════════════════════════════════════════════════════════════════╝
+  📊 splits
+┌───────┬─────────┬─────────┬─────────┬───────────┐
+│ split │ studies │ batches │ images  │ labels    │
+├───────┼─────────┼─────────┼─────────┼───────────┤
+│ train │ 3,639   │ 1,820   │ 349,344 │ soft LLM  │
+│ val   │ 704     │ 176     │ 67,584  │ soft LLM  │
+│ audit │ 58      │ 15      │ 5,568   │ panel 0/1 │
+└───────┴─────────┴─────────┴─────────┴───────────┘
+  ⚖️ label balance
+┌──────────────────┬──────────────┬────────────┬────────────┬──────────┬───────────┐
+│ finding          │ train mean p │ train >0.5 │ val mean p │ val >0.5 │ audit pos │
+├──────────────────┼──────────────┼────────────┼────────────┼──────────┼───────────┤
+│ ACL              │ 0.230        │ 17.7%      │ 0.218      │ 16.2%    │ 41.4%     │
+│ MCL              │ 0.182        │ 14.4%      │ 0.175      │ 13.4%    │ 15.5%     │
+│ Medial Meniscus  │ 0.431        │ 40.0%      │ 0.398      │ 37.4%    │ 44.8%     │
+│ Lateral Meniscus │ 0.202        │ 14.6%      │ 0.198      │ 14.2%    │ 39.7%     │
+│ Medial OA        │ 0.301        │ 21.9%      │ 0.286      │ 20.6%    │ 25.9%     │
+│ Lateral OA       │ 0.225        │ 12.8%      │ 0.217      │ 12.6%    │ 19.0%     │
+│ PF OA            │ 0.332        │ 26.3%      │ 0.327      │ 27.0%    │ 36.2%     │
+│ Effusion         │ 0.586        │ 59.7%      │ 0.575      │ 59.5%    │ 60.3%     │
+│ Synovitis        │ 0.365        │ 22.0%      │ 0.357      │ 20.2%    │ 46.6%     │
+│ Baker's          │ 0.315        │ 25.2%      │ 0.306      │ 24.1%    │ 20.7%     │
+│ Contusion        │ 0.224        │ 15.5%      │ 0.207      │ 13.8%    │ 32.8%     │
+│ Fracture         │ 0.117        │ 6.9%       │ 0.111      │ 5.7%     │ 31.0%     │
+└──────────────────┴──────────────┴────────────┴────────────┴──────────┴───────────┘
+  🧩 slot coverage (after fallback)
+┌───────────┬─────────┬────────┐
+│ slot      │ studies │ %      │
+├───────────┼─────────┼────────┤
+│ sag_plain │ 4407    │ 100.0% │
+│ sag_fluid │ 4407    │ 100.0% │
+│ cor_fluid │ 4407    │ 100.0% │
+│ ax_fluid  │ 4407    │ 100.0% │
+└───────────┴─────────┴────────┘
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║ 🧠 MODEL                                                                    ║
+╚════════════════════════════════════════════════════════════════════════════╝
+┌─ 🧱 architecture────────────────────────────────────────────────────────────┐
+│ backbone              │ convnext_tiny.fb_in22k_ft_in1k                     │
+│ pretrained            │ True                                               │
+│ pooling               │ mean over 96 images/study                          │
+│ output logits         │ 12  (one per finding)                              │
+├────────────────────────────────────────────────────────────────────────────┤
+│ total params          │ 27,829,356  (27.83 M)                              │
+│ trainable             │ 27,829,356  (27.83 M, 100.0%)                      │
+│ frozen                │ 0  (0.00 M)                                        │
+└────────────────────────────────────────────────────────────────────────────┘
+  🧮 lr groups: backbone 27.82M @ 5.00e-05 (config lr)  |  head 0.01M @ 1.00e-04  (lr / 0.5)
+[setup] optimizer=adamw  scheduler=cosine  amp=True
+[setup] steps/epoch=455  total_steps=3640  accum=4  images/optimizer-step=768
+[setup] loss=bce  train bs=2/16w  val bs=4/16w
+
+======================================================================
+📚 EPOCH 1/8
+======================================================================
+  🖼️  debug image -> /runs/convnext_tiny_4slot/results/debugged_images/run003_e1_s1.png
+  🔥 warmup STARTED - lr ramps from 0 to base over 182 step(s) (5% of 3640)
+──────────────────────────────────────────────────────────────────────
+  Epoch 1/8  epoch_step: 1/455  global_step: 1/3640
+     loss=0.7433  lr[head=5.495e-07 backbone=2.747e-07]  gnorm=2.05  elapsed=1m03s  ETA=63h44m13s  gpu_mem(peak)=59.01GB
+     throughput: 15 img/s compute | 12 img/s real (1-step) | data-wait 17%
+     retrieval:  202 img/s | 96 MB/s | 16.5 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 1/8  epoch_step: 20/455  global_step: 20/3640
+     loss=0.7218 (-0.0214)  lr[head=1.099e-05 backbone=5.495e-06]  gnorm=2.04  elapsed=1m51s  ETA=5h36m32s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 140 img/s real (20-step) | data-wait 10%
+     retrieval:  296 img/s | 156 MB/s | 11.2 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 1/8  epoch_step: 40/455  global_step: 40/3640
+     loss=0.5500 (-0.1718)  lr[head=2.198e-05 backbone=1.099e-05]  gnorm=5.26  elapsed=2m43s  ETA=4h05m26s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  297 img/s | 147 MB/s | 19.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 1/8  epoch_step: 60/455  global_step: 60/3640
+     loss=0.5358 (-0.0142)  lr[head=3.297e-05 backbone=1.648e-05]  gnorm=1.61  elapsed=3m35s  ETA=3h34m08s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  297 img/s | 143 MB/s | 12.4 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 1/8  epoch_step: 80/455  global_step: 80/3640
+     loss=0.4481 (-0.0877)  lr[head=4.396e-05 backbone=2.198e-05]  gnorm=2.58  elapsed=4m27s  ETA=3h18m10s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  297 img/s | 144 MB/s | 13.1 ms/img avg read (shards)
+  💾 periodic checkpoint @ step 100 (rolling, keep_last_n=15)
+──────────────────────────────────────────────────────────────────────
+  Epoch 1/8  epoch_step: 100/455  global_step: 100/3640
+     loss=0.5890 (+0.1409)  lr[head=5.495e-05 backbone=2.747e-05]  gnorm=1.72  elapsed=5m17s  ETA=3h07m10s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  314 img/s | 157 MB/s | 11.5 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 1/8  epoch_step: 120/455  global_step: 120/3640
+     loss=0.4544 (-0.1346)  lr[head=6.593e-05 backbone=3.297e-05]  gnorm=1.34  elapsed=6m15s  ETA=3h03m46s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  255 img/s | 131 MB/s | 11.8 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 1/8  epoch_step: 140/455  global_step: 140/3640
+     loss=0.6522 (+0.1978)  lr[head=7.692e-05 backbone=3.846e-05]  gnorm=0.97  elapsed=7m07s  ETA=2h58m17s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  293 img/s | 152 MB/s | 13.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 1/8  epoch_step: 160/455  global_step: 160/3640
+     loss=0.4446 (-0.2075)  lr[head=8.791e-05 backbone=4.396e-05]  gnorm=1.26  elapsed=7m59s  ETA=2h53m53s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  296 img/s | 137 MB/s | 13.8 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 1/8  epoch_step: 180/455  global_step: 180/3640
+     loss=0.6904 (+0.2458)  lr[head=9.890e-05 backbone=4.945e-05]  gnorm=1.95  elapsed=8m51s  ETA=2h50m19s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  298 img/s | 160 MB/s | 11.5 ms/img avg read (shards)
+  ✅ warmup COMPLETE at step 182 - base lr reached (backbone 5.000e-05, head 1.000e-04); cosine decay begins
+  💾 periodic checkpoint @ step 200 (rolling, keep_last_n=15)
+  🖼️  debug image -> /runs/convnext_tiny_4slot/results/debugged_images/run003_e1_s200.png
+──────────────────────────────────────────────────────────────────────
+  Epoch 1/8  epoch_step: 200/455  global_step: 200/3640
+     loss=0.6050 (-0.0854)  lr[head=9.999e-05 backbone=5.000e-05]  gnorm=2.13  elapsed=9m41s  ETA=2h46m45s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  316 img/s | 143 MB/s | 11.0 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 1/8  epoch_step: 220/455  global_step: 220/3640
+     loss=0.5971 (-0.0079)  lr[head=9.997e-05 backbone=4.999e-05]  gnorm=1.14  elapsed=10m40s  ETA=2h45m58s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  255 img/s | 134 MB/s | 12.5 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 1/8  epoch_step: 240/455  global_step: 240/3640
+     loss=0.5657 (-0.0313)  lr[head=9.993e-05 backbone=4.997e-05]  gnorm=0.88  elapsed=11m32s  ETA=2h43m29s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  297 img/s | 128 MB/s | 13.6 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 1/8  epoch_step: 260/455  global_step: 260/3640
+     loss=0.5210 (-0.0447)  lr[head=9.988e-05 backbone=4.994e-05]  gnorm=0.92  elapsed=12m25s  ETA=2h41m31s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  284 img/s | 131 MB/s | 16.4 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 1/8  epoch_step: 280/455  global_step: 280/3640
+     loss=0.5205 (-0.0005)  lr[head=9.980e-05 backbone=4.990e-05]  gnorm=0.55  elapsed=13m17s  ETA=2h39m29s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  298 img/s | 149 MB/s | 15.2 ms/img avg read (shards)
+  💾 periodic checkpoint @ step 300 (rolling, keep_last_n=15)
+──────────────────────────────────────────────────────────────────────
+  Epoch 1/8  epoch_step: 300/455  global_step: 300/3640
+     loss=0.6295 (+0.1089)  lr[head=9.972e-05 backbone=4.986e-05]  gnorm=1.83  elapsed=14m07s  ETA=2h37m15s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  317 img/s | 175 MB/s | 13.9 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 1/8  epoch_step: 320/455  global_step: 320/3640
+     loss=0.4404 (-0.1890)  lr[head=9.961e-05 backbone=4.981e-05]  gnorm=0.74  elapsed=15m06s  ETA=2h36m42s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  256 img/s | 130 MB/s | 14.8 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 1/8  epoch_step: 340/455  global_step: 340/3640
+     loss=0.4315 (-0.0090)  lr[head=9.949e-05 backbone=4.975e-05]  gnorm=0.75  elapsed=15m57s  ETA=2h34m56s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  287 img/s | 144 MB/s | 19.6 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 1/8  epoch_step: 360/455  global_step: 360/3640
+     loss=0.5002 (+0.0687)  lr[head=9.935e-05 backbone=4.968e-05]  gnorm=0.67  elapsed=16m49s  ETA=2h33m20s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  305 img/s | 139 MB/s | 15.2 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 1/8  epoch_step: 380/455  global_step: 380/3640
+     loss=0.7136 (+0.2134)  lr[head=9.920e-05 backbone=4.960e-05]  gnorm=0.66  elapsed=17m42s  ETA=2h31m52s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  291 img/s | 153 MB/s | 15.5 ms/img avg read (shards)
+======================================================================
+🔎 VALIDATION (every 400 steps) - epoch 1/8  step 400  (176 batches, 704 studies) ...
+----------------------------------------------------------------------
+  🔎 [VAL] epoch=1/8 step=400  n=704  loss=0.5336  elapsed=18m33s  ETA=2h30m21s
+     📊 macro AUROC=0.7322  AUPRC=0.4109  F1=0.396  P=0.663  R=0.282  Spec=0.959
+        ACL                AUROC=0.6905  AUPRC=0.3140  (pos=114)
+        MCL                AUROC=0.7406  AUPRC=0.2719  (pos=94)
+        Medial Meniscus    AUROC=0.7224  AUPRC=0.5686  (pos=263)
+        Lateral Meniscus   AUROC=0.6721  AUPRC=0.2486  (pos=100)
+        Medial OA          AUROC=0.7980  AUPRC=0.5041  (pos=145)
+        Lateral OA         AUROC=0.7547  AUPRC=0.3510  (pos=89)
+        PF OA              AUROC=0.7005  AUPRC=0.4425  (pos=190)
+        Effusion           AUROC=0.7981  AUPRC=0.8497  (pos=419)
+        Synovitis          AUROC=0.7588  AUPRC=0.4880  (pos=142)
+        Baker's            AUROC=0.7002  AUPRC=0.3955  (pos=170)
+        Contusion          AUROC=0.7376  AUPRC=0.3117  (pos=97)
+        Fracture           AUROC=0.7129  AUPRC=0.1854  (pos=40)
+----------------------------------------------------------------------
+  🧪 [AUDIT-58] epoch=1/8 step=400  n=58  loss=0.5763  elapsed=18m33s  ETA=2h30m21s
+     📊 macro AUROC=0.7404  AUPRC=0.6294  F1=0.359  P=0.699  R=0.242  Spec=0.945
+        ACL                AUROC=0.6029  AUPRC=0.4905  (pos=24)
+        MCL                AUROC=0.5828  AUPRC=0.2118  (pos=9)
+        Medial Meniscus    AUROC=0.7296  AUPRC=0.7273  (pos=26)
+        Lateral Meniscus   AUROC=0.7919  AUPRC=0.7178  (pos=23)
+        Medial OA          AUROC=0.8589  AUPRC=0.7465  (pos=15)
+        Lateral OA         AUROC=0.7795  AUPRC=0.5922  (pos=11)
+        PF OA              AUROC=0.7162  AUPRC=0.6962  (pos=21)
+        Effusion           AUROC=0.8236  AUPRC=0.8570  (pos=35)
+        Synovitis          AUROC=0.7849  AUPRC=0.7574  (pos=27)
+        Baker's            AUROC=0.7899  AUPRC=0.5703  (pos=12)
+        Contusion          AUROC=0.7908  AUPRC=0.7055  (pos=19)
+        Fracture           AUROC=0.6333  AUPRC=0.4798  (pos=18)
+     ℹ️  report only - the panel's labels, never drives best.pt
+  ⭐ new best val_macro_auroc = 0.7322 -> best.pt
+  💾 saved last.pt (epoch 1)  🏆 top-1 kept
+  💾 periodic checkpoint @ step 400 (rolling, keep_last_n=15)
+  🖼️  debug image -> /runs/convnext_tiny_4slot/results/debugged_images/run003_e1_s400.png
+──────────────────────────────────────────────────────────────────────
+  Epoch 1/8  epoch_step: 400/455  global_step: 400/3640
+     loss=0.4789 (-0.2346)  lr[head=9.903e-05 backbone=4.952e-05]  gnorm=0.67  elapsed=18m32s  ETA=2h30m08s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  1778 img/s | 874 MB/s | 17.9 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 1/8  epoch_step: 420/455  global_step: 420/3640
+     loss=0.3494 (-0.1295)  lr[head=9.885e-05 backbone=4.942e-05]  gnorm=0.72  elapsed=22m19s  ETA=2h51m11s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  63 img/s | 28 MB/s | 31.0 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 1/8  epoch_step: 440/455  global_step: 440/3640
+     loss=0.5033 (+0.1539)  lr[head=9.865e-05 backbone=4.932e-05]  gnorm=0.87  elapsed=23m11s  ETA=2h48m41s  gpu_mem(peak)=59.22GB
+     throughput: 308 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  299 img/s | 127 MB/s | 16.5 ms/img avg read (shards)
+
+======================================================================
+📚 EPOCH 2/8
+======================================================================
+──────────────────────────────────────────────────────────────────────
+  Epoch 2/8  epoch_step: 5/455  global_step: 460/3640
+     loss=0.4875 (-0.0158)  lr[head=9.843e-05 backbone=4.921e-05]  gnorm=0.81  elapsed=24m28s  ETA=2h49m13s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 252 img/s real (5-step) | data-wait 18%
+     retrieval:  209 img/s | 98 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 2/8  epoch_step: 25/455  global_step: 480/3640
+     loss=0.4695 (-0.0180)  lr[head=9.820e-05 backbone=4.910e-05]  gnorm=0.66  elapsed=25m20s  ETA=2h46m49s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  296 img/s | 141 MB/s | 3.0 ms/img avg read (shards)
+  💾 periodic checkpoint @ step 500 (rolling, keep_last_n=15)
+──────────────────────────────────────────────────────────────────────
+  Epoch 2/8  epoch_step: 45/455  global_step: 500/3640
+     loss=0.5165 (+0.0470)  lr[head=9.795e-05 backbone=4.897e-05]  gnorm=1.33  elapsed=26m10s  ETA=2h44m22s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  309 img/s | 135 MB/s | 2.8 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 2/8  epoch_step: 65/455  global_step: 520/3640
+     loss=0.4148 (-0.1017)  lr[head=9.768e-05 backbone=4.884e-05]  gnorm=0.84  elapsed=27m08s  ETA=2h42m53s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  262 img/s | 135 MB/s | 3.2 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 2/8  epoch_step: 85/455  global_step: 540/3640
+     loss=0.5660 (+0.1511)  lr[head=9.740e-05 backbone=4.870e-05]  gnorm=1.38  elapsed=28m01s  ETA=2h40m51s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  294 img/s | 151 MB/s | 3.2 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 2/8  epoch_step: 105/455  global_step: 560/3640
+     loss=0.4681 (-0.0979)  lr[head=9.711e-05 backbone=4.855e-05]  gnorm=0.66  elapsed=28m53s  ETA=2h38m51s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  297 img/s | 165 MB/s | 3.4 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 2/8  epoch_step: 125/455  global_step: 580/3640
+     loss=0.3427 (-0.1254)  lr[head=9.680e-05 backbone=4.840e-05]  gnorm=1.38  elapsed=29m45s  ETA=2h37m00s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  292 img/s | 144 MB/s | 3.0 ms/img avg read (shards)
+  💾 periodic checkpoint @ step 600 (rolling, keep_last_n=15)
+  🖼️  debug image -> /runs/convnext_tiny_4slot/results/debugged_images/run003_e2_s600.png
+──────────────────────────────────────────────────────────────────────
+  Epoch 2/8  epoch_step: 145/455  global_step: 600/3640
+     loss=0.4987 (+0.1560)  lr[head=9.647e-05 backbone=4.824e-05]  gnorm=1.04  elapsed=30m35s  ETA=2h35m00s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  308 img/s | 152 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 2/8  epoch_step: 165/455  global_step: 620/3640
+     loss=0.5496 (+0.0509)  lr[head=9.613e-05 backbone=4.807e-05]  gnorm=0.82  elapsed=31m35s  ETA=2h33m52s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  256 img/s | 118 MB/s | 2.9 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 2/8  epoch_step: 185/455  global_step: 640/3640
+     loss=0.5637 (+0.0141)  lr[head=9.578e-05 backbone=4.789e-05]  gnorm=0.98  elapsed=32m27s  ETA=2h32m07s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  297 img/s | 150 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 2/8  epoch_step: 205/455  global_step: 660/3640
+     loss=0.5317 (-0.0320)  lr[head=9.541e-05 backbone=4.770e-05]  gnorm=0.79  elapsed=33m19s  ETA=2h30m27s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  295 img/s | 152 MB/s | 3.2 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 2/8  epoch_step: 225/455  global_step: 680/3640
+     loss=0.6995 (+0.1678)  lr[head=9.502e-05 backbone=4.751e-05]  gnorm=1.16  elapsed=34m11s  ETA=2h28m51s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  292 img/s | 151 MB/s | 3.2 ms/img avg read (shards)
+  💾 periodic checkpoint @ step 700 (rolling, keep_last_n=15)
+──────────────────────────────────────────────────────────────────────
+  Epoch 2/8  epoch_step: 245/455  global_step: 700/3640
+     loss=0.6681 (-0.0315)  lr[head=9.462e-05 backbone=4.731e-05]  gnorm=0.96  elapsed=35m01s  ETA=2h27m07s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  307 img/s | 134 MB/s | 2.8 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 2/8  epoch_step: 265/455  global_step: 720/3640
+     loss=0.4965 (-0.1715)  lr[head=9.420e-05 backbone=4.710e-05]  gnorm=1.05  elapsed=36m00s  ETA=2h26m00s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  263 img/s | 131 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 2/8  epoch_step: 285/455  global_step: 740/3640
+     loss=0.5731 (+0.0766)  lr[head=9.377e-05 backbone=4.689e-05]  gnorm=1.65  elapsed=36m51s  ETA=2h24m28s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  297 img/s | 141 MB/s | 3.0 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 2/8  epoch_step: 305/455  global_step: 760/3640
+     loss=0.5961 (+0.0230)  lr[head=9.333e-05 backbone=4.667e-05]  gnorm=0.64  elapsed=37m43s  ETA=2h22m58s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  295 img/s | 133 MB/s | 2.8 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 2/8  epoch_step: 325/455  global_step: 780/3640
+     loss=0.3821 (-0.2140)  lr[head=9.287e-05 backbone=4.644e-05]  gnorm=1.56  elapsed=38m35s  ETA=2h21m31s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  296 img/s | 144 MB/s | 3.0 ms/img avg read (shards)
+======================================================================
+🔎 VALIDATION (every 400 steps) - epoch 2/8  step 800  (176 batches, 704 studies) ...
+----------------------------------------------------------------------
+  🔎 [VAL] epoch=2/8 step=800  n=704  loss=0.5097  elapsed=39m27s  ETA=2h20m05s
+     📊 macro AUROC=0.7849  AUPRC=0.4977  F1=0.503  P=0.664  R=0.404  Spec=0.942
+        ACL                AUROC=0.7621  AUPRC=0.3957  (pos=114)
+        MCL                AUROC=0.7601  AUPRC=0.3233  (pos=94)
+        Medial Meniscus    AUROC=0.7855  AUPRC=0.6621  (pos=263)
+        Lateral Meniscus   AUROC=0.7043  AUPRC=0.3013  (pos=100)
+        Medial OA          AUROC=0.8464  AUPRC=0.6442  (pos=145)
+        Lateral OA         AUROC=0.8303  AUPRC=0.4798  (pos=89)
+        PF OA              AUROC=0.7553  AUPRC=0.5210  (pos=190)
+        Effusion           AUROC=0.8650  AUPRC=0.9044  (pos=419)
+        Synovitis          AUROC=0.8143  AUPRC=0.6047  (pos=142)
+        Baker's            AUROC=0.7324  AUPRC=0.4487  (pos=170)
+        Contusion          AUROC=0.8031  AUPRC=0.4768  (pos=97)
+        Fracture           AUROC=0.7604  AUPRC=0.2110  (pos=40)
+----------------------------------------------------------------------
+  🧪 [AUDIT-58] epoch=2/8 step=800  n=58  loss=0.5447  elapsed=39m27s  ETA=2h20m05s
+     📊 macro AUROC=0.7827  AUPRC=0.6936  F1=0.504  P=0.693  R=0.396  Spec=0.908
+        ACL                AUROC=0.6985  AUPRC=0.5868  (pos=24)
+        MCL                AUROC=0.6009  AUPRC=0.2439  (pos=9)
+        Medial Meniscus    AUROC=0.7200  AUPRC=0.7230  (pos=26)
+        Lateral Meniscus   AUROC=0.8261  AUPRC=0.8006  (pos=23)
+        Medial OA          AUROC=0.9225  AUPRC=0.8378  (pos=15)
+        Lateral OA         AUROC=0.7805  AUPRC=0.6186  (pos=11)
+        PF OA              AUROC=0.7632  AUPRC=0.7478  (pos=21)
+        Effusion           AUROC=0.8882  AUPRC=0.9308  (pos=35)
+        Synovitis          AUROC=0.8280  AUPRC=0.8206  (pos=27)
+        Baker's            AUROC=0.8243  AUPRC=0.6900  (pos=12)
+        Contusion          AUROC=0.8556  AUPRC=0.8256  (pos=19)
+        Fracture           AUROC=0.6847  AUPRC=0.4975  (pos=18)
+     ℹ️  report only - the panel's labels, never drives best.pt
+  ⭐ new best val_macro_auroc = 0.7849  (was 0.7322, +0.0528) -> best.pt
+  💾 saved last.pt (epoch 2)  🏆 top-2 kept
+  💾 periodic checkpoint @ step 800 (rolling, keep_last_n=15)
+  🖼️  debug image -> /runs/convnext_tiny_4slot/results/debugged_images/run003_e2_s800.png
+──────────────────────────────────────────────────────────────────────
+  Epoch 2/8  epoch_step: 345/455  global_step: 800/3640
+     loss=0.5447 (+0.1626)  lr[head=9.240e-05 backbone=4.620e-05]  gnorm=1.56  elapsed=39m25s  ETA=2h19m58s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  1770 img/s | 877 MB/s | 3.2 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 2/8  epoch_step: 365/455  global_step: 820/3640
+     loss=0.4142 (-0.1306)  lr[head=9.192e-05 backbone=4.596e-05]  gnorm=0.85  elapsed=42m11s  ETA=2h25m06s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  92 img/s | 52 MB/s | 3.4 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 2/8  epoch_step: 385/455  global_step: 840/3640
+     loss=0.6164 (+0.2023)  lr[head=9.142e-05 backbone=4.571e-05]  gnorm=1.14  elapsed=43m03s  ETA=2h23m31s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  296 img/s | 144 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 2/8  epoch_step: 405/455  global_step: 860/3640
+     loss=0.6179 (+0.0015)  lr[head=9.090e-05 backbone=4.545e-05]  gnorm=1.56  elapsed=43m57s  ETA=2h22m04s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  286 img/s | 148 MB/s | 3.2 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 2/8  epoch_step: 425/455  global_step: 880/3640
+     loss=0.4728 (-0.1451)  lr[head=9.038e-05 backbone=4.519e-05]  gnorm=0.74  elapsed=44m48s  ETA=2h20m33s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  296 img/s | 138 MB/s | 3.0 ms/img avg read (shards)
+  💾 periodic checkpoint @ step 900 (rolling, keep_last_n=15)
+──────────────────────────────────────────────────────────────────────
+  Epoch 2/8  epoch_step: 445/455  global_step: 900/3640
+     loss=0.4948 (+0.0220)  lr[head=8.984e-05 backbone=4.492e-05]  gnorm=1.90  elapsed=45m39s  ETA=2h18m58s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  214 img/s | 87 MB/s | 2.7 ms/img avg read (shards)
+
+======================================================================
+📚 EPOCH 3/8
+======================================================================
+──────────────────────────────────────────────────────────────────────
+  Epoch 3/8  epoch_step: 10/455  global_step: 920/3640
+     loss=0.6437 (+0.1489)  lr[head=8.928e-05 backbone=4.464e-05]  gnorm=0.93  elapsed=46m39s  ETA=2h17m57s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 288 img/s real (10-step) | data-wait 6%
+     retrieval:  328 img/s | 162 MB/s | 3.2 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 3/8  epoch_step: 30/455  global_step: 940/3640
+     loss=0.5024 (-0.1413)  lr[head=8.872e-05 backbone=4.436e-05]  gnorm=1.28  elapsed=47m32s  ETA=2h16m33s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  291 img/s | 143 MB/s | 3.0 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 3/8  epoch_step: 50/455  global_step: 960/3640
+     loss=0.5055 (+0.0031)  lr[head=8.814e-05 backbone=4.407e-05]  gnorm=1.27  elapsed=48m24s  ETA=2h15m08s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  296 img/s | 157 MB/s | 3.2 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 3/8  epoch_step: 70/455  global_step: 980/3640
+     loss=0.5085 (+0.0030)  lr[head=8.755e-05 backbone=4.378e-05]  gnorm=0.84  elapsed=49m16s  ETA=2h13m44s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  296 img/s | 134 MB/s | 2.8 ms/img avg read (shards)
+======================================================================
+🔎 VALIDATION (every 200 steps) - epoch 3/8  step 1000  (176 batches, 704 studies) ...
+----------------------------------------------------------------------
+  🔎 [VAL] epoch=3/8 step=1000  n=704  loss=0.5020  elapsed=50m08s  ETA=2h12m21s
+     📊 macro AUROC=0.8064  AUPRC=0.5396  F1=0.491  P=0.749  R=0.366  Spec=0.965
+        ACL                AUROC=0.7704  AUPRC=0.4365  (pos=114)
+        MCL                AUROC=0.7796  AUPRC=0.3594  (pos=94)
+        Medial Meniscus    AUROC=0.8148  AUPRC=0.6879  (pos=263)
+        Lateral Meniscus   AUROC=0.7258  AUPRC=0.3433  (pos=100)
+        Medial OA          AUROC=0.8717  AUPRC=0.7115  (pos=145)
+        Lateral OA         AUROC=0.8595  AUPRC=0.5372  (pos=89)
+        PF OA              AUROC=0.7790  AUPRC=0.5844  (pos=190)
+        Effusion           AUROC=0.8715  AUPRC=0.9120  (pos=419)
+        Synovitis          AUROC=0.8308  AUPRC=0.6507  (pos=142)
+        Baker's            AUROC=0.7513  AUPRC=0.4639  (pos=170)
+        Contusion          AUROC=0.8204  AUPRC=0.5131  (pos=97)
+        Fracture           AUROC=0.8017  AUPRC=0.2752  (pos=40)
+----------------------------------------------------------------------
+  🧪 [AUDIT-58] epoch=3/8 step=1000  n=58  loss=0.5203  elapsed=50m08s  ETA=2h12m21s
+     📊 macro AUROC=0.8013  AUPRC=0.7194  F1=0.516  P=0.758  R=0.392  Spec=0.934
+        ACL                AUROC=0.7230  AUPRC=0.6145  (pos=24)
+        MCL                AUROC=0.6383  AUPRC=0.3416  (pos=9)
+        Medial Meniscus    AUROC=0.7115  AUPRC=0.7114  (pos=26)
+        Lateral Meniscus   AUROC=0.8509  AUPRC=0.8123  (pos=23)
+        Medial OA          AUROC=0.9395  AUPRC=0.8250  (pos=15)
+        Lateral OA         AUROC=0.7911  AUPRC=0.6053  (pos=11)
+        PF OA              AUROC=0.7671  AUPRC=0.7621  (pos=21)
+        Effusion           AUROC=0.9093  AUPRC=0.9439  (pos=35)
+        Synovitis          AUROC=0.8094  AUPRC=0.8125  (pos=27)
+        Baker's            AUROC=0.8442  AUPRC=0.7385  (pos=12)
+        Contusion          AUROC=0.8462  AUPRC=0.8141  (pos=19)
+        Fracture           AUROC=0.7847  AUPRC=0.6519  (pos=18)
+     ℹ️  report only - the panel's labels, never drives best.pt
+  ⭐ new best val_macro_auroc = 0.8064  (was 0.7849, +0.0214) -> best.pt
+  💾 saved last.pt (epoch 3)  🏆 top-3 kept
+  💾 periodic checkpoint @ step 1000 (rolling, keep_last_n=15)
+  🖼️  debug image -> /runs/convnext_tiny_4slot/results/debugged_images/run003_e3_s1000.png
+──────────────────────────────────────────────────────────────────────
+  Epoch 3/8  epoch_step: 90/455  global_step: 1000/3640
+     loss=0.5283 (+0.0197)  lr[head=8.695e-05 backbone=4.347e-05]  gnorm=0.68  elapsed=50m06s  ETA=2h12m16s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  1770 img/s | 861 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 3/8  epoch_step: 110/455  global_step: 1020/3640
+     loss=0.5461 (+0.0178)  lr[head=8.633e-05 backbone=4.317e-05]  gnorm=1.54  elapsed=52m52s  ETA=2h15m49s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  92 img/s | 47 MB/s | 3.2 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 3/8  epoch_step: 130/455  global_step: 1040/3640
+     loss=0.5573 (+0.0112)  lr[head=8.571e-05 backbone=4.285e-05]  gnorm=1.17  elapsed=53m45s  ETA=2h14m23s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  292 img/s | 149 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 3/8  epoch_step: 150/455  global_step: 1060/3640
+     loss=0.5332 (-0.0241)  lr[head=8.507e-05 backbone=4.253e-05]  gnorm=1.59  elapsed=54m37s  ETA=2h12m57s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  295 img/s | 148 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 3/8  epoch_step: 170/455  global_step: 1080/3640
+     loss=0.6247 (+0.0915)  lr[head=8.442e-05 backbone=4.221e-05]  gnorm=1.53  elapsed=55m29s  ETA=2h11m32s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  293 img/s | 138 MB/s | 3.0 ms/img avg read (shards)
+  💾 periodic checkpoint @ step 1100 (rolling, keep_last_n=15)
+──────────────────────────────────────────────────────────────────────
+  Epoch 3/8  epoch_step: 190/455  global_step: 1100/3640
+     loss=0.5301 (-0.0945)  lr[head=8.376e-05 backbone=4.188e-05]  gnorm=0.59  elapsed=56m19s  ETA=2h10m04s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  308 img/s | 168 MB/s | 3.3 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 3/8  epoch_step: 210/455  global_step: 1120/3640
+     loss=0.6378 (+0.1076)  lr[head=8.309e-05 backbone=4.154e-05]  gnorm=1.20  elapsed=57m19s  ETA=2h08m59s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  253 img/s | 130 MB/s | 3.2 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 3/8  epoch_step: 230/455  global_step: 1140/3640
+     loss=0.5088 (-0.1289)  lr[head=8.241e-05 backbone=4.120e-05]  gnorm=1.00  elapsed=58m12s  ETA=2h07m39s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  292 img/s | 136 MB/s | 2.9 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 3/8  epoch_step: 250/455  global_step: 1160/3640
+     loss=0.6929 (+0.1840)  lr[head=8.171e-05 backbone=4.086e-05]  gnorm=0.90  elapsed=59m04s  ETA=2h06m18s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  297 img/s | 136 MB/s | 2.9 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 3/8  epoch_step: 270/455  global_step: 1180/3640
+     loss=0.4901 (-0.2027)  lr[head=8.101e-05 backbone=4.050e-05]  gnorm=0.91  elapsed=59m56s  ETA=2h04m57s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  296 img/s | 134 MB/s | 2.9 ms/img avg read (shards)
+======================================================================
+🔎 VALIDATION (every 200 steps) - epoch 3/8  step 1200  (176 batches, 704 studies) ...
+----------------------------------------------------------------------
+  🔎 [VAL] epoch=3/8 step=1200  n=704  loss=0.4918  elapsed=1h00m48s  ETA=2h03m38s
+     📊 macro AUROC=0.8099  AUPRC=0.5636  F1=0.539  P=0.687  R=0.443  Spec=0.943
+        ACL                AUROC=0.7779  AUPRC=0.4688  (pos=114)
+        MCL                AUROC=0.7794  AUPRC=0.3890  (pos=94)
+        Medial Meniscus    AUROC=0.8208  AUPRC=0.7133  (pos=263)
+        Lateral Meniscus   AUROC=0.7223  AUPRC=0.3470  (pos=100)
+        Medial OA          AUROC=0.8696  AUPRC=0.7217  (pos=145)
+        Lateral OA         AUROC=0.8544  AUPRC=0.5566  (pos=89)
+        PF OA              AUROC=0.7815  AUPRC=0.5913  (pos=190)
+        Effusion           AUROC=0.8774  AUPRC=0.9167  (pos=419)
+        Synovitis          AUROC=0.8329  AUPRC=0.6541  (pos=142)
+        Baker's            AUROC=0.7542  AUPRC=0.4834  (pos=170)
+        Contusion          AUROC=0.8326  AUPRC=0.6193  (pos=97)
+        Fracture           AUROC=0.8155  AUPRC=0.3025  (pos=40)
+----------------------------------------------------------------------
+  🧪 [AUDIT-58] epoch=3/8 step=1200  n=58  loss=0.5214  elapsed=1h00m48s  ETA=2h03m38s
+     📊 macro AUROC=0.8027  AUPRC=0.7371  F1=0.591  P=0.723  R=0.500  Spec=0.899
+        ACL                AUROC=0.7537  AUPRC=0.6727  (pos=24)
+        MCL                AUROC=0.6054  AUPRC=0.3449  (pos=9)
+        Medial Meniscus    AUROC=0.7260  AUPRC=0.7152  (pos=26)
+        Lateral Meniscus   AUROC=0.8509  AUPRC=0.8138  (pos=23)
+        Medial OA          AUROC=0.9411  AUPRC=0.8471  (pos=15)
+        Lateral OA         AUROC=0.8046  AUPRC=0.6778  (pos=11)
+        PF OA              AUROC=0.7632  AUPRC=0.7766  (pos=21)
+        Effusion           AUROC=0.9168  AUPRC=0.9489  (pos=35)
+        Synovitis          AUROC=0.8029  AUPRC=0.8229  (pos=27)
+        Baker's            AUROC=0.8279  AUPRC=0.7265  (pos=12)
+        Contusion          AUROC=0.8893  AUPRC=0.8453  (pos=19)
+        Fracture           AUROC=0.7500  AUPRC=0.6536  (pos=18)
+     ℹ️  report only - the panel's labels, never drives best.pt
+  ⭐ new best val_macro_auroc = 0.8099  (was 0.8064, +0.0035) -> best.pt
+  💾 saved last.pt (epoch 3)  🏆 top-4 kept
+  💾 periodic checkpoint @ step 1200 (rolling, keep_last_n=15)
+  🖼️  debug image -> /runs/convnext_tiny_4slot/results/debugged_images/run003_e3_s1200.png
+──────────────────────────────────────────────────────────────────────
+  Epoch 3/8  epoch_step: 290/455  global_step: 1200/3640
+     loss=0.5047 (+0.0146)  lr[head=8.030e-05 backbone=4.015e-05]  gnorm=0.56  elapsed=1h00m46s  ETA=2h03m34s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  1770 img/s | 843 MB/s | 3.0 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 3/8  epoch_step: 310/455  global_step: 1220/3640
+     loss=0.5475 (+0.0427)  lr[head=7.957e-05 backbone=3.979e-05]  gnorm=1.14  elapsed=1h03m35s  ETA=2h06m08s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  90 img/s | 44 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 3/8  epoch_step: 330/455  global_step: 1240/3640
+     loss=0.5268 (-0.0206)  lr[head=7.884e-05 backbone=3.942e-05]  gnorm=0.64  elapsed=1h04m27s  ETA=2h04m45s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  296 img/s | 157 MB/s | 3.3 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 3/8  epoch_step: 350/455  global_step: 1260/3640
+     loss=0.5727 (+0.0459)  lr[head=7.810e-05 backbone=3.905e-05]  gnorm=0.93  elapsed=1h05m19s  ETA=2h03m23s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  299 img/s | 147 MB/s | 3.0 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 3/8  epoch_step: 370/455  global_step: 1280/3640
+     loss=0.4763 (-0.0964)  lr[head=7.735e-05 backbone=3.867e-05]  gnorm=1.03  elapsed=1h06m11s  ETA=2h02m01s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  295 img/s | 155 MB/s | 3.2 ms/img avg read (shards)
+  💾 periodic checkpoint @ step 1300 (rolling, keep_last_n=15)
+──────────────────────────────────────────────────────────────────────
+  Epoch 3/8  epoch_step: 390/455  global_step: 1300/3640
+     loss=0.5829 (+0.1066)  lr[head=7.659e-05 backbone=3.829e-05]  gnorm=0.77  elapsed=1h07m01s  ETA=2h00m38s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  308 img/s | 152 MB/s | 3.0 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 3/8  epoch_step: 410/455  global_step: 1320/3640
+     loss=0.4715 (-0.1114)  lr[head=7.582e-05 backbone=3.791e-05]  gnorm=0.88  elapsed=1h08m01s  ETA=1h59m34s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  252 img/s | 116 MB/s | 2.9 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 3/8  epoch_step: 430/455  global_step: 1340/3640
+     loss=0.3198 (-0.1517)  lr[head=7.504e-05 backbone=3.752e-05]  gnorm=1.02  elapsed=1h08m53s  ETA=1h58m15s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  296 img/s | 149 MB/s | 3.0 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 3/8  epoch_step: 450/455  global_step: 1360/3640
+     loss=0.5648 (+0.2450)  lr[head=7.426e-05 backbone=3.713e-05]  gnorm=0.59  elapsed=1h09m45s  ETA=1h56m56s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  133 img/s | 65 MB/s | 3.0 ms/img avg read (shards)
+
+======================================================================
+📚 EPOCH 4/8
+======================================================================
+──────────────────────────────────────────────────────────────────────
+  Epoch 4/8  epoch_step: 15/455  global_step: 1380/3640
+     loss=0.4922 (-0.0726)  lr[head=7.346e-05 backbone=3.673e-05]  gnorm=0.70  elapsed=1h10m39s  ETA=1h55m42s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 288 img/s real (15-step) | data-wait 6%
+     retrieval:  440 img/s | 209 MB/s | 3.0 ms/img avg read (shards)
+======================================================================
+🔎 VALIDATION (every 200 steps) - epoch 4/8  step 1400  (176 batches, 704 studies) ...
+----------------------------------------------------------------------
+  🔎 [VAL] epoch=4/8 step=1400  n=704  loss=0.4844  elapsed=1h11m31s  ETA=1h54m26s
+     📊 macro AUROC=0.8235  AUPRC=0.5862  F1=0.586  P=0.700  R=0.504  Spec=0.939
+        ACL                AUROC=0.7916  AUPRC=0.5128  (pos=114)
+        MCL                AUROC=0.7921  AUPRC=0.4212  (pos=94)
+        Medial Meniscus    AUROC=0.8428  AUPRC=0.7238  (pos=263)
+        Lateral Meniscus   AUROC=0.7384  AUPRC=0.3833  (pos=100)
+        Medial OA          AUROC=0.8769  AUPRC=0.7198  (pos=145)
+        Lateral OA         AUROC=0.8762  AUPRC=0.5979  (pos=89)
+        PF OA              AUROC=0.7888  AUPRC=0.6044  (pos=190)
+        Effusion           AUROC=0.8768  AUPRC=0.9157  (pos=419)
+        Synovitis          AUROC=0.8366  AUPRC=0.6463  (pos=142)
+        Baker's            AUROC=0.7848  AUPRC=0.5278  (pos=170)
+        Contusion          AUROC=0.8332  AUPRC=0.6450  (pos=97)
+        Fracture           AUROC=0.8440  AUPRC=0.3360  (pos=40)
+----------------------------------------------------------------------
+  🧪 [AUDIT-58] epoch=4/8 step=1400  n=58  loss=0.5112  elapsed=1h11m31s  ETA=1h54m26s
+     📊 macro AUROC=0.8195  AUPRC=0.7448  F1=0.623  P=0.717  R=0.550  Spec=0.886
+        ACL                AUROC=0.7500  AUPRC=0.7149  (pos=24)
+        MCL                AUROC=0.6803  AUPRC=0.3141  (pos=9)
+        Medial Meniscus    AUROC=0.7536  AUPRC=0.7475  (pos=26)
+        Lateral Meniscus   AUROC=0.8708  AUPRC=0.8311  (pos=23)
+        Medial OA          AUROC=0.9643  AUPRC=0.8927  (pos=15)
+        Lateral OA         AUROC=0.7863  AUPRC=0.6356  (pos=11)
+        PF OA              AUROC=0.7735  AUPRC=0.7520  (pos=21)
+        Effusion           AUROC=0.8981  AUPRC=0.9428  (pos=35)
+        Synovitis          AUROC=0.8053  AUPRC=0.8245  (pos=27)
+        Baker's            AUROC=0.8478  AUPRC=0.7594  (pos=12)
+        Contusion          AUROC=0.9028  AUPRC=0.8430  (pos=19)
+        Fracture           AUROC=0.8014  AUPRC=0.6798  (pos=18)
+     ℹ️  report only - the panel's labels, never drives best.pt
+  ⭐ new best val_macro_auroc = 0.8235  (was 0.8099, +0.0136) -> best.pt
+  💾 saved last.pt (epoch 4)  🏆 top-5 kept
+  💾 periodic checkpoint @ step 1400 (rolling, keep_last_n=15)
+  🖼️  debug image -> /runs/convnext_tiny_4slot/results/debugged_images/run003_e4_s1400.png
+──────────────────────────────────────────────────────────────────────
+  Epoch 4/8  epoch_step: 35/455  global_step: 1400/3640
+     loss=0.5591 (+0.0670)  lr[head=7.266e-05 backbone=3.633e-05]  gnorm=0.72  elapsed=1h11m29s  ETA=1h54m23s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  1771 img/s | 870 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 4/8  epoch_step: 55/455  global_step: 1420/3640
+     loss=0.6777 (+0.1185)  lr[head=7.186e-05 backbone=3.593e-05]  gnorm=1.52  elapsed=1h14m17s  ETA=1h56m08s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  91 img/s | 46 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 4/8  epoch_step: 75/455  global_step: 1440/3640
+     loss=0.4742 (-0.2035)  lr[head=7.104e-05 backbone=3.552e-05]  gnorm=0.74  elapsed=1h15m08s  ETA=1h54m48s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  298 img/s | 146 MB/s | 3.0 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 4/8  epoch_step: 95/455  global_step: 1460/3640
+     loss=0.4408 (-0.0333)  lr[head=7.022e-05 backbone=3.511e-05]  gnorm=0.82  elapsed=1h16m00s  ETA=1h53m29s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  295 img/s | 136 MB/s | 2.8 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 4/8  epoch_step: 115/455  global_step: 1480/3640
+     loss=0.4035 (-0.0373)  lr[head=6.939e-05 backbone=3.470e-05]  gnorm=0.77  elapsed=1h16m52s  ETA=1h52m11s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  298 img/s | 136 MB/s | 2.9 ms/img avg read (shards)
+  💾 periodic checkpoint @ step 1500 (rolling, keep_last_n=15)
+──────────────────────────────────────────────────────────────────────
+  Epoch 4/8  epoch_step: 135/455  global_step: 1500/3640
+     loss=0.4774 (+0.0739)  lr[head=6.856e-05 backbone=3.428e-05]  gnorm=0.93  elapsed=1h17m42s  ETA=1h50m51s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  308 img/s | 134 MB/s | 2.7 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 4/8  epoch_step: 155/455  global_step: 1520/3640
+     loss=0.4145 (-0.0629)  lr[head=6.772e-05 backbone=3.386e-05]  gnorm=0.89  elapsed=1h18m39s  ETA=1h49m42s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  267 img/s | 138 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 4/8  epoch_step: 175/455  global_step: 1540/3640
+     loss=0.4250 (+0.0105)  lr[head=6.687e-05 backbone=3.344e-05]  gnorm=0.68  elapsed=1h19m31s  ETA=1h48m26s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  295 img/s | 162 MB/s | 3.3 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 4/8  epoch_step: 195/455  global_step: 1560/3640
+     loss=0.3409 (-0.0841)  lr[head=6.602e-05 backbone=3.301e-05]  gnorm=0.84  elapsed=1h20m23s  ETA=1h47m10s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  299 img/s | 159 MB/s | 3.3 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 4/8  epoch_step: 215/455  global_step: 1580/3640
+     loss=0.5453 (+0.2044)  lr[head=6.516e-05 backbone=3.258e-05]  gnorm=1.01  elapsed=1h21m15s  ETA=1h45m56s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  295 img/s | 140 MB/s | 3.0 ms/img avg read (shards)
+======================================================================
+🔎 VALIDATION (every 200 steps) - epoch 4/8  step 1600  (176 batches, 704 studies) ...
+----------------------------------------------------------------------
+  🔎 [VAL] epoch=4/8 step=1600  n=704  loss=0.4843  elapsed=1h22m06s  ETA=1h44m41s
+     📊 macro AUROC=0.8321  AUPRC=0.5922  F1=0.573  P=0.772  R=0.455  Spec=0.962
+        ACL                AUROC=0.8012  AUPRC=0.5471  (pos=114)
+        MCL                AUROC=0.7904  AUPRC=0.4062  (pos=94)
+        Medial Meniscus    AUROC=0.8525  AUPRC=0.7403  (pos=263)
+        Lateral Meniscus   AUROC=0.7565  AUPRC=0.3874  (pos=100)
+        Medial OA          AUROC=0.8814  AUPRC=0.7333  (pos=145)
+        Lateral OA         AUROC=0.8727  AUPRC=0.5629  (pos=89)
+        PF OA              AUROC=0.7929  AUPRC=0.6080  (pos=190)
+        Effusion           AUROC=0.8845  AUPRC=0.9214  (pos=419)
+        Synovitis          AUROC=0.8425  AUPRC=0.6699  (pos=142)
+        Baker's            AUROC=0.7934  AUPRC=0.5436  (pos=170)
+        Contusion          AUROC=0.8449  AUPRC=0.6471  (pos=97)
+        Fracture           AUROC=0.8720  AUPRC=0.3394  (pos=40)
+----------------------------------------------------------------------
+  🧪 [AUDIT-58] epoch=4/8 step=1600  n=58  loss=0.4978  elapsed=1h22m06s  ETA=1h44m41s
+     📊 macro AUROC=0.8247  AUPRC=0.7507  F1=0.587  P=0.728  R=0.492  Spec=0.904
+        ACL                AUROC=0.7641  AUPRC=0.7095  (pos=24)
+        MCL                AUROC=0.7029  AUPRC=0.3975  (pos=9)
+        Medial Meniscus    AUROC=0.7404  AUPRC=0.7373  (pos=26)
+        Lateral Meniscus   AUROC=0.8658  AUPRC=0.8219  (pos=23)
+        Medial OA          AUROC=0.9643  AUPRC=0.9017  (pos=15)
+        Lateral OA         AUROC=0.7834  AUPRC=0.5953  (pos=11)
+        PF OA              AUROC=0.7761  AUPRC=0.7582  (pos=21)
+        Effusion           AUROC=0.9068  AUPRC=0.9433  (pos=35)
+        Synovitis          AUROC=0.7957  AUPRC=0.8185  (pos=27)
+        Baker's            AUROC=0.8596  AUPRC=0.7847  (pos=12)
+        Contusion          AUROC=0.9096  AUPRC=0.8430  (pos=19)
+        Fracture           AUROC=0.8278  AUPRC=0.6970  (pos=18)
+     ℹ️  report only - the panel's labels, never drives best.pt
+  ⭐ new best val_macro_auroc = 0.8321  (was 0.8235, +0.0085) -> best.pt
+  💾 saved last.pt (epoch 4)  🏆 top-6 kept
+  💾 periodic checkpoint @ step 1600 (rolling, keep_last_n=15)
+  🖼️  debug image -> /runs/convnext_tiny_4slot/results/debugged_images/run003_e4_s1600.png
+──────────────────────────────────────────────────────────────────────
+  Epoch 4/8  epoch_step: 235/455  global_step: 1600/3640
+     loss=0.4297 (-0.1156)  lr[head=6.430e-05 backbone=3.215e-05]  gnorm=0.92  elapsed=1h22m05s  ETA=1h44m39s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  1769 img/s | 868 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 4/8  epoch_step: 255/455  global_step: 1620/3640
+     loss=0.5318 (+0.1021)  lr[head=6.343e-05 backbone=3.172e-05]  gnorm=1.36  elapsed=1h24m51s  ETA=1h45m49s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  92 img/s | 47 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 4/8  epoch_step: 275/455  global_step: 1640/3640
+     loss=0.4327 (-0.0991)  lr[head=6.256e-05 backbone=3.128e-05]  gnorm=1.65  elapsed=1h25m43s  ETA=1h44m32s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  296 img/s | 140 MB/s | 3.0 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 4/8  epoch_step: 295/455  global_step: 1660/3640
+     loss=0.4896 (+0.0568)  lr[head=6.169e-05 backbone=3.085e-05]  gnorm=0.91  elapsed=1h26m35s  ETA=1h43m17s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  295 img/s | 131 MB/s | 2.8 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 4/8  epoch_step: 315/455  global_step: 1680/3640
+     loss=0.3839 (-0.1057)  lr[head=6.081e-05 backbone=3.041e-05]  gnorm=0.95  elapsed=1h27m27s  ETA=1h42m02s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  295 img/s | 134 MB/s | 2.8 ms/img avg read (shards)
+  💾 periodic checkpoint @ step 1700 (rolling, keep_last_n=15)
+──────────────────────────────────────────────────────────────────────
+  Epoch 4/8  epoch_step: 335/455  global_step: 1700/3640
+     loss=0.3793 (-0.0046)  lr[head=5.993e-05 backbone=2.997e-05]  gnorm=0.91  elapsed=1h28m17s  ETA=1h40m45s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  308 img/s | 149 MB/s | 3.0 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 4/8  epoch_step: 355/455  global_step: 1720/3640
+     loss=0.5324 (+0.1531)  lr[head=5.905e-05 backbone=2.952e-05]  gnorm=0.86  elapsed=1h29m19s  ETA=1h39m42s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  249 img/s | 140 MB/s | 3.4 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 4/8  epoch_step: 375/455  global_step: 1740/3640
+     loss=0.3734 (-0.1589)  lr[head=5.816e-05 backbone=2.908e-05]  gnorm=0.77  elapsed=1h30m11s  ETA=1h38m28s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  297 img/s | 146 MB/s | 3.0 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 4/8  epoch_step: 395/455  global_step: 1760/3640
+     loss=0.3894 (+0.0160)  lr[head=5.727e-05 backbone=2.863e-05]  gnorm=0.75  elapsed=1h31m02s  ETA=1h37m15s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  297 img/s | 138 MB/s | 2.9 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 4/8  epoch_step: 415/455  global_step: 1780/3640
+     loss=0.5071 (+0.1177)  lr[head=5.638e-05 backbone=2.819e-05]  gnorm=1.70  elapsed=1h31m54s  ETA=1h36m02s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  294 img/s | 140 MB/s | 3.0 ms/img avg read (shards)
+======================================================================
+🔎 VALIDATION (every 200 steps) - epoch 4/8  step 1800  (176 batches, 704 studies) ...
+----------------------------------------------------------------------
+  🔎 [VAL] epoch=4/8 step=1800  n=704  loss=0.4854  elapsed=1h32m48s  ETA=1h34m52s
+     📊 macro AUROC=0.8353  AUPRC=0.6006  F1=0.624  P=0.634  R=0.615  Spec=0.899
+        ACL                AUROC=0.8026  AUPRC=0.5469  (pos=114)
+        MCL                AUROC=0.8006  AUPRC=0.4278  (pos=94)
+        Medial Meniscus    AUROC=0.8595  AUPRC=0.7534  (pos=263)
+        Lateral Meniscus   AUROC=0.7776  AUPRC=0.4140  (pos=100)
+        Medial OA          AUROC=0.8831  AUPRC=0.7270  (pos=145)
+        Lateral OA         AUROC=0.8703  AUPRC=0.5648  (pos=89)
+        PF OA              AUROC=0.7924  AUPRC=0.6095  (pos=190)
+        Effusion           AUROC=0.8834  AUPRC=0.9210  (pos=419)
+        Synovitis          AUROC=0.8359  AUPRC=0.6558  (pos=142)
+        Baker's            AUROC=0.8035  AUPRC=0.5748  (pos=170)
+        Contusion          AUROC=0.8505  AUPRC=0.6648  (pos=97)
+        Fracture           AUROC=0.8637  AUPRC=0.3477  (pos=40)
+----------------------------------------------------------------------
+  🧪 [AUDIT-58] epoch=4/8 step=1800  n=58  loss=0.5056  elapsed=1h32m48s  ETA=1h34m52s
+     📊 macro AUROC=0.8235  AUPRC=0.7369  F1=0.650  P=0.646  R=0.654  Spec=0.811
+        ACL                AUROC=0.7953  AUPRC=0.7396  (pos=24)
+        MCL                AUROC=0.7063  AUPRC=0.3313  (pos=9)
+        Medial Meniscus    AUROC=0.7536  AUPRC=0.7367  (pos=26)
+        Lateral Meniscus   AUROC=0.8733  AUPRC=0.8298  (pos=23)
+        Medial OA          AUROC=0.9674  AUPRC=0.9027  (pos=15)
+        Lateral OA         AUROC=0.7640  AUPRC=0.5611  (pos=11)
+        PF OA              AUROC=0.7703  AUPRC=0.7533  (pos=21)
+        Effusion           AUROC=0.8969  AUPRC=0.9405  (pos=35)
+        Synovitis          AUROC=0.7575  AUPRC=0.7847  (pos=27)
+        Baker's            AUROC=0.8370  AUPRC=0.6978  (pos=12)
+        Contusion          AUROC=0.9271  AUPRC=0.8580  (pos=19)
+        Fracture           AUROC=0.8333  AUPRC=0.7078  (pos=18)
+     ℹ️  report only - the panel's labels, never drives best.pt
+  ⭐ new best val_macro_auroc = 0.8353  (was 0.8321, +0.0032) -> best.pt
+  💾 saved last.pt (epoch 4)  🏆 top-7 kept
+  💾 periodic checkpoint @ step 1800 (rolling, keep_last_n=15)
+  🖼️  debug image -> /runs/convnext_tiny_4slot/results/debugged_images/run003_e4_s1800.png
+──────────────────────────────────────────────────────────────────────
+  Epoch 4/8  epoch_step: 435/455  global_step: 1800/3640
+     loss=0.6336 (+0.1265)  lr[head=5.548e-05 backbone=2.774e-05]  gnorm=0.61  elapsed=1h32m44s  ETA=1h34m48s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  1770 img/s | 879 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 4/8  epoch_step: 455/455  global_step: 1820/3640
+     loss=0.4843 (-0.1493)  lr[head=5.459e-05 backbone=2.729e-05]  gnorm=0.68  elapsed=1h35m31s  ETA=1h35m31s  gpu_mem(peak)=59.22GB
+     throughput: 350 img/s compute | 309 img/s real (20-step) | data-wait 0%
+     retrieval:  18 img/s | 8 MB/s | 2.8 ms/img avg read (shards)
+
+======================================================================
+📚 EPOCH 5/8
+======================================================================
+──────────────────────────────────────────────────────────────────────
+  Epoch 5/8  epoch_step: 20/455  global_step: 1840/3640
+     loss=0.5269 (+0.0427)  lr[head=5.369e-05 backbone=2.685e-05]  gnorm=1.83  elapsed=1h36m26s  ETA=1h34m20s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 295 img/s real (20-step) | data-wait 4%
+     retrieval:  507 img/s | 236 MB/s | 3.0 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 5/8  epoch_step: 40/455  global_step: 1860/3640
+     loss=0.5132 (-0.0137)  lr[head=5.279e-05 backbone=2.640e-05]  gnorm=1.19  elapsed=1h37m18s  ETA=1h33m07s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  293 img/s | 128 MB/s | 2.8 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 5/8  epoch_step: 60/455  global_step: 1880/3640
+     loss=0.4023 (-0.1109)  lr[head=5.189e-05 backbone=2.595e-05]  gnorm=0.88  elapsed=1h38m10s  ETA=1h31m54s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  294 img/s | 152 MB/s | 3.1 ms/img avg read (shards)
+  💾 periodic checkpoint @ step 1900 (rolling, keep_last_n=15)
+──────────────────────────────────────────────────────────────────────
+  Epoch 5/8  epoch_step: 80/455  global_step: 1900/3640
+     loss=0.4418 (+0.0395)  lr[head=5.099e-05 backbone=2.550e-05]  gnorm=0.75  elapsed=1h39m00s  ETA=1h30m40s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  308 img/s | 150 MB/s | 3.0 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 5/8  epoch_step: 100/455  global_step: 1920/3640
+     loss=0.5409 (+0.0991)  lr[head=5.010e-05 backbone=2.505e-05]  gnorm=1.08  elapsed=1h39m59s  ETA=1h29m34s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  260 img/s | 146 MB/s | 3.4 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 5/8  epoch_step: 120/455  global_step: 1940/3640
+     loss=0.4030 (-0.1379)  lr[head=4.920e-05 backbone=2.460e-05]  gnorm=1.20  elapsed=1h40m51s  ETA=1h28m22s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  295 img/s | 157 MB/s | 3.2 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 5/8  epoch_step: 140/455  global_step: 1960/3640
+     loss=0.4827 (+0.0797)  lr[head=4.830e-05 backbone=2.415e-05]  gnorm=1.28  elapsed=1h41m43s  ETA=1h27m11s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  298 img/s | 142 MB/s | 2.9 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 5/8  epoch_step: 160/455  global_step: 1980/3640
+     loss=0.4211 (-0.0616)  lr[head=4.740e-05 backbone=2.370e-05]  gnorm=0.79  elapsed=1h42m35s  ETA=1h26m00s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  296 img/s | 119 MB/s | 2.6 ms/img avg read (shards)
+======================================================================
+🔎 VALIDATION (every 200 steps) - epoch 5/8  step 2000  (176 batches, 704 studies) ...
+----------------------------------------------------------------------
+  🔎 [VAL] epoch=5/8 step=2000  n=704  loss=0.4750  elapsed=1h43m26s  ETA=1h24m49s
+     📊 macro AUROC=0.8395  AUPRC=0.6078  F1=0.602  P=0.729  R=0.512  Spec=0.946
+        ACL                AUROC=0.8118  AUPRC=0.5591  (pos=114)
+        MCL                AUROC=0.7966  AUPRC=0.4221  (pos=94)
+        Medial Meniscus    AUROC=0.8799  AUPRC=0.7808  (pos=263)
+        Lateral Meniscus   AUROC=0.7756  AUPRC=0.4131  (pos=100)
+        Medial OA          AUROC=0.8851  AUPRC=0.7409  (pos=145)
+        Lateral OA         AUROC=0.8726  AUPRC=0.5557  (pos=89)
+        PF OA              AUROC=0.7966  AUPRC=0.6111  (pos=190)
+        Effusion           AUROC=0.8862  AUPRC=0.9236  (pos=419)
+        Synovitis          AUROC=0.8444  AUPRC=0.6642  (pos=142)
+        Baker's            AUROC=0.8090  AUPRC=0.6067  (pos=170)
+        Contusion          AUROC=0.8448  AUPRC=0.6608  (pos=97)
+        Fracture           AUROC=0.8716  AUPRC=0.3559  (pos=40)
+----------------------------------------------------------------------
+  🧪 [AUDIT-58] epoch=5/8 step=2000  n=58  loss=0.4852  elapsed=1h43m26s  ETA=1h24m49s
+     📊 macro AUROC=0.8378  AUPRC=0.7532  F1=0.636  P=0.717  R=0.571  Spec=0.882
+        ACL                AUROC=0.8100  AUPRC=0.7315  (pos=24)
+        MCL                AUROC=0.7188  AUPRC=0.4212  (pos=9)
+        Medial Meniscus    AUROC=0.8125  AUPRC=0.8046  (pos=26)
+        Lateral Meniscus   AUROC=0.8658  AUPRC=0.7730  (pos=23)
+        Medial OA          AUROC=0.9674  AUPRC=0.9085  (pos=15)
+        Lateral OA         AUROC=0.7553  AUPRC=0.5626  (pos=11)
+        PF OA              AUROC=0.7851  AUPRC=0.7762  (pos=21)
+        Effusion           AUROC=0.9317  AUPRC=0.9608  (pos=35)
+        Synovitis          AUROC=0.7849  AUPRC=0.8084  (pos=27)
+        Baker's            AUROC=0.8514  AUPRC=0.7124  (pos=12)
+        Contusion          AUROC=0.9352  AUPRC=0.8613  (pos=19)
+        Fracture           AUROC=0.8347  AUPRC=0.7181  (pos=18)
+     ℹ️  report only - the panel's labels, never drives best.pt
+  ⭐ new best val_macro_auroc = 0.8395  (was 0.8353, +0.0043) -> best.pt
+  💾 saved last.pt (epoch 5)  🏆 top-8 kept
+  💾 periodic checkpoint @ step 2000 (rolling, keep_last_n=15)
+  🖼️  debug image -> /runs/convnext_tiny_4slot/results/debugged_images/run003_e5_s2000.png
+──────────────────────────────────────────────────────────────────────
+  Epoch 5/8  epoch_step: 180/455  global_step: 2000/3640
+     loss=0.5311 (+0.1101)  lr[head=4.650e-05 backbone=2.325e-05]  gnorm=0.71  elapsed=1h43m25s  ETA=1h24m48s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  1769 img/s | 897 MB/s | 3.2 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 5/8  epoch_step: 200/455  global_step: 2020/3640
+     loss=0.4372 (-0.0939)  lr[head=4.561e-05 backbone=2.280e-05]  gnorm=0.78  elapsed=1h46m13s  ETA=1h25m11s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  91 img/s | 42 MB/s | 2.9 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 5/8  epoch_step: 220/455  global_step: 2040/3640
+     loss=0.5478 (+0.1106)  lr[head=4.471e-05 backbone=2.236e-05]  gnorm=1.45  elapsed=1h47m05s  ETA=1h23m59s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  296 img/s | 162 MB/s | 3.3 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 5/8  epoch_step: 240/455  global_step: 2060/3640
+     loss=0.2460 (-0.3019)  lr[head=4.382e-05 backbone=2.191e-05]  gnorm=0.84  elapsed=1h47m58s  ETA=1h22m48s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  290 img/s | 138 MB/s | 2.9 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 5/8  epoch_step: 260/455  global_step: 2080/3640
+     loss=0.4655 (+0.2196)  lr[head=4.293e-05 backbone=2.146e-05]  gnorm=0.86  elapsed=1h48m50s  ETA=1h21m37s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  295 img/s | 146 MB/s | 3.1 ms/img avg read (shards)
+  💾 periodic checkpoint @ step 2100 (rolling, keep_last_n=15)
+──────────────────────────────────────────────────────────────────────
+  Epoch 5/8  epoch_step: 280/455  global_step: 2100/3640
+     loss=0.5448 (+0.0793)  lr[head=4.204e-05 backbone=2.102e-05]  gnorm=0.78  elapsed=1h49m40s  ETA=1h20m25s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  308 img/s | 146 MB/s | 2.9 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 5/8  epoch_step: 300/455  global_step: 2120/3640
+     loss=0.5332 (-0.0116)  lr[head=4.116e-05 backbone=2.058e-05]  gnorm=1.49  elapsed=1h50m42s  ETA=1h19m22s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  246 img/s | 126 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 5/8  epoch_step: 320/455  global_step: 2140/3640
+     loss=0.5673 (+0.0341)  lr[head=4.028e-05 backbone=2.014e-05]  gnorm=1.82  elapsed=1h51m34s  ETA=1h18m12s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  295 img/s | 153 MB/s | 3.2 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 5/8  epoch_step: 340/455  global_step: 2160/3640
+     loss=0.4743 (-0.0931)  lr[head=3.940e-05 backbone=1.970e-05]  gnorm=0.64  elapsed=1h52m26s  ETA=1h17m02s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  296 img/s | 148 MB/s | 3.0 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 5/8  epoch_step: 360/455  global_step: 2180/3640
+     loss=0.4818 (+0.0076)  lr[head=3.852e-05 backbone=1.926e-05]  gnorm=1.04  elapsed=1h53m18s  ETA=1h15m52s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  296 img/s | 144 MB/s | 3.0 ms/img avg read (shards)
+======================================================================
+🔎 VALIDATION (every 200 steps) - epoch 5/8  step 2200  (176 batches, 704 studies) ...
+----------------------------------------------------------------------
+  🔎 [VAL] epoch=5/8 step=2200  n=704  loss=0.4729  elapsed=1h54m10s  ETA=1h14m43s
+     📊 macro AUROC=0.8460  AUPRC=0.6220  F1=0.621  P=0.717  R=0.548  Spec=0.939
+        ACL                AUROC=0.8270  AUPRC=0.5898  (pos=114)
+        MCL                AUROC=0.8190  AUPRC=0.4511  (pos=94)
+        Medial Meniscus    AUROC=0.8804  AUPRC=0.7900  (pos=263)
+        Lateral Meniscus   AUROC=0.7695  AUPRC=0.4134  (pos=100)
+        Medial OA          AUROC=0.8864  AUPRC=0.7449  (pos=145)
+        Lateral OA         AUROC=0.8760  AUPRC=0.5808  (pos=89)
+        PF OA              AUROC=0.7975  AUPRC=0.6179  (pos=190)
+        Effusion           AUROC=0.8874  AUPRC=0.9240  (pos=419)
+        Synovitis          AUROC=0.8469  AUPRC=0.6708  (pos=142)
+        Baker's            AUROC=0.8316  AUPRC=0.6564  (pos=170)
+        Contusion          AUROC=0.8529  AUPRC=0.6580  (pos=97)
+        Fracture           AUROC=0.8779  AUPRC=0.3666  (pos=40)
+----------------------------------------------------------------------
+  🧪 [AUDIT-58] epoch=5/8 step=2200  n=58  loss=0.4786  elapsed=1h54m10s  ETA=1h14m43s
+     📊 macro AUROC=0.8416  AUPRC=0.7630  F1=0.640  P=0.723  R=0.575  Spec=0.884
+        ACL                AUROC=0.8150  AUPRC=0.7416  (pos=24)
+        MCL                AUROC=0.7392  AUPRC=0.3664  (pos=9)
+        Medial Meniscus    AUROC=0.8113  AUPRC=0.8062  (pos=26)
+        Lateral Meniscus   AUROC=0.8671  AUPRC=0.8360  (pos=23)
+        Medial OA          AUROC=0.9690  AUPRC=0.9274  (pos=15)
+        Lateral OA         AUROC=0.7756  AUPRC=0.6157  (pos=11)
+        PF OA              AUROC=0.7954  AUPRC=0.7750  (pos=21)
+        Effusion           AUROC=0.9118  AUPRC=0.9497  (pos=35)
+        Synovitis          AUROC=0.7790  AUPRC=0.8024  (pos=27)
+        Baker's            AUROC=0.8587  AUPRC=0.7403  (pos=12)
+        Contusion          AUROC=0.9163  AUPRC=0.8462  (pos=19)
+        Fracture           AUROC=0.8611  AUPRC=0.7495  (pos=18)
+     ℹ️  report only - the panel's labels, never drives best.pt
+  ⭐ new best val_macro_auroc = 0.8460  (was 0.8395, +0.0065) -> best.pt
+  💾 saved last.pt (epoch 5)  🏆 top-8 kept
+  💾 periodic checkpoint @ step 2200 (rolling, keep_last_n=15)
+  🖼️  debug image -> /runs/convnext_tiny_4slot/results/debugged_images/run003_e5_s2200.png
+──────────────────────────────────────────────────────────────────────
+  Epoch 5/8  epoch_step: 380/455  global_step: 2200/3640
+     loss=0.4485 (-0.0333)  lr[head=3.765e-05 backbone=1.883e-05]  gnorm=0.94  elapsed=1h54m08s  ETA=1h14m42s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  1768 img/s | 858 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 5/8  epoch_step: 400/455  global_step: 2220/3640
+     loss=0.6228 (+0.1743)  lr[head=3.679e-05 backbone=1.839e-05]  gnorm=0.76  elapsed=1h56m53s  ETA=1h14m45s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  93 img/s | 39 MB/s | 2.6 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 5/8  epoch_step: 420/455  global_step: 2240/3640
+     loss=0.4370 (-0.1858)  lr[head=3.592e-05 backbone=1.796e-05]  gnorm=1.06  elapsed=1h57m44s  ETA=1h13m35s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  298 img/s | 152 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 5/8  epoch_step: 440/455  global_step: 2260/3640
+     loss=0.7280 (+0.2910)  lr[head=3.507e-05 backbone=1.753e-05]  gnorm=1.73  elapsed=1h58m36s  ETA=1h12m25s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  281 img/s | 130 MB/s | 2.9 ms/img avg read (shards)
+
+======================================================================
+📚 EPOCH 6/8
+======================================================================
+──────────────────────────────────────────────────────────────────────
+  Epoch 6/8  epoch_step: 5/455  global_step: 2280/3640
+     loss=0.4210 (-0.3070)  lr[head=3.421e-05 backbone=1.711e-05]  gnorm=0.91  elapsed=1h59m29s  ETA=1h11m16s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 268 img/s real (5-step) | data-wait 13%
+     retrieval:  303 img/s | 128 MB/s | 2.8 ms/img avg read (shards)
+  💾 periodic checkpoint @ step 2300 (rolling, keep_last_n=15)
+──────────────────────────────────────────────────────────────────────
+  Epoch 6/8  epoch_step: 25/455  global_step: 2300/3640
+     loss=0.6235 (+0.2025)  lr[head=3.337e-05 backbone=1.668e-05]  gnorm=1.08  elapsed=2h00m19s  ETA=1h10m06s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  307 img/s | 160 MB/s | 3.2 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 6/8  epoch_step: 45/455  global_step: 2320/3640
+     loss=0.3934 (-0.2301)  lr[head=3.253e-05 backbone=1.626e-05]  gnorm=0.92  elapsed=2h01m18s  ETA=1h09m01s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  262 img/s | 157 MB/s | 3.6 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 6/8  epoch_step: 65/455  global_step: 2340/3640
+     loss=0.2951 (-0.0983)  lr[head=3.169e-05 backbone=1.585e-05]  gnorm=0.83  elapsed=2h02m10s  ETA=1h07m52s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  296 img/s | 132 MB/s | 2.8 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 6/8  epoch_step: 85/455  global_step: 2360/3640
+     loss=0.5987 (+0.3036)  lr[head=3.086e-05 backbone=1.543e-05]  gnorm=1.39  elapsed=2h03m02s  ETA=1h06m44s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  292 img/s | 144 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 6/8  epoch_step: 105/455  global_step: 2380/3640
+     loss=0.5757 (-0.0230)  lr[head=3.004e-05 backbone=1.502e-05]  gnorm=0.95  elapsed=2h03m55s  ETA=1h05m36s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  292 img/s | 150 MB/s | 3.1 ms/img avg read (shards)
+======================================================================
+🔎 VALIDATION (every 200 steps) - epoch 6/8  step 2400  (176 batches, 704 studies) ...
+----------------------------------------------------------------------
+  🔎 [VAL] epoch=6/8 step=2400  n=704  loss=0.4686  elapsed=2h04m46s  ETA=1h04m28s
+     📊 macro AUROC=0.8501  AUPRC=0.6309  F1=0.622  P=0.748  R=0.533  Spec=0.949
+        ACL                AUROC=0.8286  AUPRC=0.5988  (pos=114)
+        MCL                AUROC=0.8239  AUPRC=0.4553  (pos=94)
+        Medial Meniscus    AUROC=0.8962  AUPRC=0.8150  (pos=263)
+        Lateral Meniscus   AUROC=0.7839  AUPRC=0.4373  (pos=100)
+        Medial OA          AUROC=0.8890  AUPRC=0.7497  (pos=145)
+        Lateral OA         AUROC=0.8775  AUPRC=0.5851  (pos=89)
+        PF OA              AUROC=0.8033  AUPRC=0.6186  (pos=190)
+        Effusion           AUROC=0.8867  AUPRC=0.9239  (pos=419)
+        Synovitis          AUROC=0.8503  AUPRC=0.6668  (pos=142)
+        Baker's            AUROC=0.8397  AUPRC=0.6752  (pos=170)
+        Contusion          AUROC=0.8507  AUPRC=0.6642  (pos=97)
+        Fracture           AUROC=0.8716  AUPRC=0.3814  (pos=40)
+----------------------------------------------------------------------
+  🧪 [AUDIT-58] epoch=6/8 step=2400  n=58  loss=0.4734  elapsed=2h04m46s  ETA=1h04m28s
+     📊 macro AUROC=0.8548  AUPRC=0.7732  F1=0.636  P=0.717  R=0.571  Spec=0.882
+        ACL                AUROC=0.8493  AUPRC=0.7732  (pos=24)
+        MCL                AUROC=0.7744  AUPRC=0.4013  (pos=9)
+        Medial Meniscus    AUROC=0.8522  AUPRC=0.8294  (pos=26)
+        Lateral Meniscus   AUROC=0.8621  AUPRC=0.8222  (pos=23)
+        Medial OA          AUROC=0.9690  AUPRC=0.9129  (pos=15)
+        Lateral OA         AUROC=0.7814  AUPRC=0.5876  (pos=11)
+        PF OA              AUROC=0.8018  AUPRC=0.7894  (pos=21)
+        Effusion           AUROC=0.9143  AUPRC=0.9517  (pos=35)
+        Synovitis          AUROC=0.7814  AUPRC=0.8042  (pos=27)
+        Baker's            AUROC=0.8732  AUPRC=0.7904  (pos=12)
+        Contusion          AUROC=0.9339  AUPRC=0.8626  (pos=19)
+        Fracture           AUROC=0.8653  AUPRC=0.7538  (pos=18)
+     ℹ️  report only - the panel's labels, never drives best.pt
+  ⭐ new best val_macro_auroc = 0.8501  (was 0.8460, +0.0041) -> best.pt
+  💾 saved last.pt (epoch 6)  🏆 top-8 kept
+  💾 periodic checkpoint @ step 2400 (rolling, keep_last_n=15)
+  🖼️  debug image -> /runs/convnext_tiny_4slot/results/debugged_images/run003_e6_s2400.png
+──────────────────────────────────────────────────────────────────────
+  Epoch 6/8  epoch_step: 125/455  global_step: 2400/3640
+     loss=0.3837 (-0.1920)  lr[head=2.923e-05 backbone=1.461e-05]  gnorm=1.05  elapsed=2h04m45s  ETA=1h04m27s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  1771 img/s | 867 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 6/8  epoch_step: 145/455  global_step: 2420/3640
+     loss=0.4826 (+0.0989)  lr[head=2.842e-05 backbone=1.421e-05]  gnorm=1.48  elapsed=2h07m28s  ETA=1h04m15s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  93 img/s | 53 MB/s | 3.4 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 6/8  epoch_step: 165/455  global_step: 2440/3640
+     loss=0.4943 (+0.0117)  lr[head=2.762e-05 backbone=1.381e-05]  gnorm=0.90  elapsed=2h08m20s  ETA=1h03m06s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  297 img/s | 137 MB/s | 2.9 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 6/8  epoch_step: 185/455  global_step: 2460/3640
+     loss=0.3660 (-0.1284)  lr[head=2.682e-05 backbone=1.341e-05]  gnorm=1.17  elapsed=2h09m11s  ETA=1h01m58s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  298 img/s | 135 MB/s | 2.9 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 6/8  epoch_step: 205/455  global_step: 2480/3640
+     loss=0.6188 (+0.2528)  lr[head=2.604e-05 backbone=1.302e-05]  gnorm=0.88  elapsed=2h10m03s  ETA=1h00m50s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  296 img/s | 141 MB/s | 3.0 ms/img avg read (shards)
+  💾 periodic checkpoint @ step 2500 (rolling, keep_last_n=15)
+──────────────────────────────────────────────────────────────────────
+  Epoch 6/8  epoch_step: 225/455  global_step: 2500/3640
+     loss=0.4586 (-0.1602)  lr[head=2.526e-05 backbone=1.263e-05]  gnorm=1.04  elapsed=2h10m54s  ETA=59m41s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  307 img/s | 172 MB/s | 3.3 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 6/8  epoch_step: 245/455  global_step: 2520/3640
+     loss=0.5577 (+0.0992)  lr[head=2.449e-05 backbone=1.224e-05]  gnorm=1.31  elapsed=2h11m52s  ETA=58m36s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  261 img/s | 129 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 6/8  epoch_step: 265/455  global_step: 2540/3640
+     loss=0.3166 (-0.2411)  lr[head=2.373e-05 backbone=1.186e-05]  gnorm=0.90  elapsed=2h12m44s  ETA=57m29s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  299 img/s | 144 MB/s | 2.9 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 6/8  epoch_step: 285/455  global_step: 2560/3640
+     loss=0.4517 (+0.1351)  lr[head=2.298e-05 backbone=1.149e-05]  gnorm=1.00  elapsed=2h13m37s  ETA=56m22s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  289 img/s | 116 MB/s | 2.5 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 6/8  epoch_step: 305/455  global_step: 2580/3640
+     loss=0.6409 (+0.1891)  lr[head=2.223e-05 backbone=1.112e-05]  gnorm=1.09  elapsed=2h14m29s  ETA=55m15s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  295 img/s | 145 MB/s | 3.0 ms/img avg read (shards)
+======================================================================
+🔎 VALIDATION (every 200 steps) - epoch 6/8  step 2600  (176 batches, 704 studies) ...
+----------------------------------------------------------------------
+  🔎 [VAL] epoch=6/8 step=2600  n=704  loss=0.4680  elapsed=2h15m20s  ETA=54m08s
+     📊 macro AUROC=0.8522  AUPRC=0.6311  F1=0.627  P=0.736  R=0.546  Spec=0.945
+        ACL                AUROC=0.8389  AUPRC=0.6088  (pos=114)
+        MCL                AUROC=0.8323  AUPRC=0.4620  (pos=94)
+        Medial Meniscus    AUROC=0.8983  AUPRC=0.8196  (pos=263)
+        Lateral Meniscus   AUROC=0.7850  AUPRC=0.4349  (pos=100)
+        Medial OA          AUROC=0.8907  AUPRC=0.7528  (pos=145)
+        Lateral OA         AUROC=0.8802  AUPRC=0.5800  (pos=89)
+        PF OA              AUROC=0.8046  AUPRC=0.6120  (pos=190)
+        Effusion           AUROC=0.8878  AUPRC=0.9245  (pos=419)
+        Synovitis          AUROC=0.8479  AUPRC=0.6611  (pos=142)
+        Baker's            AUROC=0.8344  AUPRC=0.6672  (pos=170)
+        Contusion          AUROC=0.8543  AUPRC=0.6716  (pos=97)
+        Fracture           AUROC=0.8727  AUPRC=0.3781  (pos=40)
+----------------------------------------------------------------------
+  🧪 [AUDIT-58] epoch=6/8 step=2600  n=58  loss=0.4711  elapsed=2h15m20s  ETA=54m08s
+     📊 macro AUROC=0.8537  AUPRC=0.7677  F1=0.639  P=0.713  R=0.579  Spec=0.877
+        ACL                AUROC=0.8407  AUPRC=0.7623  (pos=24)
+        MCL                AUROC=0.7755  AUPRC=0.3919  (pos=9)
+        Medial Meniscus    AUROC=0.8468  AUPRC=0.8365  (pos=26)
+        Lateral Meniscus   AUROC=0.8801  AUPRC=0.8400  (pos=23)
+        Medial OA          AUROC=0.9643  AUPRC=0.9052  (pos=15)
+        Lateral OA         AUROC=0.7814  AUPRC=0.5953  (pos=11)
+        PF OA              AUROC=0.8044  AUPRC=0.7849  (pos=21)
+        Effusion           AUROC=0.9143  AUPRC=0.9496  (pos=35)
+        Synovitis          AUROC=0.7885  AUPRC=0.8066  (pos=27)
+        Baker's            AUROC=0.8696  AUPRC=0.7514  (pos=12)
+        Contusion          AUROC=0.9271  AUPRC=0.8554  (pos=19)
+        Fracture           AUROC=0.8514  AUPRC=0.7333  (pos=18)
+     ℹ️  report only - the panel's labels, never drives best.pt
+  ⭐ new best val_macro_auroc = 0.8522  (was 0.8501, +0.0021) -> best.pt
+  💾 saved last.pt (epoch 6)  🏆 top-8 kept
+  💾 periodic checkpoint @ step 2600 (rolling, keep_last_n=15)
+  🖼️  debug image -> /runs/convnext_tiny_4slot/results/debugged_images/run003_e6_s2600.png
+──────────────────────────────────────────────────────────────────────
+  Epoch 6/8  epoch_step: 325/455  global_step: 2600/3640
+     loss=0.4830 (-0.1579)  lr[head=2.150e-05 backbone=1.075e-05]  gnorm=0.96  elapsed=2h15m19s  ETA=54m07s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  1770 img/s | 880 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 6/8  epoch_step: 345/455  global_step: 2620/3640
+     loss=0.5602 (+0.0772)  lr[head=2.078e-05 backbone=1.039e-05]  gnorm=0.86  elapsed=2h18m01s  ETA=53m44s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  94 img/s | 47 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 6/8  epoch_step: 365/455  global_step: 2640/3640
+     loss=0.4273 (-0.1328)  lr[head=2.006e-05 backbone=1.003e-05]  gnorm=0.90  elapsed=2h18m53s  ETA=52m36s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  295 img/s | 133 MB/s | 2.8 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 6/8  epoch_step: 385/455  global_step: 2660/3640
+     loss=0.4593 (+0.0320)  lr[head=1.936e-05 backbone=9.678e-06]  gnorm=0.84  elapsed=2h19m44s  ETA=51m29s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  297 img/s | 140 MB/s | 2.9 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 6/8  epoch_step: 405/455  global_step: 2680/3640
+     loss=0.3700 (-0.0893)  lr[head=1.866e-05 backbone=9.331e-06]  gnorm=1.08  elapsed=2h20m36s  ETA=50m22s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  297 img/s | 152 MB/s | 3.2 ms/img avg read (shards)
+  💾 periodic checkpoint @ step 2700 (rolling, keep_last_n=15)
+──────────────────────────────────────────────────────────────────────
+  Epoch 6/8  epoch_step: 425/455  global_step: 2700/3640
+     loss=0.5716 (+0.2016)  lr[head=1.798e-05 backbone=8.990e-06]  gnorm=2.20  elapsed=2h21m26s  ETA=49m14s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  309 img/s | 129 MB/s | 2.7 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 6/8  epoch_step: 445/455  global_step: 2720/3640
+     loss=0.5814 (+0.0098)  lr[head=1.731e-05 backbone=8.653e-06]  gnorm=0.92  elapsed=2h22m25s  ETA=48m10s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  181 img/s | 95 MB/s | 3.2 ms/img avg read (shards)
+
+======================================================================
+📚 EPOCH 7/8
+======================================================================
+──────────────────────────────────────────────────────────────────────
+  Epoch 7/8  epoch_step: 10/455  global_step: 2740/3640
+     loss=0.5569 (-0.0245)  lr[head=1.665e-05 backbone=8.323e-06]  gnorm=0.77  elapsed=2h23m20s  ETA=47m04s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 277 img/s real (10-step) | data-wait 10%
+     retrieval:  362 img/s | 170 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 7/8  epoch_step: 30/455  global_step: 2760/3640
+     loss=0.5101 (-0.0468)  lr[head=1.599e-05 backbone=7.997e-06]  gnorm=1.42  elapsed=2h24m11s  ETA=45m58s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  297 img/s | 134 MB/s | 2.8 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 7/8  epoch_step: 50/455  global_step: 2780/3640
+     loss=0.4847 (-0.0254)  lr[head=1.536e-05 backbone=7.678e-06]  gnorm=0.97  elapsed=2h25m03s  ETA=44m52s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  299 img/s | 134 MB/s | 2.8 ms/img avg read (shards)
+======================================================================
+🔎 VALIDATION (every 200 steps) - epoch 7/8  step 2800  (176 batches, 704 studies) ...
+----------------------------------------------------------------------
+  🔎 [VAL] epoch=7/8 step=2800  n=704  loss=0.4638  elapsed=2h25m55s  ETA=43m46s
+     📊 macro AUROC=0.8566  AUPRC=0.6407  F1=0.647  P=0.736  R=0.577  Spec=0.941
+        ACL                AUROC=0.8541  AUPRC=0.6321  (pos=114)
+        MCL                AUROC=0.8276  AUPRC=0.4572  (pos=94)
+        Medial Meniscus    AUROC=0.9042  AUPRC=0.8317  (pos=263)
+        Lateral Meniscus   AUROC=0.7947  AUPRC=0.4361  (pos=100)
+        Medial OA          AUROC=0.8912  AUPRC=0.7520  (pos=145)
+        Lateral OA         AUROC=0.8816  AUPRC=0.5908  (pos=89)
+        PF OA              AUROC=0.8095  AUPRC=0.6313  (pos=190)
+        Effusion           AUROC=0.8888  AUPRC=0.9252  (pos=419)
+        Synovitis          AUROC=0.8455  AUPRC=0.6703  (pos=142)
+        Baker's            AUROC=0.8523  AUPRC=0.7001  (pos=170)
+        Contusion          AUROC=0.8524  AUPRC=0.6851  (pos=97)
+        Fracture           AUROC=0.8776  AUPRC=0.3769  (pos=40)
+----------------------------------------------------------------------
+  🧪 [AUDIT-58] epoch=7/8 step=2800  n=58  loss=0.4674  elapsed=2h25m55s  ETA=43m46s
+     📊 macro AUROC=0.8543  AUPRC=0.7716  F1=0.659  P=0.714  R=0.613  Spec=0.871
+        ACL                AUROC=0.8480  AUPRC=0.7678  (pos=24)
+        MCL                AUROC=0.7619  AUPRC=0.3839  (pos=9)
+        Medial Meniscus    AUROC=0.8678  AUPRC=0.8535  (pos=26)
+        Lateral Meniscus   AUROC=0.8820  AUPRC=0.8375  (pos=23)
+        Medial OA          AUROC=0.9597  AUPRC=0.8924  (pos=15)
+        Lateral OA         AUROC=0.7776  AUPRC=0.5929  (pos=11)
+        PF OA              AUROC=0.8031  AUPRC=0.7788  (pos=21)
+        Effusion           AUROC=0.9012  AUPRC=0.9399  (pos=35)
+        Synovitis          AUROC=0.7897  AUPRC=0.8105  (pos=27)
+        Baker's            AUROC=0.8859  AUPRC=0.8126  (pos=12)
+        Contusion          AUROC=0.9339  AUPRC=0.8703  (pos=19)
+        Fracture           AUROC=0.8410  AUPRC=0.7195  (pos=18)
+     ℹ️  report only - the panel's labels, never drives best.pt
+  ⭐ new best val_macro_auroc = 0.8566  (was 0.8522, +0.0044) -> best.pt
+  💾 saved last.pt (epoch 7)  🏆 top-8 kept
+  💾 periodic checkpoint @ step 2800 (rolling, keep_last_n=15)
+  🖼️  debug image -> /runs/convnext_tiny_4slot/results/debugged_images/run003_e7_s2800.png
+──────────────────────────────────────────────────────────────────────
+  Epoch 7/8  epoch_step: 70/455  global_step: 2800/3640
+     loss=0.5239 (+0.0392)  lr[head=1.473e-05 backbone=7.364e-06]  gnorm=1.16  elapsed=2h25m53s  ETA=43m46s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  1768 img/s | 880 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 7/8  epoch_step: 90/455  global_step: 2820/3640
+     loss=0.3894 (-0.1345)  lr[head=1.411e-05 backbone=7.056e-06]  gnorm=1.03  elapsed=2h28m40s  ETA=43m13s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  92 img/s | 44 MB/s | 2.9 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 7/8  epoch_step: 110/455  global_step: 2840/3640
+     loss=0.5910 (+0.2016)  lr[head=1.351e-05 backbone=6.754e-06]  gnorm=1.21  elapsed=2h29m32s  ETA=42m07s  gpu_mem(peak)=59.22GB
+     throughput: 306 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  296 img/s | 131 MB/s | 2.8 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 7/8  epoch_step: 130/455  global_step: 2860/3640
+     loss=0.5590 (-0.0320)  lr[head=1.292e-05 backbone=6.458e-06]  gnorm=1.73  elapsed=2h30m24s  ETA=41m01s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  295 img/s | 157 MB/s | 3.2 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 7/8  epoch_step: 150/455  global_step: 2880/3640
+     loss=0.4661 (-0.0929)  lr[head=1.234e-05 backbone=6.169e-06]  gnorm=0.87  elapsed=2h31m16s  ETA=39m55s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  294 img/s | 159 MB/s | 3.2 ms/img avg read (shards)
+  💾 periodic checkpoint @ step 2900 (rolling, keep_last_n=15)
+──────────────────────────────────────────────────────────────────────
+  Epoch 7/8  epoch_step: 170/455  global_step: 2900/3640
+     loss=0.5387 (+0.0726)  lr[head=1.177e-05 backbone=5.886e-06]  gnorm=0.88  elapsed=2h32m06s  ETA=38m48s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  309 img/s | 151 MB/s | 3.0 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 7/8  epoch_step: 190/455  global_step: 2920/3640
+     loss=0.5742 (+0.0355)  lr[head=1.122e-05 backbone=5.609e-06]  gnorm=1.03  elapsed=2h33m04s  ETA=37m44s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  265 img/s | 154 MB/s | 3.6 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 7/8  epoch_step: 210/455  global_step: 2940/3640
+     loss=0.4612 (-0.1131)  lr[head=1.068e-05 backbone=5.338e-06]  gnorm=0.83  elapsed=2h33m56s  ETA=36m39s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  294 img/s | 151 MB/s | 3.2 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 7/8  epoch_step: 230/455  global_step: 2960/3640
+     loss=0.4711 (+0.0099)  lr[head=1.015e-05 backbone=5.075e-06]  gnorm=0.82  elapsed=2h34m49s  ETA=35m34s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  287 img/s | 138 MB/s | 3.0 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 7/8  epoch_step: 250/455  global_step: 2980/3640
+     loss=0.4645 (-0.0066)  lr[head=9.635e-06 backbone=4.817e-06]  gnorm=1.19  elapsed=2h35m41s  ETA=34m28s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  295 img/s | 136 MB/s | 2.9 ms/img avg read (shards)
+======================================================================
+🔎 VALIDATION (every 200 steps) - epoch 7/8  step 3000  (176 batches, 704 studies) ...
+----------------------------------------------------------------------
+  🔎 [VAL] epoch=7/8 step=3000  n=704  loss=0.4630  elapsed=2h36m33s  ETA=33m23s
+     📊 macro AUROC=0.8576  AUPRC=0.6413  F1=0.643  P=0.755  R=0.559  Spec=0.949
+        ACL                AUROC=0.8516  AUPRC=0.6258  (pos=114)
+        MCL                AUROC=0.8321  AUPRC=0.4671  (pos=94)
+        Medial Meniscus    AUROC=0.9066  AUPRC=0.8438  (pos=263)
+        Lateral Meniscus   AUROC=0.7932  AUPRC=0.4387  (pos=100)
+        Medial OA          AUROC=0.8919  AUPRC=0.7522  (pos=145)
+        Lateral OA         AUROC=0.8817  AUPRC=0.5919  (pos=89)
+        PF OA              AUROC=0.8103  AUPRC=0.6306  (pos=190)
+        Effusion           AUROC=0.8891  AUPRC=0.9247  (pos=419)
+        Synovitis          AUROC=0.8468  AUPRC=0.6666  (pos=142)
+        Baker's            AUROC=0.8499  AUPRC=0.6968  (pos=170)
+        Contusion          AUROC=0.8567  AUPRC=0.6761  (pos=97)
+        Fracture           AUROC=0.8812  AUPRC=0.3819  (pos=40)
+----------------------------------------------------------------------
+  🧪 [AUDIT-58] epoch=7/8 step=3000  n=58  loss=0.4604  elapsed=2h36m33s  ETA=33m23s
+     📊 macro AUROC=0.8567  AUPRC=0.7781  F1=0.679  P=0.731  R=0.633  Spec=0.877
+        ACL                AUROC=0.8505  AUPRC=0.7780  (pos=24)
+        MCL                AUROC=0.7596  AUPRC=0.3988  (pos=9)
+        Medial Meniscus    AUROC=0.8762  AUPRC=0.8650  (pos=26)
+        Lateral Meniscus   AUROC=0.8646  AUPRC=0.8176  (pos=23)
+        Medial OA          AUROC=0.9674  AUPRC=0.9175  (pos=15)
+        Lateral OA         AUROC=0.7814  AUPRC=0.5993  (pos=11)
+        PF OA              AUROC=0.8108  AUPRC=0.7880  (pos=21)
+        Effusion           AUROC=0.9093  AUPRC=0.9444  (pos=35)
+        Synovitis          AUROC=0.7909  AUPRC=0.8105  (pos=27)
+        Baker's            AUROC=0.8841  AUPRC=0.8216  (pos=12)
+        Contusion          AUROC=0.9312  AUPRC=0.8640  (pos=19)
+        Fracture           AUROC=0.8549  AUPRC=0.7327  (pos=18)
+     ℹ️  report only - the panel's labels, never drives best.pt
+  ⭐ new best val_macro_auroc = 0.8576  (was 0.8566, +0.0010) -> best.pt
+  💾 saved last.pt (epoch 7)  🏆 top-8 kept
+  💾 periodic checkpoint @ step 3000 (rolling, keep_last_n=15)
+  🖼️  debug image -> /runs/convnext_tiny_4slot/results/debugged_images/run003_e7_s3000.png
+──────────────────────────────────────────────────────────────────────
+  Epoch 7/8  epoch_step: 270/455  global_step: 3000/3640
+     loss=0.5625 (+0.0980)  lr[head=9.134e-06 backbone=4.567e-06]  gnorm=0.76  elapsed=2h36m31s  ETA=33m23s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  1770 img/s | 871 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 7/8  epoch_step: 290/455  global_step: 3020/3640
+     loss=0.6041 (+0.0417)  lr[head=8.647e-06 backbone=4.324e-06]  gnorm=1.03  elapsed=2h39m18s  ETA=32m42s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  92 img/s | 41 MB/s | 2.8 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 7/8  epoch_step: 310/455  global_step: 3040/3640
+     loss=0.5839 (-0.0203)  lr[head=8.174e-06 backbone=4.087e-06]  gnorm=1.16  elapsed=2h40m10s  ETA=31m36s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  293 img/s | 136 MB/s | 2.9 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 7/8  epoch_step: 330/455  global_step: 3060/3640
+     loss=0.6402 (+0.0563)  lr[head=7.714e-06 backbone=3.857e-06]  gnorm=1.06  elapsed=2h41m02s  ETA=30m31s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  296 img/s | 152 MB/s | 3.2 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 7/8  epoch_step: 350/455  global_step: 3080/3640
+     loss=0.3880 (-0.2521)  lr[head=7.269e-06 backbone=3.635e-06]  gnorm=0.88  elapsed=2h41m54s  ETA=29m26s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  296 img/s | 149 MB/s | 3.2 ms/img avg read (shards)
+  💾 periodic checkpoint @ step 3100 (rolling, keep_last_n=15)
+──────────────────────────────────────────────────────────────────────
+  Epoch 7/8  epoch_step: 370/455  global_step: 3100/3640
+     loss=0.5382 (+0.1501)  lr[head=6.838e-06 backbone=3.419e-06]  gnorm=0.76  elapsed=2h42m44s  ETA=28m20s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  308 img/s | 139 MB/s | 2.9 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 7/8  epoch_step: 390/455  global_step: 3120/3640
+     loss=0.3633 (-0.1749)  lr[head=6.422e-06 backbone=3.211e-06]  gnorm=1.09  elapsed=2h43m43s  ETA=27m17s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  258 img/s | 151 MB/s | 3.6 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 7/8  epoch_step: 410/455  global_step: 3140/3640
+     loss=0.3842 (+0.0209)  lr[head=6.020e-06 backbone=3.010e-06]  gnorm=1.07  elapsed=2h44m35s  ETA=26m12s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  295 img/s | 128 MB/s | 2.8 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 7/8  epoch_step: 430/455  global_step: 3160/3640
+     loss=0.4934 (+0.1092)  lr[head=5.632e-06 backbone=2.816e-06]  gnorm=1.24  elapsed=2h45m27s  ETA=25m07s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  296 img/s | 139 MB/s | 3.0 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 7/8  epoch_step: 450/455  global_step: 3180/3640
+     loss=0.4471 (-0.0463)  lr[head=5.260e-06 backbone=2.630e-06]  gnorm=1.22  elapsed=2h46m19s  ETA=24m03s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  132 img/s | 62 MB/s | 2.9 ms/img avg read (shards)
+
+======================================================================
+📚 EPOCH 8/8
+======================================================================
+======================================================================
+🔎 VALIDATION (every 200 steps) - epoch 8/8  step 3200  (176 batches, 704 studies) ...
+----------------------------------------------------------------------
+  🔎 [VAL] epoch=8/8 step=3200  n=704  loss=0.4628  elapsed=2h47m13s  ETA=22m59s
+     📊 macro AUROC=0.8593  AUPRC=0.6447  F1=0.659  P=0.729  R=0.601  Spec=0.937
+        ACL                AUROC=0.8459  AUPRC=0.6260  (pos=114)
+        MCL                AUROC=0.8332  AUPRC=0.4664  (pos=94)
+        Medial Meniscus    AUROC=0.9096  AUPRC=0.8453  (pos=263)
+        Lateral Meniscus   AUROC=0.8007  AUPRC=0.4583  (pos=100)
+        Medial OA          AUROC=0.8934  AUPRC=0.7544  (pos=145)
+        Lateral OA         AUROC=0.8846  AUPRC=0.5922  (pos=89)
+        PF OA              AUROC=0.8128  AUPRC=0.6356  (pos=190)
+        Effusion           AUROC=0.8884  AUPRC=0.9238  (pos=419)
+        Synovitis          AUROC=0.8486  AUPRC=0.6693  (pos=142)
+        Baker's            AUROC=0.8585  AUPRC=0.7110  (pos=170)
+        Contusion          AUROC=0.8560  AUPRC=0.6745  (pos=97)
+        Fracture           AUROC=0.8798  AUPRC=0.3797  (pos=40)
+----------------------------------------------------------------------
+  🧪 [AUDIT-58] epoch=8/8 step=3200  n=58  loss=0.4651  elapsed=2h47m13s  ETA=22m59s
+     📊 macro AUROC=0.8583  AUPRC=0.7743  F1=0.671  P=0.703  R=0.642  Spec=0.857
+        ACL                AUROC=0.8493  AUPRC=0.7764  (pos=24)
+        MCL                AUROC=0.7687  AUPRC=0.3759  (pos=9)
+        Medial Meniscus    AUROC=0.8846  AUPRC=0.8684  (pos=26)
+        Lateral Meniscus   AUROC=0.8646  AUPRC=0.8005  (pos=23)
+        Medial OA          AUROC=0.9659  AUPRC=0.9088  (pos=15)
+        Lateral OA         AUROC=0.7718  AUPRC=0.5885  (pos=11)
+        PF OA              AUROC=0.8224  AUPRC=0.7952  (pos=21)
+        Effusion           AUROC=0.9068  AUPRC=0.9424  (pos=35)
+        Synovitis          AUROC=0.7849  AUPRC=0.7998  (pos=27)
+        Baker's            AUROC=0.8850  AUPRC=0.8174  (pos=12)
+        Contusion          AUROC=0.9393  AUPRC=0.8858  (pos=19)
+        Fracture           AUROC=0.8569  AUPRC=0.7322  (pos=18)
+     ℹ️  report only - the panel's labels, never drives best.pt
+  ⭐ new best val_macro_auroc = 0.8593  (was 0.8576, +0.0017) -> best.pt
+  💾 saved last.pt (epoch 8)  🏆 top-8 kept
+  💾 periodic checkpoint @ step 3200 (rolling, keep_last_n=15)
+  🖼️  debug image -> /runs/convnext_tiny_4slot/results/debugged_images/run003_e8_s3200.png
+──────────────────────────────────────────────────────────────────────
+  Epoch 8/8  epoch_step: 15/455  global_step: 3200/3640
+     loss=0.5523 (+0.1052)  lr[head=4.902e-06 backbone=2.451e-06]  gnorm=1.15  elapsed=2h47m11s  ETA=22m59s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 291 img/s real (15-step) | data-wait 5%
+     retrieval:  1869 img/s | 897 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 8/8  epoch_step: 35/455  global_step: 3220/3640
+     loss=0.4473 (-0.1050)  lr[head=4.560e-06 backbone=2.280e-06]  gnorm=0.86  elapsed=2h49m54s  ETA=22m09s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  93 img/s | 44 MB/s | 3.0 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 8/8  epoch_step: 55/455  global_step: 3240/3640
+     loss=0.3415 (-0.1058)  lr[head=4.233e-06 backbone=2.116e-06]  gnorm=0.75  elapsed=2h50m47s  ETA=21m05s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  292 img/s | 168 MB/s | 3.6 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 8/8  epoch_step: 75/455  global_step: 3260/3640
+     loss=0.4047 (+0.0632)  lr[head=3.921e-06 backbone=1.960e-06]  gnorm=1.04  elapsed=2h51m39s  ETA=20m00s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  298 img/s | 149 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 8/8  epoch_step: 95/455  global_step: 3280/3640
+     loss=0.4189 (+0.0142)  lr[head=3.624e-06 backbone=1.812e-06]  gnorm=1.22  elapsed=2h52m31s  ETA=18m56s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  296 img/s | 136 MB/s | 2.9 ms/img avg read (shards)
+  💾 periodic checkpoint @ step 3300 (rolling, keep_last_n=15)
+──────────────────────────────────────────────────────────────────────
+  Epoch 8/8  epoch_step: 115/455  global_step: 3300/3640
+     loss=0.2593 (-0.1596)  lr[head=3.343e-06 backbone=1.671e-06]  gnorm=1.36  elapsed=2h53m21s  ETA=17m51s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  307 img/s | 135 MB/s | 2.8 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 8/8  epoch_step: 135/455  global_step: 3320/3640
+     loss=0.3129 (+0.0536)  lr[head=3.077e-06 backbone=1.539e-06]  gnorm=0.86  elapsed=2h54m19s  ETA=16m48s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  260 img/s | 107 MB/s | 2.7 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 8/8  epoch_step: 155/455  global_step: 3340/3640
+     loss=0.4783 (+0.1654)  lr[head=2.827e-06 backbone=1.414e-06]  gnorm=1.14  elapsed=2h55m12s  ETA=15m44s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  295 img/s | 153 MB/s | 3.2 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 8/8  epoch_step: 175/455  global_step: 3360/3640
+     loss=0.3239 (-0.1544)  lr[head=2.593e-06 backbone=1.296e-06]  gnorm=0.75  elapsed=2h56m04s  ETA=14m40s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  294 img/s | 146 MB/s | 3.0 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 8/8  epoch_step: 195/455  global_step: 3380/3640
+     loss=0.4527 (+0.1288)  lr[head=2.375e-06 backbone=1.187e-06]  gnorm=1.01  elapsed=2h56m56s  ETA=13m36s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  295 img/s | 155 MB/s | 3.3 ms/img avg read (shards)
+======================================================================
+🔎 VALIDATION (every 200 steps) - epoch 8/8  step 3400  (176 batches, 704 studies) ...
+----------------------------------------------------------------------
+  🔎 [VAL] epoch=8/8 step=3400  n=704  loss=0.4621  elapsed=2h57m49s  ETA=12m33s
+     📊 macro AUROC=0.8591  AUPRC=0.6444  F1=0.650  P=0.752  R=0.572  Spec=0.947
+        ACL                AUROC=0.8474  AUPRC=0.6265  (pos=114)
+        MCL                AUROC=0.8351  AUPRC=0.4682  (pos=94)
+        Medial Meniscus    AUROC=0.9081  AUPRC=0.8428  (pos=263)
+        Lateral Meniscus   AUROC=0.7988  AUPRC=0.4569  (pos=100)
+        Medial OA          AUROC=0.8925  AUPRC=0.7531  (pos=145)
+        Lateral OA         AUROC=0.8847  AUPRC=0.5972  (pos=89)
+        PF OA              AUROC=0.8137  AUPRC=0.6375  (pos=190)
+        Effusion           AUROC=0.8881  AUPRC=0.9239  (pos=419)
+        Synovitis          AUROC=0.8483  AUPRC=0.6680  (pos=142)
+        Baker's            AUROC=0.8568  AUPRC=0.7070  (pos=170)
+        Contusion          AUROC=0.8552  AUPRC=0.6733  (pos=97)
+        Fracture           AUROC=0.8805  AUPRC=0.3789  (pos=40)
+----------------------------------------------------------------------
+  🧪 [AUDIT-58] epoch=8/8 step=3400  n=58  loss=0.4620  elapsed=2h57m49s  ETA=12m33s
+     📊 macro AUROC=0.8598  AUPRC=0.7769  F1=0.674  P=0.720  R=0.633  Spec=0.871
+        ACL                AUROC=0.8529  AUPRC=0.7796  (pos=24)
+        MCL                AUROC=0.7732  AUPRC=0.3786  (pos=9)
+        Medial Meniscus    AUROC=0.8762  AUPRC=0.8583  (pos=26)
+        Lateral Meniscus   AUROC=0.8627  AUPRC=0.8094  (pos=23)
+        Medial OA          AUROC=0.9643  AUPRC=0.9005  (pos=15)
+        Lateral OA         AUROC=0.7872  AUPRC=0.6085  (pos=11)
+        PF OA              AUROC=0.8198  AUPRC=0.7937  (pos=21)
+        Effusion           AUROC=0.9081  AUPRC=0.9442  (pos=35)
+        Synovitis          AUROC=0.7873  AUPRC=0.8065  (pos=27)
+        Baker's            AUROC=0.8877  AUPRC=0.8223  (pos=12)
+        Contusion          AUROC=0.9393  AUPRC=0.8881  (pos=19)
+        Fracture           AUROC=0.8583  AUPRC=0.7328  (pos=18)
+     ℹ️  report only - the panel's labels, never drives best.pt
+  ⏳ no improvement (1/7)  best 0.8593 @ epoch 8
+  💾 saved last.pt (epoch 8)  🏆 top-8 kept
+  💾 periodic checkpoint @ step 3400 (rolling, keep_last_n=15)
+  🖼️  debug image -> /runs/convnext_tiny_4slot/results/debugged_images/run003_e8_s3400.png
+──────────────────────────────────────────────────────────────────────
+  Epoch 8/8  epoch_step: 215/455  global_step: 3400/3640
+     loss=0.5815 (+0.1289)  lr[head=2.172e-06 backbone=1.086e-06]  gnorm=1.78  elapsed=2h57m46s  ETA=12m32s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  1770 img/s | 877 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 8/8  epoch_step: 235/455  global_step: 3420/3640
+     loss=0.3390 (-0.2426)  lr[head=1.985e-06 backbone=9.927e-07]  gnorm=0.97  elapsed=3h00m26s  ETA=11m36s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  95 img/s | 43 MB/s | 2.9 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 8/8  epoch_step: 255/455  global_step: 3440/3640
+     loss=0.4383 (+0.0994)  lr[head=1.815e-06 backbone=9.074e-07]  gnorm=1.05  elapsed=3h01m18s  ETA=10m32s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  296 img/s | 181 MB/s | 3.7 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 8/8  epoch_step: 275/455  global_step: 3460/3640
+     loss=0.3581 (-0.0802)  lr[head=1.660e-06 backbone=8.302e-07]  gnorm=1.32  elapsed=3h02m09s  ETA=9m28s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  298 img/s | 138 MB/s | 3.0 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 8/8  epoch_step: 295/455  global_step: 3480/3640
+     loss=0.4263 (+0.0682)  lr[head=1.522e-06 backbone=7.610e-07]  gnorm=1.29  elapsed=3h03m01s  ETA=8m24s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  297 img/s | 151 MB/s | 3.2 ms/img avg read (shards)
+  💾 periodic checkpoint @ step 3500 (rolling, keep_last_n=15)
+──────────────────────────────────────────────────────────────────────
+  Epoch 8/8  epoch_step: 315/455  global_step: 3500/3640
+     loss=0.4411 (+0.0148)  lr[head=1.400e-06 backbone=6.999e-07]  gnorm=1.00  elapsed=3h03m52s  ETA=7m21s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  307 img/s | 148 MB/s | 3.0 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 8/8  epoch_step: 335/455  global_step: 3520/3640
+     loss=0.2847 (-0.1564)  lr[head=1.294e-06 backbone=6.469e-07]  gnorm=1.24  elapsed=3h04m50s  ETA=6m18s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  261 img/s | 140 MB/s | 3.3 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 8/8  epoch_step: 355/455  global_step: 3540/3640
+     loss=0.4180 (+0.1333)  lr[head=1.204e-06 backbone=6.021e-07]  gnorm=0.94  elapsed=3h05m42s  ETA=5m14s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  297 img/s | 128 MB/s | 2.7 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 8/8  epoch_step: 375/455  global_step: 3560/3640
+     loss=0.5132 (+0.0951)  lr[head=1.131e-06 backbone=5.653e-07]  gnorm=0.99  elapsed=3h06m34s  ETA=4m11s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  296 img/s | 142 MB/s | 3.0 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 8/8  epoch_step: 395/455  global_step: 3580/3640
+     loss=0.3984 (-0.1147)  lr[head=1.074e-06 backbone=5.368e-07]  gnorm=0.78  elapsed=3h07m26s  ETA=3m08s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  296 img/s | 135 MB/s | 2.9 ms/img avg read (shards)
+======================================================================
+🔎 VALIDATION (every 200 steps) - epoch 8/8  step 3600  (176 batches, 704 studies) ...
+----------------------------------------------------------------------
+  🔎 [VAL] epoch=8/8 step=3600  n=704  loss=0.4617  elapsed=3h08m18s  ETA=2m05s
+     📊 macro AUROC=0.8596  AUPRC=0.6449  F1=0.651  P=0.744  R=0.579  Spec=0.944
+        ACL                AUROC=0.8487  AUPRC=0.6272  (pos=114)
+        MCL                AUROC=0.8348  AUPRC=0.4669  (pos=94)
+        Medial Meniscus    AUROC=0.9094  AUPRC=0.8442  (pos=263)
+        Lateral Meniscus   AUROC=0.7998  AUPRC=0.4573  (pos=100)
+        Medial OA          AUROC=0.8927  AUPRC=0.7536  (pos=145)
+        Lateral OA         AUROC=0.8846  AUPRC=0.5938  (pos=89)
+        PF OA              AUROC=0.8136  AUPRC=0.6362  (pos=190)
+        Effusion           AUROC=0.8885  AUPRC=0.9241  (pos=419)
+        Synovitis          AUROC=0.8481  AUPRC=0.6681  (pos=142)
+        Baker's            AUROC=0.8576  AUPRC=0.7088  (pos=170)
+        Contusion          AUROC=0.8563  AUPRC=0.6741  (pos=97)
+        Fracture           AUROC=0.8814  AUPRC=0.3843  (pos=40)
+----------------------------------------------------------------------
+  🧪 [AUDIT-58] epoch=8/8 step=3600  n=58  loss=0.4608  elapsed=3h08m18s  ETA=2m05s
+     📊 macro AUROC=0.8596  AUPRC=0.7767  F1=0.675  P=0.713  R=0.642  Spec=0.864
+        ACL                AUROC=0.8529  AUPRC=0.7792  (pos=24)
+        MCL                AUROC=0.7687  AUPRC=0.3768  (pos=9)
+        Medial Meniscus    AUROC=0.8762  AUPRC=0.8576  (pos=26)
+        Lateral Meniscus   AUROC=0.8683  AUPRC=0.8157  (pos=23)
+        Medial OA          AUROC=0.9628  AUPRC=0.8980  (pos=15)
+        Lateral OA         AUROC=0.7834  AUPRC=0.6073  (pos=11)
+        PF OA              AUROC=0.8198  AUPRC=0.7936  (pos=21)
+        Effusion           AUROC=0.9068  AUPRC=0.9428  (pos=35)
+        Synovitis          AUROC=0.7909  AUPRC=0.8099  (pos=27)
+        Baker's            AUROC=0.8886  AUPRC=0.8223  (pos=12)
+        Contusion          AUROC=0.9393  AUPRC=0.8849  (pos=19)
+        Fracture           AUROC=0.8569  AUPRC=0.7321  (pos=18)
+     ℹ️  report only - the panel's labels, never drives best.pt
+  ⭐ new best val_macro_auroc = 0.8596  (was 0.8593, +0.0003) -> best.pt
+  💾 saved last.pt (epoch 8)  🏆 top-8 kept
+  💾 periodic checkpoint @ step 3600 (rolling, keep_last_n=15)
+  🖼️  debug image -> /runs/convnext_tiny_4slot/results/debugged_images/run003_e8_s3600.png
+──────────────────────────────────────────────────────────────────────
+  Epoch 8/8  epoch_step: 415/455  global_step: 3600/3640
+     loss=0.5491 (+0.1506)  lr[head=1.033e-06 backbone=5.163e-07]  gnorm=1.41  elapsed=3h08m16s  ETA=2m05s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  1769 img/s | 863 MB/s | 3.2 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 8/8  epoch_step: 435/455  global_step: 3620/3640
+     loss=0.4767 (-0.0723)  lr[head=1.008e-06 backbone=5.041e-07]  gnorm=1.23  elapsed=3h10m59s  ETA=1m03s  gpu_mem(peak)=59.22GB
+     throughput: 307 img/s compute | 307 img/s real (20-step) | data-wait 0%
+     retrieval:  94 img/s | 47 MB/s | 3.1 ms/img avg read (shards)
+──────────────────────────────────────────────────────────────────────
+  Epoch 8/8  epoch_step: 455/455  global_step: 3640/3640
+     loss=0.6903 (+0.2136)  lr[head=1.000e-06 backbone=5.000e-07]  gnorm=1.32  elapsed=3h11m50s  ETA=0m00s  gpu_mem(peak)=59.22GB
+     throughput: 350 img/s compute | 309 img/s real (20-step) | data-wait 0%
+     retrieval:  60 img/s | 33 MB/s | 3.4 ms/img avg read (shards)
+
+  📌 final validation (these last steps hit no trigger)
+======================================================================
+🔎 VALIDATION (final) - epoch 8/8  step 3640  (176 batches, 704 studies) ...
+----------------------------------------------------------------------
+  🔎 [VAL] epoch=8/8 step=3640  n=704  loss=0.4616  elapsed=3h11m50s  ETA=0m00s
+     📊 macro AUROC=0.8596  AUPRC=0.6447  F1=0.647  P=0.753  R=0.568  Spec=0.947
+        ACL                AUROC=0.8490  AUPRC=0.6276  (pos=114)
+        MCL                AUROC=0.8349  AUPRC=0.4670  (pos=94)
+        Medial Meniscus    AUROC=0.9094  AUPRC=0.8450  (pos=263)
+        Lateral Meniscus   AUROC=0.7992  AUPRC=0.4561  (pos=100)
+        Medial OA          AUROC=0.8926  AUPRC=0.7531  (pos=145)
+        Lateral OA         AUROC=0.8844  AUPRC=0.5943  (pos=89)
+        PF OA              AUROC=0.8134  AUPRC=0.6356  (pos=190)
+        Effusion           AUROC=0.8883  AUPRC=0.9240  (pos=419)
+        Synovitis          AUROC=0.8485  AUPRC=0.6685  (pos=142)
+        Baker's            AUROC=0.8575  AUPRC=0.7085  (pos=170)
+        Contusion          AUROC=0.8563  AUPRC=0.6741  (pos=97)
+        Fracture           AUROC=0.8822  AUPRC=0.3826  (pos=40)
+----------------------------------------------------------------------
+  🧪 [AUDIT-58] epoch=8/8 step=3640  n=58  loss=0.4597  elapsed=3h11m50s  ETA=0m00s
+     📊 macro AUROC=0.8597  AUPRC=0.7773  F1=0.677  P=0.727  R=0.633  Spec=0.875
+        ACL                AUROC=0.8529  AUPRC=0.7792  (pos=24)
+        MCL                AUROC=0.7687  AUPRC=0.3768  (pos=9)
+        Medial Meniscus    AUROC=0.8786  AUPRC=0.8616  (pos=26)
+        Lateral Meniscus   AUROC=0.8671  AUPRC=0.8140  (pos=23)
+        Medial OA          AUROC=0.9628  AUPRC=0.8980  (pos=15)
+        Lateral OA         AUROC=0.7853  AUPRC=0.6113  (pos=11)
+        PF OA              AUROC=0.8198  AUPRC=0.7936  (pos=21)
+        Effusion           AUROC=0.9056  AUPRC=0.9415  (pos=35)
+        Synovitis          AUROC=0.7873  AUPRC=0.8054  (pos=27)
+        Baker's            AUROC=0.8895  AUPRC=0.8226  (pos=12)
+        Contusion          AUROC=0.9420  AUPRC=0.8917  (pos=19)
+        Fracture           AUROC=0.8569  AUPRC=0.7321  (pos=18)
+     ℹ️  report only - the panel's labels, never drives best.pt
+  ⭐ new best val_macro_auroc = 0.8596  (was 0.8596, +0.0000) -> best.pt
+  💾 saved last.pt (epoch 8)  🏆 top-8 kept
+
+======================================================================
+🏁 FINISHED - convnext_tiny_4slot
+======================================================================
+  ⏱️  total time       : 3h13m33s  (17 epochs, 3640 steps)
+  ⭐ best val_macro_auroc: 0.8596  @ epoch 8
+  📉 val loss at best  : 0.462839
+  📊 macro AUPRC       : 0.644707
+  🧪 audit-58 AUROC    : 0.858349  (report only)
+  🔍 per-finding at the best epoch (8)
+┌──────────────────┬───────────┬───────────┬──────────┬──────────────────┐
+│ finding          │ val AUROC │ val AUPRC │ audit-58 │ above chance     │
+├──────────────────┼───────────┼───────────┼──────────┼──────────────────┤
+│ Medial Meniscus  │ 0.9096    │ 0.8453    │ 0.8846   │ ████████████████ │
+│ Medial OA        │ 0.8934    │ 0.7544    │ 0.9659   │ ███████████████  │
+│ Effusion         │ 0.8884    │ 0.9238    │ 0.9068   │ ███████████████  │
+│ Lateral OA       │ 0.8846    │ 0.5922    │ 0.7718   │ ███████████████  │
+│ Fracture         │ 0.8798    │ 0.3797    │ 0.8569   │ ███████████████  │
+│ Baker's          │ 0.8585    │ 0.7110    │ 0.8850   │ ██████████████   │
+│ Contusion        │ 0.8560    │ 0.6745    │ 0.9393   │ ██████████████   │
+│ Synovitis        │ 0.8486    │ 0.6693    │ 0.7849   │ █████████████    │
+│ ACL              │ 0.8459    │ 0.6260    │ 0.8493   │ █████████████    │
+│ MCL              │ 0.8332    │ 0.4664    │ 0.7687   │ █████████████    │
+│ PF OA            │ 0.8128    │ 0.6356    │ 0.8224   │ ████████████     │
+│ Lateral Meniscus │ 0.8007    │ 0.4583    │ 0.8646   │ ████████████     │
+└──────────────────┴───────────┴───────────┴──────────┴──────────────────┘
+
+  📈 reference: keyword labeler 0.700, LLM labels 0.895 (vs the 58)
+  💾 checkpoints       : /runs/convnext_tiny_4slot/results/checkpoints
+  📝 logs              : /runs/convnext_tiny_4slot/results/train_log.csv
+                        /runs/convnext_tiny_4slot/results/val_log.csv
+======================================================================
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║ 📈 PLOTS                                                                    ║
+╚════════════════════════════════════════════════════════════════════════════╝
+  train log : /runs/convnext_tiny_4slot/results/train_log.csv
+  val   log : /runs/convnext_tiny_4slot/results/val_log.csv
+  output    : /runs/convnext_tiny_4slot/results/plots
+  runs      : run002, run003
+  ✅ loss_curves.png
+  ✅ macro_auroc.png
+  ✅ macro_auprc.png
+  ✅ per_task_auroc.png
+  ✅ per_task_auprc.png
+  ✅ macro_f1_precision_recall.png
+  ✅ learning_rate.png
+  ✅ training_diagnostics.png
+  📈 wrote 8 plot(s) -> /runs/convnext_tiny_4slot/results/plots

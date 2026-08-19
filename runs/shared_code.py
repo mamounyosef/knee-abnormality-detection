@@ -22,6 +22,7 @@ import multiprocessing as _mp
 import os
 import random
 import re
+import shutil
 import sys
 import time
 from collections import deque
@@ -446,7 +447,8 @@ def _retr_snapshot():
 class KneeShardDataset(Dataset):
     """One item = one study: 4 slot volumes of n_slices each, plus its 12 labels."""
 
-    def __init__(self, df: pd.DataFrame, cfg: dict, plan: dict, train: bool):
+    def __init__(self, df: pd.DataFrame, cfg: dict, plan: dict, train: bool,
+                 dicom: tuple | None = None):
         self.df = df.reset_index(drop=True)
         self.cfg, self.plan, self.train = cfg, plan, train
         self.tasks = cfg["tasks"]
@@ -459,6 +461,18 @@ class KneeShardDataset(Dataset):
         self.margin = i.get("slice_margin", 0.0)
         self.aug = cfg["augmentation"] if train and cfg["augmentation"]["enable"] else None
         self.seed = int(cfg["reproducibility"]["seed"])
+        # 2.5D: instead of copying one slice into 3 identical channels, fill them with
+        # neighbouring slices of the SAME series, so the backbone sees through-plane
+        # context. Costs nothing extra - those channels already existed, just wasted.
+        self.ctx = 3 if i.get("slice_context") == "neighbours" else 1
+        self.ctx_stride = int(i.get("slice_context_stride", 1))
+        # (index, {series: [files]}) at submission time: the same volumes come from
+        # raw DICOM instead of a shard, everything downstream is identical
+        self.dicom_files = None
+        if dicom is not None:
+            dicom_index, self.dicom_files = dicom
+            self.geo = dicom_index.set_index("series")[["pixel_spacing_c", "pixel_spacing_r"]]
+            return
         # per-series mm-per-pixel, needed to rescale every scan to one physical scale
         self.geo = (pd.read_csv(resolve(cfg["paths"]["series_index"], cfg))
                     .set_index("series")[["pixel_spacing_c", "pixel_spacing_r"]])
@@ -466,15 +480,28 @@ class KneeShardDataset(Dataset):
     def __len__(self):
         return len(self.df)
 
-    def _load(self, study: str, series: str, rng) -> np.ndarray:
-        """One series -> (n_slices, size, size) float array, resampled and windowed."""
-        _t = time.perf_counter()
+    def _read_series(self, study: str, series: str) -> np.ndarray | None:
+        """The stored volume for one series, from a shard or straight from DICOM."""
+        if self.dicom_files is not None:                  # submission path
+            arr = dicom_series_volume(self.dicom_files.get(series, []))
+            return arr if arr.size else None
         with np.load(self.shards / f"{study}.npz") as z:
-            if series not in z.files:
-                return np.zeros((self.n_slices, self.size, self.size), np.uint8)   # missing series
-            arr = z[series]                                  # (all_slices, H, W) uint8, native res
-            idx = pick_slices(arr.shape[0], self.n_slices, self.mode, rng, self.margin)
-            vol = arr[idx].astype(np.float32)
+            return z[series] if series in z.files else None
+
+    def _load(self, study: str, series: str, rng) -> np.ndarray:
+        """One series -> (n_slices * ctx, size, size) float array, resampled and windowed."""
+        _t = time.perf_counter()
+        arr = self._read_series(study, series)
+        if arr is None:                                   # series missing for this study
+            return np.zeros((self.n_slices * self.ctx, self.size, self.size), np.float32)
+        idx = pick_slices(arr.shape[0], self.n_slices, self.mode, rng, self.margin)
+        if self.ctx > 1:
+            # k-stride, k, k+stride, clamped at the ends; flattened slice-major so a
+            # later reshape gives (n_slices, ctx, H, W)
+            off = np.arange(-(self.ctx // 2), self.ctx // 2 + 1) * self.ctx_stride
+            idx = np.clip(np.asarray(idx)[:, None] + off[None, :],
+                          0, arr.shape[0] - 1).reshape(-1)
+        vol = arr[idx].astype(np.float32)
         # only the volume read is timed; resample/window/augment come after
         with _RETR_NS.get_lock():
             _RETR_NS.value += int((time.perf_counter() - _t) * 1e9)
@@ -544,8 +571,11 @@ class KneeShardDataset(Dataset):
             vol = vol[:, :, ::-1].copy()
         sd = a["slice_dropout"]                       # blank a few slices: mimics gaps/artifacts
         if rng.random() < sd["p"]:
-            k = max(1, int(len(vol) * sd["frac"]))
-            vol[rng.choice(len(vol), k, replace=False)] = 0
+            n_sl = len(vol) // self.ctx               # groups, not raw planes
+            k = max(1, int(n_sl * sd["frac"]))
+            drop = rng.choice(n_sl, k, replace=False)
+            for d0 in drop:                           # zero every channel of that slice
+                vol[d0 * self.ctx:(d0 + 1) * self.ctx] = 0
         return np.clip(vol, 0, 255)
 
     def __getitem__(self, i: int):
@@ -563,12 +593,15 @@ class KneeShardDataset(Dataset):
         for slot in self.slots:
             series = chosen.get(slot)                   # None when this study lacks that view
             v = (self._load(study, series, rng) if series is not None
-                 else np.zeros((self.n_slices, self.size, self.size), np.float32))
+                 else np.zeros((self.n_slices * self.ctx, self.size, self.size), np.float32))
             if self.aug is not None:
-                v = self._augment(v, rng)
+                v = self._augment(v, rng)             # same warp across a slice's channels
+            if self.ctx > 1:
+                v = v.reshape(self.n_slices, self.ctx, self.size, self.size)
             vols.append(v)
 
-        x = torch.from_numpy(np.stack(vols).astype(np.uint8))     # (slots, D, H, W) uint8
+        # (slots, D, H, W) normally, (slots, D, ctx, H, W) with 2.5D
+        x = torch.from_numpy(np.stack(vols).astype(np.uint8))
         y = torch.tensor([float(row[t]) for t in self.tasks], dtype=torch.float32)   # 12 probs in [0,1]
         # "hard" mode turns the soft label probabilities into crisp 0/1 targets
         if self.cfg["target"]["mode"] == "hard":
@@ -580,12 +613,16 @@ class KneeShardDataset(Dataset):
 def prepare_batch(x: torch.Tensor, cfg: dict, device) -> torch.Tensor:
     """uint8 (B, slots, D, H, W) -> normalized float (B*slots*D, C, H, W)."""
     # ship uint8 to the GPU (4x smaller transfer), normalize there
-    b, s, d, h, w = x.shape
-    x = x.to(device, non_blocking=True).float().div_(255.0)
-    x = x.view(b * s * d, 1, h, w)                 # every slice becomes its own 2D image
     c = cfg["input"]["channels"]
-    if c > 1:
-        x = x.expand(-1, c, -1, -1)                # grey copied to 3 channels for ImageNet backbones
+    x = x.to(device, non_blocking=True).float().div_(255.0)
+    if x.dim() == 6:                               # 2.5D: channels already hold neighbours
+        b, s, d, ctx, h, w = x.shape
+        x = x.reshape(b * s * d, ctx, h, w)
+    else:
+        b, s, d, h, w = x.shape
+        x = x.view(b * s * d, 1, h, w)             # every slice becomes its own 2D image
+        if c > 1:
+            x = x.expand(-1, c, -1, -1)            # grey copied to 3 channels for ImageNet backbones
     mean = torch.tensor(cfg["input"]["norm_mean"][:c], device=device).view(1, c, 1, 1)
     std = torch.tensor(cfg["input"]["norm_std"][:c], device=device).view(1, c, 1, 1)
     return (x - mean) / std
@@ -1095,10 +1132,13 @@ def prune_checkpoints(ckpt_dir: Path, keep_last_n: int, keep_names=()):
     files = sorted(ckpt_dir.glob("step*.pt"), key=lambda q: q.stat().st_mtime)
     for f in files[:-keep_last_n]:
         if f.name not in keep_names:
+            mb = f.stat().st_size / 1024**2
             try:
                 f.unlink()
-            except OSError:
-                pass
+                print(f"  🗑️  pruned {f.name} ({mb:.0f} MB) - "
+                      f"outside the keep_last_n={keep_last_n} window")
+            except OSError as e:
+                print(f"  [warn] could not prune {f.name}: {e}")
 
 
 def update_top_k(ckpt_dir: Path, cfg, model, epoch: int, step: int, score: float,
@@ -1123,8 +1163,10 @@ def update_top_k(ckpt_dir: Path, cfg, model, epoch: int, step: int, score: float
         if f.exists():
             try:
                 f.unlink()
-            except OSError:
-                pass
+                print(f"  🗑️  evicted {f.name} (score {r['score']:.4f}, "
+                      f"epoch {r['epoch']}) - pushed out of the top-{k}")
+            except OSError as e:
+                print(f"  [warn] could not evict {f.name}: {e}")
     (ckpt_dir / "top_k.json").write_text(json.dumps(keep, indent=2))
     return keep
 
@@ -1357,12 +1399,23 @@ def run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None, 
 
 
 def _print_eval(tag: str, epoch: int, epochs: int, gstep: int, m: dict,
-                elapsed: float, eta: float, tasks: list, emoji: str = "\U0001F50E"):
-    """One validation block: headline metrics, then every finding."""
+                elapsed: float, eta: float, tasks: list, emoji: str = "\U0001F50E",
+                prev: dict | None = None, took: float | None = None):
+    """One validation block: headline metrics, then every finding.
+
+    `prev` is this set's metrics from the last time IT was scored, so the deltas
+    compare like with like — val against val, audit against audit. `took` is how
+    long this pass alone ran, separate from the run's total elapsed.
+    """
+    def d(key):
+        return "" if not prev or key not in prev else f" ({m[key] - prev[key]:+.4f})"
+
+    t_str = "" if took is None else f"  \U000023F1️ took={fmt(took)}"
     print("-" * 70)
     print(f"  {emoji} [{tag}] epoch={epoch}/{epochs} step={gstep}  n={m['sample_count']}  "
-          f"loss={m['loss']:.4f}  elapsed={fmt(elapsed)}  ETA={fmt(eta)}")
-    print(f"     \U0001F4CA macro AUROC={m['macro_auroc']:.4f}  AUPRC={m['macro_auprc']:.4f}  "
+          f"loss={m['loss']:.4f}{d('loss')}{t_str}  elapsed={fmt(elapsed)}  ETA={fmt(eta)}")
+    print(f"     \U0001F4CA macro AUROC={m['macro_auroc']:.4f}{d('macro_auroc')}  "
+          f"AUPRC={m['macro_auprc']:.4f}{d('macro_auprc')}  "
           f"F1={m['f1']:.3f}  P={m['precision']:.3f}  R={m['recall']:.3f}  "
           f"Spec={m['specificity']:.3f}")
     for t in tasks:
@@ -1464,6 +1517,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         bad = int(tr.get("bad", 0))               # keep counting toward patience
         top_k_track = tr.get("top_k", [])
         history = list(tr.get("history", []))     # so the final summary sees the whole run
+        audit_best[:] = list(tr.get("audit_best", [-math.inf, 0]))
         resumed_elapsed = float(ck.get("elapsed_sec") or 0.0)
         if ck.get("epoch_complete", True):
             start_epoch = ck_epoch + 1
@@ -1486,10 +1540,14 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     prev_loss = None
 
     last_val_step = -1
+    prev_eval = {}                # each set's last metrics, for the printed deltas
+    audit_best = [-math.inf, 0]   # [score, epoch] - a report only, never drives best.pt
+    score, improved = -math.inf, False
 
     def _validate_and_checkpoint(epoch: int, gstep: int, tag: str = "epoch"):
         """Score val (and audit), log, checkpoint, update early stopping."""
         nonlocal best, best_epoch, bad, top_k_track, last_val_step
+        nonlocal score, improved
         if gstep == last_val_step:            # a step-trigger already covered this step
             return None
         last_val_step = gstep
@@ -1498,8 +1556,12 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         print("=" * 70)
         print(f"\U0001F50E VALIDATION ({tag}) - epoch {epoch}/{epochs}  step {gstep}  "
               f"({len(loaders['val'])} batches, {len(loaders['val'].dataset)} studies) ...")
+        _t = time.time()
         vm = evaluate(model, loaders["val"], loss_fn, cfg, device)
-        _print_eval("VAL", epoch, epochs, gstep, vm, el, eta, cfg["tasks"])
+        val_secs = time.time() - _t
+        _print_eval("VAL", epoch, epochs, gstep, vm, el, eta, cfg["tasks"],
+                    prev=prev_eval.get("val"), took=val_secs)
+        prev_eval["val"] = dict(vm)
 
         row = {"epoch": epoch, "step": gstep, "trigger": tag,
                "val_loss": round(vm["loss"], 6),
@@ -1507,17 +1569,47 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                "val_macro_auprc": round(vm["macro_auprc"], 6),
                "val_f1": round(vm["f1"], 4), "val_precision": round(vm["precision"], 4),
                "val_recall": round(vm["recall"], 4),
-               "val_specificity": round(vm["specificity"], 4)}
+               "val_specificity": round(vm["specificity"], 4),
+               "val_secs": round(val_secs, 1)}
         for t in cfg["tasks"]:
             row[f"val_auroc_{t}"] = round(vm["per_task"][t]["auroc"], 6)
             row[f"val_auprc_{t}"] = round(vm["per_task"][t]["auprc"], 6)
 
+        # verdict printed with its own split, not after both — decided here, the
+        # checkpoint itself is written further down
+        score = row.get(es["monitor"], vm["macro_auroc"])
+        improved = score > best if es["mode"] == "max" else score < best
+        prev_best = best
+        if improved:
+            best, best_epoch, bad = score, epoch, 0
+            was = "" if prev_best == -math.inf else f"  (was {prev_best:.4f}, {score - prev_best:+.4f})"
+            print(f"     ⭐ new best {es['monitor']} = {score:.4f}{was} -> best.pt")
+        else:
+            bad += 1
+            print(f"     ⚠️  no improvement ({bad}/{es['patience']})  "
+                  f"{es['monitor']} = {score:.4f}, best {best:.4f} @ epoch {best_epoch}")
+
         if "audit" in loaders:
+            _t = time.time()
             am = evaluate(model, loaders["audit"], loss_fn, cfg, device)
+            audit_secs = time.time() - _t
             _print_eval("AUDIT-58", epoch, epochs, gstep, am, el, eta, cfg["tasks"],
-                        "\U0001F9EA")
+                        "\U0001F9EA", prev=prev_eval.get("audit"), took=audit_secs)
+            prev_eval["audit"] = dict(am)
+            # the audit tracks its own best, purely as a report \u2014 it never touches
+            # best.pt or the early-stopping counter
+            a_score = am["macro_auroc"]
+            if a_score > audit_best[0]:
+                a_prev = audit_best[0]
+                was = "" if a_prev == -math.inf else f"  (was {a_prev:.4f}, {a_score - a_prev:+.4f})"
+                audit_best[0], audit_best[1] = a_score, epoch
+                print(f"     \u2B50 new best audit_macro_auroc = {a_score:.4f}{was}")
+            else:
+                print(f"     \u26A0\uFE0F  no improvement  audit_macro_auroc = {a_score:.4f}, "
+                      f"best {audit_best[0]:.4f} @ epoch {audit_best[1]}")
             print("     \u2139\uFE0F  report only - the panel's labels, never drives best.pt")
             row["audit_macro_auroc"] = round(am["macro_auroc"], 6)
+            row["audit_secs"] = round(audit_secs, 1)
             for t in cfg["tasks"]:
                 row[f"audit_auroc_{t}"] = round(am["per_task"][t]["auroc"], 6)
 
@@ -1532,9 +1624,9 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
 
         def _track():
             return {"best": best, "best_epoch": best_epoch, "bad": bad,
-                    "top_k": top_k_track, "history": history}
+                    "top_k": top_k_track, "history": history,
+                    "audit_best": list(audit_best)}
 
-        score = row.get(es["monitor"], vm["macro_auroc"])
         # update the top-K board FIRST, so best.pt/last.pt carry the current board.
         # Saving before it left the board a step stale, and a resumed run then could
         # not evict files it did not know about (keep_top_k=2 kept 3).
@@ -1542,19 +1634,10 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                                    cfg["output"].get("keep_top_k", 0),
                                    cfg["output"].get("top_k_weights_only", True))
 
-        improved = score > best if es["mode"] == "max" else score < best
         if improved:
-            prev = best
-            best, best_epoch, bad = score, epoch, 0
             save_checkpoint(ckpt_dir / cfg["output"]["best_name"], cfg, model, opt, sched,
                             scaler, epoch, gstep, score, track=_track(), device=device,
                             elapsed_sec=el, epoch_complete=done)
-            delta = "" if prev == -math.inf else f"  (was {prev:.4f}, +{score - prev:.4f})"
-            print(f"  \u2B50 new best {es['monitor']} = {score:.4f}{delta} -> best.pt")
-        else:
-            bad += 1
-            print(f"  \u23F3 no improvement ({bad}/{es['patience']})  "
-                  f"best {best:.4f} @ epoch {best_epoch}")
 
         save_checkpoint(ckpt_dir / "last.pt", cfg, model, opt, sched, scaler, epoch, gstep,
                         score, track=_track(), device=device,
@@ -1646,6 +1729,11 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                                "real_img_s": round(real_ips, 1),
                                "data_wait_pct": round(wait_pct, 1),
                                "gpu_mem_gb": round(mem, 2), "elapsed_s": round(el, 1)})
+                # flushing the volume is its own concern - a crash between two
+                # validations must not cost the log rows written in between
+                ce = int(cfg["output"].get("commit_every_steps", 0) or 0)
+                if ce and gstep % ce == 0 and persist_fn:
+                    persist_fn()
                 ev = eval_interval(cfg, epoch)
                 if ev and gstep % ev == 0:
                     _validate_and_checkpoint(epoch, gstep, f"every {ev} steps")
@@ -1729,8 +1817,10 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     print("\n" + "=" * 70)
     print(f"\U0001F3C1 FINISHED - {cfg['experiment']['name']}")
     print("=" * 70)
+    # history holds one row per VALIDATION, which is not one per epoch once
+    # eval_every_steps fires more than once inside an epoch
     print(f"  \u23F1\uFE0F  total time       : {fmt(total_time)}  "
-          f"({len(history)} epochs, {gstep} steps)")
+          f"({epoch} epochs, {gstep} steps, {len(history)} validations)")
     print(f"  \u2B50 best {es['monitor']:<15s}: {best:.4f}  @ epoch {best_epoch}")
     if best_row:
         print(f"  \U0001F4C9 val loss at best  : {best_row.get('val_loss')}")
@@ -2503,3 +2593,262 @@ def evaluate_official(cfg: dict, model, experiment_dir, device=None,
     _safe("eval summary", _print_eval_comparison, reports, cfg, res)
     print(f"\n\U0001F3C1 evaluation done - {len(reports)} set(s) scored.")
     return reports
+
+
+# =============================================================================
+# submission — Kaggle is a code competition: the notebook gets raw DICOM, never
+# our .npz shards, so the DICOM -> uint8 path here must match
+# modal_scripts/modal_preprocess.py byte for byte or the model sees a different
+# intensity distribution than it trained on. verify_dicom_path() proves it does.
+# =============================================================================
+SHARD_LO_PCT, SHARD_HI_PCT = 0.1, 99.9      # the wide window baked into every shard
+
+
+def _slice_sort_key(ds, frame):
+    """Through-plane position: ImagePositionPatient projected onto the slice normal."""
+    iop, ipp = ds.get("ImageOrientationPatient"), ds.get("ImagePositionPatient")
+    if iop is not None and ipp is not None and len(iop) == 6:
+        r, c = np.array(iop[:3], float), np.array(iop[3:], float)
+        return float(np.dot(np.array(ipp, float), np.cross(r, c)))
+    if ds.get("SliceLocation") is not None:
+        return float(ds.SliceLocation)
+    return float(getattr(ds, "InstanceNumber", 0) or 0) + (frame or 0)
+
+
+def dicom_series_volume(files) -> np.ndarray:
+    """One series' DICOM files -> (n_slices, H, W) uint8, exactly as the shards store it."""
+    import pydicom
+
+    slices = []
+    for f in files:
+        ds = pydicom.dcmread(str(f))
+        a = ds.pixel_array
+        if a.ndim == 3:                                  # multi-frame: split it out
+            slices.extend((ds, a[k], k) for k in range(a.shape[0]))
+        else:
+            slices.append((ds, a, None))
+    if not slices:
+        return np.zeros((0, 0, 0), np.uint8)
+
+    slices.sort(key=lambda it: _slice_sort_key(it[0], it[2]))
+    ref = slices[0][0]
+
+    h, w = slices[0][1].shape[:2]
+    if not all(s[1].shape[:2] == (h, w) for s in slices):
+        shapes = [s[1].shape[:2] for s in slices]
+        h, w = max(set(shapes), key=shapes.count)
+        slices = [(d, (cv2.resize(a.astype(np.float32), (w, h), interpolation=cv2.INTER_AREA)
+                       if a.shape[:2] != (h, w) else a), f) for d, a, f in slices]
+
+    vol = np.stack([s[1] for s in slices]).astype(np.float32)
+    slope = float(getattr(ref, "RescaleSlope", 1) or 1)
+    inter = float(getattr(ref, "RescaleIntercept", 0) or 0)
+    if slope != 1 or inter != 0:
+        vol = vol * slope + inter
+
+    lo = float(np.percentile(vol, SHARD_LO_PCT))
+    hi = float(np.percentile(vol, SHARD_HI_PCT))
+    if hi <= lo:
+        lo, hi = float(vol.min()), float(max(vol.max(), vol.min() + 1))
+    return (np.clip((vol - lo) / (hi - lo), 0, 1) * 255.0 + 0.5).astype(np.uint8)
+
+
+def scan_dicom_index(dicom_root, series_csv: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """Header-only scan -> the schema 07_series_index.csv has, plus {series: [files]}.
+
+    Files are grouped by the SeriesInstanceUID in their header rather than by folder,
+    so any directory layout works. plan_slots and the mm/px resampling both need the
+    geometry, and reading one header per file is far cheaper than decoding pixels.
+    """
+    import pydicom
+
+    files_by_series: dict[str, list] = {}
+    geom: dict[str, dict] = {}
+    for f in sorted(Path(dicom_root).rglob("*")):
+        if not f.is_file():
+            continue
+        try:
+            ds = pydicom.dcmread(str(f), stop_before_pixels=True)
+        except Exception:                                # not a DICOM, skip it
+            continue
+        ser = str(getattr(ds, "SeriesInstanceUID", "") or "")
+        if not ser:
+            continue
+        files_by_series.setdefault(ser, []).append(f)
+        if ser not in geom:
+            ps = ds.get("PixelSpacing") or [1.0, 1.0]
+            thick = float(ds.get("SliceThickness", 0) or 0)
+            geom[ser] = {"pixel_spacing_r": float(ps[0]), "pixel_spacing_c": float(ps[1]),
+                         "slice_thickness": thick,
+                         "spacing_between": float(ds.get("SpacingBetweenSlices", 0) or 0) or thick,
+                         "rows": int(ds.get("Rows", 0)), "cols": int(ds.get("Columns", 0)),
+                         "study": str(getattr(ds, "StudyInstanceUID", "") or "")}
+
+    plane_map = {"sagittal": "sag", "coronal": "cor", "axial": "ax"}
+    rows = []
+    for _, r in series_csv.iterrows():
+        ser = r["SeriesInstanceUID"]
+        if ser not in files_by_series:
+            continue
+        g = geom[ser]
+        plane = str(r["Anatomical_Plane"]).lower()
+        pre = plane_map.get(plane, plane[:3])
+        n = len(files_by_series[ser])
+        rows.append({"study": r["StudyInstanceUID"], "series": ser,
+                     "plane": plane, "fluid": int(r["Fluid_Sensitive"]),
+                     "slot": f"{pre}_{'fluid' if int(r['Fluid_Sensitive']) else 'plain'}",
+                     "n_slices": n, "rows": g["rows"], "cols": g["cols"],
+                     "pixel_spacing_r": g["pixel_spacing_r"],
+                     "pixel_spacing_c": g["pixel_spacing_c"],
+                     "slice_thickness": g["slice_thickness"],
+                     "spacing_between": g["spacing_between"],
+                     "depth_mm": g["spacing_between"] * n})
+    return pd.DataFrame(rows), files_by_series
+
+
+def verify_dicom_path(cfg: dict, dicom_root, series_csv: pd.DataFrame,
+                      shards_dir=None, limit: int = 3) -> bool:
+    """Decode a few series from DICOM and assert they equal the stored shard.
+
+    This is the check that catches a silent preprocessing drift before it costs a
+    submission — a mismatch here shifts the input distribution the model sees.
+    """
+    shards = Path(shards_dir or cfg["paths"]["shards_dir"])
+    idx, files_by_series = scan_dicom_index(dicom_root, series_csv)
+    checked = ok = 0
+    for _, r in idx.iterrows():
+        shard = shards / f"{r['study']}.npz"
+        if not shard.exists():
+            continue
+        with np.load(shard) as z:
+            if r["series"] not in z.files:
+                continue
+            stored = z[r["series"]]
+        got = dicom_series_volume(files_by_series[r["series"]])
+        checked += 1
+        same = got.shape == stored.shape and np.array_equal(got, stored)
+        ok += bool(same)
+        print(f"  {'✅' if same else '❌'} {r['series'][:24]}...  "
+              f"dicom {got.shape} vs shard {stored.shape}"
+              + ("" if same else f"  max|diff|={np.abs(got.astype(int) - stored.astype(int)).max()}"
+                 if got.shape == stored.shape else "  SHAPE MISMATCH"))
+        if checked >= limit:
+            break
+    print(f"  {ok}/{checked} series reproduced exactly from DICOM")
+    return checked > 0 and ok == checked
+
+
+def build_kaggle_assets(cfg: dict, exp_dir, out_dir, checkpoint_path,
+                        kaggle_user: str, dataset_slug: str = "", notebook_slug: str = ""):
+    """Write everything `kaggle kernels push` needs: weights, config, notebook, metadata.
+
+    Two Kaggle objects are involved: a DATASET holding the weights (notebooks run
+    offline, so the checkpoint cannot be downloaded at run time) and a NOTEBOOK that
+    attaches both it and the competition data.
+    """
+    exp = cfg["experiment"]["name"]
+    out = Path(out_dir)
+    (out / "weights").mkdir(parents=True, exist_ok=True)
+    (out / "notebook").mkdir(parents=True, exist_ok=True)
+    dataset_slug = dataset_slug or f"knee-{exp.replace('_', '-')}"
+    notebook_slug = notebook_slug or f"knee-{exp.replace('_', '-')}-submit"
+
+    # weights: strip the optimizer/scheduler state, it is dead weight for inference
+    ck = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    torch.save({"model": ck["model"], "cfg": ck.get("cfg", cfg),
+                "epoch": ck.get("epoch"), "step": ck.get("step"),
+                "score": ck.get("score")}, out / "weights" / "model.pt")
+    (out / "weights" / "config.json").write_text(json.dumps(cfg, indent=2, default=str))
+    (out / "weights" / "dataset-metadata.json").write_text(json.dumps(
+        {"title": f"knee {exp} weights", "id": f"{kaggle_user}/{dataset_slug}",
+         "licenses": [{"name": "CC0-1.0"}]}, indent=2))
+
+    # the notebook imports shared_code from the weights dataset, so inference and
+    # training run the exact same slot planning, resampling and windowing code
+    shutil.copy(Path(__file__), out / "weights" / "shared_code.py")
+    train_py = Path(exp_dir) / "train.py"
+    if train_py.exists():
+        shutil.copy(train_py, out / "weights" / "model_def.py")
+
+    (out / "notebook" / "kernel-metadata.json").write_text(json.dumps({
+        "id": f"{kaggle_user}/{notebook_slug}",
+        "title": f"knee {exp} submit",
+        "code_file": "submit.ipynb", "language": "python", "kernel_type": "notebook",
+        "is_private": True, "enable_gpu": True, "enable_internet": False,
+        "dataset_sources": [f"{kaggle_user}/{dataset_slug}"],
+        "competition_sources": ["rsna-knee-abnormality-detection"],
+        "kernel_sources": [],
+    }, indent=2))
+
+    cells = [
+        "import sys, glob\n"
+        "sys.path.insert(0, '/kaggle/input/%s')\n"
+        "import shared_code as sc, pandas as pd, torch, json\n"
+        "from pathlib import Path" % dataset_slug,
+
+        "COMP = Path('/kaggle/input/rsna-knee-abnormality-detection')\n"
+        "W    = Path('/kaggle/input/%s')\n"
+        "cfg  = json.loads((W / 'config.json').read_text())\n"
+        "cfg['model']['pretrained'] = False        # no internet: weights come from the ckpt\n"
+        "series = pd.read_csv(COMP / 'test_series.csv')\n"
+        "sub    = pd.read_csv(COMP / 'sample_submission.csv')\n"
+        "print(len(sub), 'studies to score')" % dataset_slug,
+
+        "# header-only scan gives the slot plan and the mm/px geometry\n"
+        "idx, files_by_series = sc.scan_dicom_index(COMP / 'test_images', series)\n"
+        "plan = sc.plan_slots(idx, cfg)\n"
+        "print(len(plan), 'studies planned')",
+
+        "sys.path.insert(0, str(W))\n"
+        "from model_def import build_model\n"
+        "model = build_model(cfg)\n"
+        "ck = torch.load(W / 'model.pt', map_location='cpu', weights_only=False)\n"
+        "model.load_state_dict(ck['model'])\n"
+        "print('loaded epoch', ck.get('epoch'), 'score', ck.get('score'))",
+
+        "pred = sc.predict_dicom(cfg, model, sub[['StudyInstanceUID']], plan,\n"
+        "                        idx, files_by_series)\n"
+        "pred.to_csv('submission.csv', index=False)\n"
+        "pred.head()",
+    ]
+    nb = {"cells": [{"cell_type": "code", "metadata": {}, "source": c.splitlines(True),
+                     "outputs": [], "execution_count": None} for c in cells],
+          "metadata": {"kernelspec": {"name": "python3", "language": "python",
+                                      "display_name": "Python 3"}},
+          "nbformat": 4, "nbformat_minor": 5}
+    (out / "notebook" / "submit.ipynb").write_text(json.dumps(nb, indent=1))
+
+    print(f"  📦 weights   -> {out / 'weights'}")
+    print(f"  📓 notebook  -> {out / 'notebook'}")
+    _kv("kaggle commands", [
+        ("1 dataset", f"kaggle datasets create -p {out / 'weights'}   "
+                      f"(later: version -p ... -m msg)"),
+        ("2 notebook", f"kaggle kernels push -p {out / 'notebook'}"),
+        ("3 status", f"kaggle kernels status {kaggle_user}/{notebook_slug}"),
+        ("4 submit", f"kaggle competitions submit -c rsna-knee-abnormality-detection "
+                     f"-f submission.csv -k {kaggle_user}/{notebook_slug} -v <VERSION> -m \"{exp}\""),
+    ], "\U0001F680")
+    return out
+
+
+@torch.no_grad()
+def predict_dicom(cfg: dict, model, studies_df: pd.DataFrame, plan: dict,
+                  index: pd.DataFrame, files_by_series: dict, device=None,
+                  batch_size: int | None = None) -> pd.DataFrame:
+    """Score studies straight from DICOM and return the submission frame."""
+    device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device).eval()
+    ds = KneeShardDataset(studies_df.assign(**{t: 0.0 for t in cfg["tasks"]}),
+                          cfg, plan, train=False,
+                          dicom=(index, files_by_series))
+    bs = int(batch_size or val_loader_settings(cfg)[0])
+    loader = DataLoader(ds, batch_size=bs, shuffle=False, num_workers=0)
+    out = []
+    for x, _ in loader:
+        with torch.autocast("cuda", enabled=cfg["training"]["amp"] and device.type == "cuda"):
+            logits = model(prepare_batch(x, cfg, device))
+        out.append(torch.sigmoid(logits.float()).cpu().numpy())
+    probs = np.concatenate(out) if out else np.zeros((0, len(cfg["tasks"])))
+    res = pd.DataFrame(probs, columns=cfg["tasks"])
+    res.insert(0, "StudyInstanceUID", studies_df["StudyInstanceUID"].values)
+    return res
