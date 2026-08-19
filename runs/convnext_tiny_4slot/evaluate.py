@@ -37,6 +37,22 @@ import shared_code as sc  # noqa: E402
 from train import build_model  # noqa: E402  same architecture the run was trained with
 
 
+def _run(cfg, exp_dir, args):
+    """Shared by the local and the Modal path."""
+    import torch as _t
+    device = _t.device("cuda" if _t.cuda.is_available() else "cpu")
+    if args.recalibrate:
+        thr = (Path(exp_dir) / cfg["output"]["run_dir"]
+               / cfg["output"].get("thresholds_json", "thresholds.json"))
+        if thr.exists():
+            thr.unlink()
+            print(f"  🔄 removed {thr.name}, recalibrating")
+    return sc.evaluate_official(cfg, build_model(cfg), exp_dir, device=device,
+                                checkpoint=args.checkpoint, eval_sets=tuple(args.sets),
+                                calibrate_if_missing=True, batch_size=args.batch_size,
+                                num_workers=args.num_workers, amp=args.amp)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--checkpoint", default="best",
@@ -49,22 +65,55 @@ def main():
     ap.add_argument("--num-workers", type=int, default=None)
     ap.add_argument("--no-amp", dest="amp", action="store_false", default=None)
     args = ap.parse_args()
+    _run(sc.load_config(EXP_DIR, verbose=False), EXP_DIR, args)
+
+
+class _Args:
+    """Plain holder so the remote side reuses _run without argparse."""
+
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+try:
+    # skipped when modal isn't installed, so the local path still works
+    import modal
 
     cfg = sc.load_config(EXP_DIR, verbose=False)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = build_model(cfg)
+    app = modal.App(f"{EXP_NAME}-eval")
+    _image = sc.modal_image()
+    _shards = modal.Volume.from_name(cfg["modal"]["shards_volume"], create_if_missing=True)
+    _runs = modal.Volume.from_name(cfg["modal"]["runs_volume"], create_if_missing=True)
 
-    if args.recalibrate:
-        thr_path = (EXP_DIR / cfg["output"]["run_dir"]
-                    / cfg["output"].get("thresholds_json", "thresholds.json"))
-        if thr_path.exists():
-            thr_path.unlink()
-            print(f"  🔄 removed {thr_path.name}, recalibrating")
+    @app.function(image=_image,
+                  volumes={cfg["modal"]["shards_mount"]: _shards,
+                           cfg["modal"]["runs_mount"]: _runs},
+                  **sc.modal_resources(cfg))
+    def eval_remote(checkpoint: str, sets: list, recalibrate: bool,
+                    batch_size, num_workers, amp):
+        """Scores on the GPU, beside the shards volume — the reports come back via sync."""
+        rcfg = sc.remote_cfg(cfg)
+        out_dir = Path(cfg["modal"]["runs_mount"]) / cfg["experiment"]["name"]
+        try:
+            _run(rcfg, out_dir, _Args(checkpoint=checkpoint, sets=sets,
+                                      recalibrate=recalibrate, batch_size=batch_size,
+                                      num_workers=num_workers, amp=amp))
+        finally:
+            _runs.commit()
 
-    sc.evaluate_official(cfg, model, EXP_DIR, device=device,
-                         checkpoint=args.checkpoint, eval_sets=tuple(args.sets),
-                         calibrate_if_missing=True, batch_size=args.batch_size,
-                         num_workers=args.num_workers, amp=args.amp)
+    @app.local_entrypoint()          # `modal run evaluate.py`
+    def modal_main(checkpoint: str = "best", sets: str = "val,audit",
+                   recalibrate: bool = False, batch_size: int = 0,
+                   num_workers: int = -1, no_amp: bool = False):
+        try:
+            eval_remote.remote(checkpoint, [s for s in sets.split(",") if s], recalibrate,
+                               batch_size or None, None if num_workers < 0 else num_workers,
+                               False if no_amp else None)
+        finally:
+            sc.sync_back(cfg, "evaluated")
+
+except ImportError:
+    pass
 
 
 if __name__ == "__main__":

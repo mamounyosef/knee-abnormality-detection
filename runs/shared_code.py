@@ -1095,7 +1095,7 @@ def evaluate(model, loader, loss_fn, cfg, device) -> dict:
         all_targets.append(targets.cpu().numpy())
     metrics = compute_metrics(np.concatenate(all_targets), np.concatenate(all_predictions), cfg["tasks"])
     metrics["loss"] = float(np.mean(batch_losses))
-    metrics["n"] = int(np.concatenate(all_targets).shape[0])
+    metrics["sample_count"] = int(np.concatenate(all_targets).shape[0])
     return metrics
 
 
@@ -1278,7 +1278,7 @@ def _print_eval(tag: str, epoch: int, epochs: int, gstep: int, m: dict,
                 elapsed: float, eta: float, tasks: list, emoji: str = "\U0001F50E"):
     """One validation block: headline metrics, then every finding."""
     print("-" * 70)
-    print(f"  {emoji} [{tag}] epoch={epoch}/{epochs} step={gstep}  n={m['n']}  "
+    print(f"  {emoji} [{tag}] epoch={epoch}/{epochs} step={gstep}  n={m['sample_count']}  "
           f"loss={m['loss']:.4f}  elapsed={fmt(elapsed)}  ETA={fmt(eta)}")
     print(f"     \U0001F4CA macro AUROC={m['macro_auroc']:.4f}  AUPRC={m['macro_auprc']:.4f}  "
           f"F1={m['f1']:.3f}  P={m['precision']:.3f}  R={m['recall']:.3f}  "
@@ -1669,8 +1669,11 @@ def modal_image():
                          "opencv-python-headless", "scikit-learn", "pyyaml", "wandb",
                          "matplotlib")
             .add_local_dir(str(Path(__file__).parent), "/root/runs")
+            # only the small split CSVs travel in the image; stats/ alone is 824 MB of
+            # local analysis output the container never opens
             .add_local_dir(str(Path(__file__).parent.parent / "data"), "/root/data",
-                           ignore=["shards", "raw", "backups", "*.jsonl"]))  # big data is a volume
+                           ignore=["shards", "raw", "backups", "stats", "sample_dicoms",
+                                   "*.jsonl", "*.parquet"]))
 
 
 def modal_resources(cfg: dict) -> dict:
