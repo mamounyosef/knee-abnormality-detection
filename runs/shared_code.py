@@ -568,7 +568,10 @@ def make_loaders(cfg: dict):
     # audit = the 58 studies with real panel labels, scored but never used to pick best.pt
     if cfg["evaluation"]["audit"]["enable"]:
         df = pd.read_csv(resolve(cfg["evaluation"]["audit"]["csv"], cfg))
-        df = df.rename(columns={f"official_{t}": t for t in cfg["tasks"]})   # match task column names
+        # the audit CSV carries BOTH official_<task> (panel 0/1) and <task> (LLM soft).
+        # drop the soft ones first, or the rename makes duplicate column names.
+        df = df.drop(columns=[t for t in cfg["tasks"] if t in df.columns], errors="ignore")
+        df = df.rename(columns={f"official_{t}": t for t in cfg["tasks"]})
         out["audit"] = DataLoader(KneeShardDataset(df, cfg, plan, False),
                                   batch_size=vbs, shuffle=False, num_workers=vnw)
     return out
@@ -1865,6 +1868,8 @@ def _load_ckpt_weights(model, ckpt_dir: Path, checkpoint, device):
 def _eval_df(cfg: dict, csv_name: str) -> pd.DataFrame:
     """Read a split CSV; the audit file names its columns official_<task>."""
     df = pd.read_csv(resolve(csv_name, cfg))
+    if any(f"official_{t}" in df.columns for t in cfg["tasks"]):
+        df = df.drop(columns=[t for t in cfg["tasks"] if t in df.columns], errors="ignore")
     return df.rename(columns={f"official_{t}": t for t in cfg["tasks"]})
 
 
@@ -2057,6 +2062,55 @@ def _render_report_txt(rep: dict) -> str:
     return "\n".join(L)
 
 
+def _print_eval_comparison(reports: dict, cfg: dict, res: Path):
+    """Side-by-side of every scored set, so val and the audit-58 read as one picture."""
+    labels = [k for k in reports if reports[k].get("macro")]
+    if not labels:
+        return
+    tasks = cfg["tasks"]
+
+    _banner("SUMMARY", "\U0001F4CB")
+
+    meta = {"val": "LLM labels - larger, so statistically solid",
+            "audit": "the expert panel's own 0/1 - the real target, but noisy"}
+    _table("what was scored", ["set", "studies", "checkpoint", "what it measures"],
+           [[k, reports[k]["n_studies"], Path(reports[k]["checkpoint"]).name,
+             meta.get(k, "custom split")] for k in labels], "\U0001F9ED")
+
+    rows = [[m.replace("macro_", "").replace("_", " "),
+             *[f"{reports[k]['macro'][m]:.4f}" for k in labels]]
+            for m in ("macro_auroc", "macro_auprc", "f1", "precision",
+                      "recall", "specificity")]
+    _table("headline", ["metric", *labels], rows, "\U0001F3AF")
+
+    rows = []
+    for t in tasks:
+        cells = [t]
+        for k in labels:
+            pt = reports[k]["per_task"][t]
+            cells.append("  n/a" if pt["auroc"] != pt["auroc"] else f"{pt['auroc']:.4f}")
+        if len(labels) == 2:
+            a, b = (reports[k]["per_task"][t]["auroc"] for k in labels)
+            cells.append("     -" if (a != a or b != b) else f"{b - a:+.4f}")
+        rows.append(cells)
+    heads = ["finding", *[f"{k} AUROC" for k in labels]]
+    if len(labels) == 2:
+        heads.append("delta")
+    _table("per-finding AUROC", heads, rows, "\U0001F50D")
+
+    best = max(labels, key=lambda k: reports[k]["macro"]["macro_auroc"])
+    print(f"\n  \U0001F4C8 reference points: keyword labeler 0.700, LLM labels 0.895 "
+          f"(both vs the 58)")
+    for k in labels:
+        v = reports[k]["macro"]["macro_auroc"]
+        bar = "\u2588" * int(max(0.0, v - 0.5) * 60)
+        print(f"    {k:<8} {v:.4f}  {bar}")
+    if "audit" in labels:
+        print("  \u2139\uFE0F  audit-58 is the honest external check: never trained on, "
+              "never used to pick a checkpoint.")
+    print(f"  \U0001F4C1 reports written to {res}")
+
+
 def evaluate_official(cfg: dict, model, experiment_dir, device=None,
                       checkpoint: str = "best", eval_sets=("val", "audit"),
                       calibrate_if_missing: bool = True, batch_size: int | None = None,
@@ -2155,5 +2209,6 @@ def evaluate_official(cfg: dict, model, experiment_dir, device=None,
         print(f"  \U0001F4BE {pred_path}")
         reports[label] = rep
 
-    print(f"\U0001F3C1 evaluation done - {len(reports)} set(s) scored.")
+    _safe("eval summary", _print_eval_comparison, reports, cfg, res)
+    print(f"\n\U0001F3C1 evaluation done - {len(reports)} set(s) scored.")
     return reports
