@@ -41,13 +41,15 @@ training:
 # CPU-side loading; decoding shards is the bottleneck, so keep workers busy
 dataloader:
   batch_size: 2                     # 2 studies x 4 slots x 24 slices = 192 images @512
+  val_batch_size: 6                 # no backward pass, so no stored activations -> 3x fits
+
   num_workers: 8
+  val_num_workers: null             # null = same as num_workers
+  
   prefetch_factor: 4                # batches queued per worker
   pin_memory: true                  # page-locked memory, faster CPU -> GPU copies
   persistent_workers: true          # don't respawn workers every epoch
   drop_last: false                  # keep the ragged final batch
-  val_batch_size: 6                 # no backward pass, so no stored activations -> 3x fits
-  val_num_workers: null             # null = same as num_workers
 
 modal:
   gpu: "A100-40GB"                  # 192 images of 512px per step needs the big card

@@ -878,13 +878,25 @@ def build_optimizer(model: nn.Module, cfg: dict):
         groups = _param_groups_llrd(model, lr, o.get("weight_decay", 0.05), float(ld))
         _print_llrd(groups, lr, float(ld), max(g["layer_id"] for g in groups))
         return torch.optim.AdamW(groups, lr=lr, weight_decay=o.get("weight_decay", 0.05))
+    # split structurally, not by name: everything under .backbone is the pretrained
+    # trunk, the rest is freshly initialized. Substring matching got this wrong -
+    # "fc" also matches every mlp.fc1/fc2 inside a ConvNeXt block.
+    has_bb = hasattr(model, "backbone")
     head, backbone = [], []
+    n_head = n_bb = 0
     for n, p in model.named_parameters():
         if not p.requires_grad:
             continue
-        # fresh head learns at full lr, pretrained backbone slower
-        (head if any(k in n for k in ("head", "classifier", "fc", "pool_attn")) else backbone).append(p)
+        is_bb = (n.startswith("backbone.") if has_bb
+                 else not any(k in n for k in ("head", "classifier", "pool_attn")))
+        (backbone if is_bb else head).append(p)
+        if is_bb:
+            n_bb += p.numel()
+        else:
+            n_head += p.numel()
     groups = [{"params": backbone, "lr": lr * mult}, {"params": head, "lr": lr}]
+    print(f"  \U0001F9EE lr groups: head {n_head / 1e6:.2f}M @ {lr:.2e}  |  "
+          f"backbone {n_bb / 1e6:.2f}M @ {lr * mult:.2e}  (x{mult})")
     return torch.optim.AdamW(groups, lr=lr, weight_decay=o.get("weight_decay", 0.05))
 
 
