@@ -14,8 +14,30 @@ training:
   epochs: 12
   batch_size: 2                     # 2 studies x 4 slots x 24 slices = 192 images @512
   accum_steps: 8                    # effective 16 studies
+  grad_clip: 1.0                    # cap gradient size so one bad batch can't blow up training
   optimizer:
+    name: "adamw"
     lr: 1.0e-4                      # head learning rate; backbone gets 10% of it
+    weight_decay: 0.05
+    backbone_lr_mult: 0.1           # pretrained backbone learns 10x slower than the fresh head
+    layer_decay: null               # layer-wise lr decay, e.g. 0.75: each layer down gets 75%
+                                    # of the one above. Replaces backbone_lr_mult when set.
+  scheduler:
+    name: "cosine"                  # learning rate warms up, then decays along a cosine curve
+    warmup_frac: 0.05
+    min_lr_mult: 0.01               # floor: ends at 1% of the base learning rate
+  loss:
+    name: "bce"                     # bce = binary cross-entropy | focal = focuses on hard cases
+                                    # aucm = pairwise surrogate for AUROC, the actual metric
+    pos_weight: null                # "auto" up-weights rare labels
+    focal_gamma: 2.0
+    aucm_margin: 1.0                # how far apart aucm pushes a positive from a negative
+    aucm_bce_mix: 0.1               # bit of bce mixed in, keeps the probabilities sane
+  early_stopping:                   # stop once val stops improving, saves GPU hours
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 4                     # epochs without improvement before quitting
 
 # CPU-side loading; decoding shards is the bottleneck, so keep workers busy
 dataloader:
@@ -24,6 +46,9 @@ dataloader:
   pin_memory: true                  # page-locked memory, faster CPU -> GPU copies
   persistent_workers: true          # don't respawn workers every epoch
   drop_last: true                   # skip the ragged final batch
+  val_batch_size: null              # null = same as training.batch_size; no backward pass,
+                                    # so validation can afford a much bigger batch
+  val_num_workers: null             # null = same as num_workers
 
 modal:
   gpu: "A100-40GB"                  # 192 images of 512px per step needs the big card
