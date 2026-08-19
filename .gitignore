@@ -235,3 +235,4 @@ test.ipynb
 current_modal_commands.txt
 
 debugged_images/
+runs/*/kaggle/

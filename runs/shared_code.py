@@ -1878,7 +1878,7 @@ def modal_image():
             .apt_install("libgl1", "libglib2.0-0")     # OpenCV needs these system libs
             .pip_install("torch", "torchvision", "timm", "numpy", "pandas",
                          "opencv-python-headless", "scikit-learn", "pyyaml", "wandb",
-                         "matplotlib", "psutil")
+                         "matplotlib", "psutil", "pydicom")
             .add_local_dir(str(Path(__file__).parent), "/root/runs")
             # only the small split CSVs travel in the image; stats/ alone is 824 MB of
             # local analysis output the container never opens
@@ -2852,3 +2852,77 @@ def predict_dicom(cfg: dict, model, studies_df: pd.DataFrame, plan: dict,
     res = pd.DataFrame(probs, columns=cfg["tasks"])
     res.insert(0, "StudyInstanceUID", studies_df["StudyInstanceUID"].values)
     return res
+
+
+def _kaggle(*args, check=True, quiet=False):
+    """Run the kaggle CLI with this PC's CA bundle (Avast intercepts HTTPS)."""
+    import subprocess
+
+    env = dict(os.environ)
+    ca = Path.home() / ".certs" / "ca-bundle.pem"
+    if ca.exists():
+        env["REQUESTS_CA_BUNDLE"] = env["SSL_CERT_FILE"] = str(ca)
+    r = subprocess.run([sys.executable, "-m", "kaggle", *args], capture_output=True,
+                       text=True, encoding="utf-8", errors="replace", env=env)
+    out = (r.stdout or "") + (r.stderr or "")
+    if not quiet:
+        print("    " + out.strip().replace("\n", "\n    "))
+    if check and r.returncode:
+        raise SystemExit(f"❌ kaggle {' '.join(args)} failed ({r.returncode})")
+    return out
+
+
+def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
+                   message: str, wait: bool = True, poll_secs: int = 60,
+                   submit: bool = True) -> str | None:
+    """Dataset -> notebook -> wait for the run -> submit. Returns the kernel version.
+
+    The weights go up as a dataset because a code-competition notebook has no
+    internet; the notebook itself is what Kaggle scores.
+    """
+    assets = Path(assets_dir)
+    _banner("KAGGLE PUBLISH", "\U0001F680")
+
+    print(f"  1/4 dataset {user}/{dataset_slug}")
+    # `datasets status` answers 403 for a dataset that does not exist yet, so asking
+    # is useless — try to create, and fall back to a new version if it is already there
+    out = _kaggle("datasets", "create", "-p", str(assets / "weights"),
+                  "--dir-mode", "zip", check=False)
+    if "already exists" in out.lower() or "409" in out:
+        print("      exists -> new version")
+        _kaggle("datasets", "version", "-p", str(assets / "weights"), "-m", message,
+                "--dir-mode", "zip")
+    elif "error" in out.lower() or "forbidden" in out.lower():
+        raise SystemExit("❌ dataset upload failed")
+
+    print(f"\n  2/4 notebook {user}/{notebook_slug}")
+    out = _kaggle("kernels", "push", "-p", str(assets / "notebook"))
+    m = re.search(r"version\s+(\d+)", out, re.I)
+    version = m.group(1) if m else None
+    print(f"      pushed version {version or '?'}")
+
+    if not wait:
+        return version
+    print("\n  3/4 waiting for the kernel to finish")
+    while True:
+        st = _kaggle("kernels", "status", f"{user}/{notebook_slug}", quiet=True)
+        low = st.lower()
+        if "complete" in low:
+            print("      ✅ complete"); break
+        if "error" in low or "cancel" in low:
+            print(f"      ❌ {st.strip()}")
+            print("      fetch the log with: kaggle kernels output "
+                  f"{user}/{notebook_slug} -p .")
+            return version
+        print(f"      … {st.strip()[:90]}")
+        time.sleep(poll_secs)
+
+    if not submit:
+        return version
+    print("\n  4/4 submitting")
+    args = ["competitions", "submit", "-c", "rsna-knee-abnormality-detection",
+            "-f", "submission.csv", "-k", f"{user}/{notebook_slug}", "-m", message]
+    if version:
+        args += ["-v", version]
+    _kaggle(*args)
+    return version

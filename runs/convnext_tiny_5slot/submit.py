@@ -21,6 +21,8 @@ import sys
 from pathlib import Path
 
 RUN_LOCAL = False              # True = do it here, False = do it on Modal
+PUBLISH = True                 # after building: push the dataset + notebook and submit
+WAIT_FOR_RUN = True            # poll until the notebook finishes, then submit
 KAGGLE_USER = "mamounhussam"   # owner slug for the dataset and the notebook
 CHECKPOINT = "best"            # best | last | top1.. | <step> | path
 VERIFY_STUDIES = 3             # DICOM-vs-shard check; 0 skips it
@@ -76,10 +78,21 @@ def build(cfg, exp_dir, out_dir, ckpt_dir, data_zip=None):
     return sc.build_kaggle_assets(cfg, exp_dir, out_dir, ck, KAGGLE_USER)
 
 
+def _publish(out):
+    """Kaggle steps run from this PC either way — the container has no credentials."""
+    if not PUBLISH:
+        print("PUBLISH is False — assets built, nothing uploaded")
+        return
+    slug = f"knee-{EXP_NAME.replace('_', '-')}"
+    sc.kaggle_publish(out, KAGGLE_USER, slug, f"{slug}-submit",
+                      message=EXP_NAME, wait=WAIT_FOR_RUN)
+
+
 def run_local():
     cfg = sc.load_config(EXP_DIR, verbose=False)
     res = EXP_DIR / cfg["output"]["run_dir"]
-    build(cfg, EXP_DIR, EXP_DIR / "kaggle", res / cfg["output"]["checkpoints_dir"])
+    out = build(cfg, EXP_DIR, EXP_DIR / "kaggle", res / cfg["output"]["checkpoints_dir"])
+    _publish(out)
 
 
 try:
@@ -87,7 +100,7 @@ try:
 
     cfg = sc.load_config(EXP_DIR, verbose=False)
     app = modal.App(f"{EXP_NAME}-submit")
-    _image = sc.modal_image().pip_install("pydicom")
+    _image = sc.modal_image()
     _runs = modal.Volume.from_name(cfg["modal"]["runs_volume"], create_if_missing=True)
     _shards = modal.Volume.from_name(cfg["modal"]["shards_volume"], create_if_missing=True)
     _data = modal.Volume.from_name("knee-data", create_if_missing=True)
@@ -121,6 +134,7 @@ try:
         with zf2.ZipFile(io.BytesIO(blob)) as z:
             z.extractall(out)
         print(f"\n⬇️  pulled the Kaggle assets to {out}")
+        _publish(out)      # credentials live on this PC, not in the container
 
 except ImportError:
     pass
