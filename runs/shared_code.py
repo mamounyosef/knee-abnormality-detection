@@ -229,8 +229,11 @@ def print_config(cfg: dict):
     ], "\U0001F69A")
 
     _kv("evaluation & output", [
-        ("eval cadence", f"every {cfg['evaluation']['eval_every_epochs']} epoch(s), "
-                         f"every_steps={cfg['evaluation']['eval_every_steps']}"),
+        ("eval cadence", f"{cfg['evaluation'].get('eval_every_steps_before')} steps "
+                         f"until epoch {cfg['evaluation'].get('eval_every_steps_epoch_threshold')}, "
+                         f"then every {cfg['evaluation'].get('eval_every_steps_after')} steps"
+                         + (f"  + every {cfg['evaluation']['eval_every_epochs']} epoch(s)"
+                            if cfg['evaluation'].get('eval_every_epochs') else "")),
         ("audit set", f"enable={cfg['evaluation']['audit']['enable']}  "
                       f"(58 studies, report only)"),
         ("run_dir", o["run_dir"]),
@@ -1135,6 +1138,22 @@ def seed_worker(worker_id: int):
 # =============================================================================
 # eval / train
 # =============================================================================
+def eval_interval(cfg: dict, epoch: int) -> int:
+    """Steps between validations for this epoch - 0 disables step-triggered eval.
+
+    Cadence is driven by the GLOBAL STEP, not the epoch. The epoch only selects
+    which interval applies: early epochs move fast and are not worth scoring often,
+    later ones are where the best checkpoint usually shows up.
+    eval_every_steps_epoch_threshold is the first epoch that uses the "after" rate.
+    """
+    e = cfg["evaluation"]
+    thr = e.get("eval_every_steps_epoch_threshold")
+    if thr:
+        key = "eval_every_steps_after" if epoch >= int(thr) else "eval_every_steps_before"
+        return int(e.get(key) or 0)
+    return int(e.get("eval_every_steps") or 0)
+
+
 @torch.no_grad()                                   # no gradients: eval only, saves memory
 def evaluate(model, loader, loss_fn, cfg, device) -> dict:
     """Run the whole loader and return macro AUROC, per-label AUROC and mean loss."""
@@ -1627,7 +1646,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                                "real_img_s": round(real_ips, 1),
                                "data_wait_pct": round(wait_pct, 1),
                                "gpu_mem_gb": round(mem, 2), "elapsed_s": round(el, 1)})
-                ev = cfg["evaluation"].get("eval_every_steps", 0)
+                ev = eval_interval(cfg, epoch)
                 if ev and gstep % ev == 0:
                     _validate_and_checkpoint(epoch, gstep, f"every {ev} steps")
                 every = cfg["output"].get("checkpoint_every_steps", 0)
@@ -1641,6 +1660,8 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                     prune_checkpoints(ckpt_dir, cfg["output"].get("keep_last_n", 3))
                     print(f"  \U0001F4BE periodic checkpoint @ step {gstep} "
                           f"(rolling, keep_last_n={cfg['output'].get('keep_last_n', 3)})")
+                    if persist_fn:
+                        persist_fn()      # flush logs to the volume too
                 dbg = cfg["output"].get("save_debug_images", 0)
                 if dbg and (gstep % dbg == 0 or gstep == 1):
                     save_debug_batch(prepare_batch(x, cfg, device), cfg, dbg_dir,
@@ -1689,11 +1710,17 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
             print(f"  \U0001F9F9 discarded {it % accum} trailing micro-batch(es) "
                   f"(not a full accumulation window)")
 
-        _validate_and_checkpoint(epoch, gstep, "epoch")
+        ee = int(cfg["evaluation"].get("eval_every_epochs") or 0)
+        if ee and epoch % ee == 0:
+            _validate_and_checkpoint(epoch, gstep, "epoch")
 
         if es["enable"] and bad >= es["patience"]:
             print(f"\n\U0001F6D1 early stop: no improvement for {bad} epochs")
             break
+
+    if last_val_step != gstep:
+        print("\n  📌 final validation (these last steps hit no trigger)")
+        _validate_and_checkpoint(epoch, gstep, "final")
 
     train_log.close(); val_log.close()
     total_time = time.time() - t0
