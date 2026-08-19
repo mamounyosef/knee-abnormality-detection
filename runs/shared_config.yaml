@@ -88,8 +88,8 @@ reproducibility:
   seed: 42
   deterministic: false              # true = bit-identical reruns but noticeably slower
 
-# the whole dataloader block is per-run: num_workers, prefetch_factor, pin_memory,
-# persistent_workers, drop_last, val_batch_size, val_num_workers
+# the whole dataloader block is per-run: batch_size, num_workers, prefetch_factor,
+# pin_memory, persistent_workers, drop_last, val_batch_size, val_num_workers
 
 # modal.gpu is per-run
 # Modal = the cloud GPU service real training runs on; volumes are its persistent disks

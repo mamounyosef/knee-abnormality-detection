@@ -123,6 +123,18 @@ def load_config(experiment_dir, config_name: str = "config.yaml", verbose: bool 
     return cfg
 
 
+def train_batch_size(cfg: dict) -> int:
+    """Studies per training batch. Lives under dataloader; training.batch_size still
+    works so older run configs keep loading."""
+    dl = cfg.get("dataloader", {})
+    bs = dl.get("batch_size")
+    if bs is None:
+        bs = cfg["training"].get("batch_size")
+    if bs is None:
+        raise KeyError("batch_size missing: set dataloader.batch_size in the run config")
+    return int(bs)
+
+
 def print_config(cfg: dict):
     """Everything this run is doing, as boxed tables, then the raw merged YAML."""
     i, t, o = cfg["input"], cfg["training"], cfg["output"]
@@ -180,10 +192,11 @@ def print_config(cfg: dict):
     else:
         _kv("augmentation", [("enabled", False)], "\U0001F3B2")
 
-    eff = t.get("batch_size", 0) * t.get("accum_steps", 1)
+    bs = train_batch_size(cfg)
+    eff = bs * t.get("accum_steps", 1)
     _kv("training", [
         ("epochs", t.get("epochs")),
-        ("batch", f"{t.get('batch_size')} studies x accum {t.get('accum_steps', 1)} "
+        ("batch", f"{bs} studies x accum {t.get('accum_steps', 1)} "
                   f"= {eff} studies ({eff * n_img} images) per update"),
         ("optimizer", f"{t['optimizer']['name']}  lr={t['optimizer'].get('lr'):.2e}  "
                       f"wd={t['optimizer'].get('weight_decay')}  "
@@ -563,7 +576,7 @@ def val_loader_settings(cfg: dict) -> tuple[int, int]:
     """(batch_size, num_workers) for eval loaders — val_* keys, else the train values."""
     dl = cfg.get("dataloader", {})
     nw = dl.get("val_num_workers")
-    return (int(dl.get("val_batch_size") or cfg["training"]["batch_size"]),
+    return (int(dl.get("val_batch_size") or train_batch_size(cfg)),
             int(dl.get("num_workers", 4) if nw is None else nw))
 
 
@@ -580,7 +593,7 @@ def make_loaders(cfg: dict):
         ds = KneeShardDataset(df, cfg, plan, train)
         nw = dl.get("num_workers", 4) if train else vnw
         out[split] = DataLoader(
-            ds, batch_size=cfg["training"]["batch_size"] if train else vbs, shuffle=train,
+            ds, batch_size=train_batch_size(cfg) if train else vbs, shuffle=train,
             num_workers=nw,
             pin_memory=dl.get("pin_memory", True),
             persistent_workers=dl.get("persistent_workers", True) and nw > 0,
@@ -1302,7 +1315,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         except Exception as e:
             print(f"  [warn] torch.compile failed: {type(e).__name__}: {e}")
     scaler = torch.amp.GradScaler("cuda", enabled=cfg["training"]["amp"] and device.type == "cuda")
-    imgs_per_batch = (cfg["training"]["batch_size"] * len(cfg["input"]["slots"])
+    imgs_per_batch = (train_batch_size(cfg) * len(cfg["input"]["slots"])
                       * cfg["input"]["n_slices"])
     print(f"[setup] optimizer={cfg['training']['optimizer']['name']}  "
           f"scheduler={cfg['training']['scheduler']['name']}  amp={scaler.is_enabled()}")
@@ -1310,7 +1323,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
           f"images/optimizer-step={imgs_per_batch * accum}")
     _vbs, _vnw = val_loader_settings(cfg)
     print(f"[setup] loss={cfg['training']['loss']['name']}  "
-          f"train bs={cfg['training']['batch_size']}/{cfg.get('dataloader', {}).get('num_workers', 4)}w  "
+          f"train bs={train_batch_size(cfg)}/{cfg.get('dataloader', {}).get('num_workers', 4)}w  "
           f"val bs={_vbs}/{_vnw}w")
 
     es = cfg["training"]["early_stopping"]

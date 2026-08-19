@@ -12,7 +12,6 @@ model:
 
 training:
   epochs: 12
-  batch_size: 2                     # 2 studies x 4 slots x 24 slices = 192 images @512
   accum_steps: 8                    # effective 16 studies
   grad_clip: 1.0                    # cap gradient size so one bad batch can't blow up training
   optimizer:
@@ -41,13 +40,13 @@ training:
 
 # CPU-side loading; decoding shards is the bottleneck, so keep workers busy
 dataloader:
+  batch_size: 2                     # 2 studies x 4 slots x 24 slices = 192 images @512
   num_workers: 8
   prefetch_factor: 4                # batches queued per worker
   pin_memory: true                  # page-locked memory, faster CPU -> GPU copies
   persistent_workers: true          # don't respawn workers every epoch
-  drop_last: true                   # skip the ragged final batch
-  val_batch_size: null              # null = same as training.batch_size; no backward pass,
-                                    # so validation can afford a much bigger batch
+  drop_last: false                  # keep the ragged final batch
+  val_batch_size: 6                 # no backward pass, so no stored activations -> 3x fits
   val_num_workers: null             # null = same as num_workers
 
 modal:
