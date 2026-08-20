@@ -1519,6 +1519,8 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     es = cfg["training"]["early_stopping"]
     best, best_epoch, bad, gstep = -math.inf, 0, 0, 0
     start_epoch, top_k_track = 1, []
+    # declared up here because the resume block below restores into it
+    audit_best = [-math.inf, 0]   # [score, epoch] - a report only, never drives best.pt
     ck = load_checkpoint(cfg.get("resume"), model, ckpt_dir, opt, sched, scaler,
                          device, cfg_now=cfg)
     resumed_elapsed, history, resume_skip = 0.0, [], 0
@@ -1555,7 +1557,6 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
 
     last_val_step = -1
     prev_eval = {}                # each set's last metrics, for the printed deltas
-    audit_best = [-math.inf, 0]   # [score, epoch] - a report only, never drives best.pt
     score, improved = -math.inf, False
 
     def _validate_and_checkpoint(epoch: int, gstep: int, tag: str = "epoch"):
