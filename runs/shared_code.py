@@ -2809,10 +2809,11 @@ def build_kaggle_assets(cfg: dict, exp_dir, out_dir, checkpoint_path,
 
     # the test DICOMs arrive as JPEG Lossless and JPEG 2000 as well as raw, and the
     # notebook has no internet to pip install a decoder — so ship the wheels with it
+    # flat, not in a wheels/ subfolder: `kaggle datasets` skips subdirectories
+    # unless you pass --dir-mode, and that flag is broken on windows in CLI 2.2.4
     wheels_src = Path(__file__).resolve().parent / "_wheels"
     if wheels_src.is_dir():
-        wd = out / "weights" / "wheels"
-        wd.mkdir(exist_ok=True)
+        wd = out / "weights"
         for whl in wheels_src.glob("*.whl"):
             shutil.copy(whl, wd / whl.name)
         print(f"  \U0001F4E6 wheels     -> {len(list(wd.glob('*.whl')))} dicom decoders")
@@ -2850,7 +2851,7 @@ print('weights:', W, '| comp:', COMP)''',
         '''# the test set mixes JPEG Lossless and JPEG 2000 in with the raw series and
 # pydicom reads neither on its own. no internet here, so the wheels ride along
 # inside the weights dataset.
-wheels = sorted(glob.glob(str(W / 'wheels' / '*.whl')))
+wheels = sorted(glob.glob(str(W / '*.whl')))
 try:
     import pylibjpeg, openjpeg, libjpeg
     print('dicom decoders already present')
@@ -3077,7 +3078,10 @@ def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
     # `datasets status` answers 403 for a dataset that does not exist yet, so asking
     # is useless — try to create, and fall back to a new version if it is already there
     out = _kaggle("datasets", "create", "-p", ".", cwd=w, check=False)
-    if "already exists" in out.lower() or "409" in out or "403" in out:
+    # kaggle says this three different ways depending on what already exists:
+    # "already exists", a 409, a 403, or "title ... is already in use"
+    low = out.lower()
+    if any(k in low for k in ("already exists", "already in use", "409", "403")):
         print("      exists -> new version")
         _kaggle("datasets", "version", "-p", ".", "-m", message, cwd=w)
     elif "error" in out.lower() or "forbidden" in out.lower():
