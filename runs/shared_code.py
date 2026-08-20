@@ -1884,6 +1884,7 @@ SUBMISSION_TEMPLATE = {
     "public_score": None,         # the leaderboard number
     "private_score": None,        # only after the deadline
     "runtime_seconds": None,      # what the Efficiency Prize is ranked on
+    "runtime": None,              # the same thing readable: "44:32" or "1:35:34"
     "kernel": None,               # "<user>/<slug>"
     "kernel_version": None,       # which version was submitted
     "submission_ref": None,       # kaggle's id, so the entry can be found again
@@ -1904,7 +1905,20 @@ def carried_submission(summary_path) -> dict:
         old = None
     if not isinstance(old, dict):
         return dict(SUBMISSION_TEMPLATE)
-    return {k: old.get(k, v) for k, v in SUBMISSION_TEMPLATE.items()}
+    rec = {k: old.get(k, v) for k, v in SUBMISSION_TEMPLATE.items()}
+    # fill runtime from the seconds, so only one of the two has to be typed in
+    if rec.get("runtime") is None:
+        rec["runtime"] = clock(rec.get("runtime_seconds"))
+    return rec
+
+
+def clock(sec: float | None) -> str | None:
+    """Seconds -> "44:32", or "1:35:34" once it runs past an hour."""
+    if sec is None:
+        return None
+    h, rem = divmod(int(sec), 3600)
+    m, s = divmod(rem, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
 def fmt(sec: float) -> str:
