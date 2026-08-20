@@ -1880,7 +1880,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
 
 
 SUBMISSION_TEMPLATE = {
-    "submitted": None,            # UTC date, e.g. "2026-08-20"
+    "submitted": None,            # UTC, "2026-08-20 16:09" — kaggle reports UTC
     "public_score": None,         # the leaderboard number
     "private_score": None,        # only after the deadline
     "runtime_seconds": None,      # what the Efficiency Prize is ranked on
