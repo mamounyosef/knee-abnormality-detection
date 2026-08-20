@@ -84,8 +84,9 @@ def _publish(out):
         print("PUBLISH is False — assets built, nothing uploaded")
         return
     slug = f"knee-{EXP_NAME.replace('_', '-')}"
+    cfg = sc.load_config(EXP_DIR, verbose=False)
     sc.kaggle_publish(out, KAGGLE_USER, slug, f"{slug}-submit",
-                      message=EXP_NAME, wait=WAIT_FOR_RUN)
+                      message=sc.submission_message(cfg, EXP_DIR), wait=WAIT_FOR_RUN)
 
 
 def run_local():

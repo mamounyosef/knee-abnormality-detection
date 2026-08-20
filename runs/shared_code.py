@@ -2662,27 +2662,57 @@ def scan_dicom_index(dicom_root, series_csv: pd.DataFrame) -> tuple[pd.DataFrame
     """
     import pydicom
 
+    root = Path(dicom_root)
     files_by_series: dict[str, list] = {}
     geom: dict[str, dict] = {}
-    for f in sorted(Path(dicom_root).rglob("*")):
-        if not f.is_file():
+
+    def _geom(ds, study_uid):
+        ps = ds.get("PixelSpacing") or [1.0, 1.0]
+        thick = float(ds.get("SliceThickness", 0) or 0)
+        return {"pixel_spacing_r": float(ps[0]), "pixel_spacing_c": float(ps[1]),
+                "slice_thickness": thick,
+                "spacing_between": float(ds.get("SpacingBetweenSlices", 0) or 0) or thick,
+                "rows": int(ds.get("Rows", 0)), "cols": int(ds.get("Columns", 0)),
+                "study": study_uid}
+
+    # fast path: the layout is <root>/<study>/<series>/<file>.dcm, so the UIDs are
+    # already in the path and one header per series is enough for the geometry.
+    # reading all of them costs ~2s per study, which is real money over a big test set.
+    fast, by_folder = 0, set()
+    for _, r in series_csv.iterrows():
+        d = root / str(r["StudyInstanceUID"]) / str(r["SeriesInstanceUID"])
+        if not d.is_dir():
+            continue
+        fs = sorted(f for f in d.iterdir() if f.is_file())
+        if not fs:
             continue
         try:
-            ds = pydicom.dcmread(str(f), stop_before_pixels=True)
-        except Exception:                                # not a DICOM, skip it
+            ds = pydicom.dcmread(str(fs[0]), stop_before_pixels=True)
+        except Exception:
             continue
-        ser = str(getattr(ds, "SeriesInstanceUID", "") or "")
-        if not ser:
-            continue
-        files_by_series.setdefault(ser, []).append(f)
-        if ser not in geom:
-            ps = ds.get("PixelSpacing") or [1.0, 1.0]
-            thick = float(ds.get("SliceThickness", 0) or 0)
-            geom[ser] = {"pixel_spacing_r": float(ps[0]), "pixel_spacing_c": float(ps[1]),
-                         "slice_thickness": thick,
-                         "spacing_between": float(ds.get("SpacingBetweenSlices", 0) or 0) or thick,
-                         "rows": int(ds.get("Rows", 0)), "cols": int(ds.get("Columns", 0)),
-                         "study": str(getattr(ds, "StudyInstanceUID", "") or "")}
+        ser = str(r["SeriesInstanceUID"])
+        files_by_series[ser] = fs
+        geom[ser] = _geom(ds, str(r["StudyInstanceUID"]))
+        by_folder.add(ser)
+        fast += 1
+    if fast:
+        print(f"  🗂️  {fast} series indexed by folder "
+              f"({len(series_csv) - fast} need a header scan)")
+
+    # fallback: group by the SeriesInstanceUID in the header, so any layout works
+    if fast < len(series_csv):
+        for f in sorted(root.rglob("*")):
+            if not f.is_file():
+                continue
+            try:
+                ds = pydicom.dcmread(str(f), stop_before_pixels=True)
+            except Exception:                            # not a DICOM, skip it
+                continue
+            ser = str(getattr(ds, "SeriesInstanceUID", "") or "")
+            if not ser or ser in by_folder:               # already indexed by folder
+                continue
+            files_by_series.setdefault(ser, []).append(f)
+            geom.setdefault(ser, _geom(ds, str(getattr(ds, "StudyInstanceUID", "") or "")))
 
     plane_map = {"sagittal": "sag", "coronal": "cor", "axial": "ax"}
     rows = []
@@ -2879,28 +2909,51 @@ def usable_cuda() -> bool:
 @torch.no_grad()
 def predict_dicom(cfg: dict, model, studies_df: pd.DataFrame, plan: dict,
                   index: pd.DataFrame, files_by_series: dict, device=None,
-                  batch_size: int | None = None) -> pd.DataFrame:
-    """Score studies straight from DICOM and return the submission frame."""
+                  batch_size: int | None = None, num_workers: int | None = None,
+                  report_every: int = 50) -> pd.DataFrame:
+    """Score studies straight from DICOM and return the submission frame.
+
+    Decoding DICOM costs ~9s per study against <1s of GPU, so the workers are what
+    decide the wall clock here, not the model. One unreadable study must not take
+    the whole rerun down with it, so every batch is guarded.
+    """
     device = device or torch.device("cuda" if usable_cuda() else "cpu")
-    print(f"  🖥️  inference device: {device}")
+    nw = num_workers if num_workers is not None else min(4, (os.cpu_count() or 2))
+    n = len(studies_df)
+    print(f"  🖥️  inference device: {device} | {nw} loader workers | {n} studies")
     model = model.to(device).eval()
     ds = KneeShardDataset(studies_df.assign(**{t: 0.0 for t in cfg["tasks"]}),
                           cfg, plan, train=False,
                           dicom=(index, files_by_series))
     bs = int(batch_size or val_loader_settings(cfg)[0])
-    loader = DataLoader(ds, batch_size=bs, shuffle=False, num_workers=0)
-    out = []
+    loader = DataLoader(ds, batch_size=bs, shuffle=False, num_workers=nw,
+                        pin_memory=device.type == "cuda",
+                        persistent_workers=False)
+    out, done, t0, failed = [], 0, time.time(), 0
     for x, _ in loader:
-        with torch.autocast("cuda", enabled=cfg["training"]["amp"] and device.type == "cuda"):
-            logits = model(prepare_batch(x, cfg, device))
-        out.append(torch.sigmoid(logits.float()).cpu().numpy())
+        k = x.shape[0]
+        try:
+            with torch.autocast("cuda", enabled=cfg["training"]["amp"] and device.type == "cuda"):
+                logits = model(prepare_batch(x, cfg, device))
+            out.append(torch.sigmoid(logits.float()).cpu().numpy())
+        except Exception as e:                     # a dead batch scores 0.5, the run goes on
+            failed += k
+            print(f"  ⚠️  batch at study {done} failed ({type(e).__name__}: {e}) -> 0.5")
+            out.append(np.full((k, len(cfg["tasks"])), 0.5, np.float32))
+        done += k
+        if report_every and done % report_every < k:
+            el = time.time() - t0
+            print(f"  … {done}/{n} studies  {el / max(done, 1):.1f}s each  "
+                  f"eta {fmt(el / max(done, 1) * (n - done))}", flush=True)
     probs = np.concatenate(out) if out else np.zeros((0, len(cfg["tasks"])))
+    print(f"  ✅ scored {len(probs)} studies in {fmt(time.time() - t0)}"
+          + (f" ({failed} fell back to 0.5)" if failed else ""))
     res = pd.DataFrame(probs, columns=cfg["tasks"])
     res.insert(0, "StudyInstanceUID", studies_df["StudyInstanceUID"].values)
     return res
 
 
-def _kaggle(*args, check=True, quiet=False):
+def _kaggle(*args, check=True, quiet=False, cwd=None):
     """Run the kaggle CLI with this PC's CA bundle (Avast intercepts HTTPS)."""
     import subprocess
 
@@ -2908,14 +2961,54 @@ def _kaggle(*args, check=True, quiet=False):
     ca = Path.home() / ".certs" / "ca-bundle.pem"
     if ca.exists():
         env["REQUESTS_CA_BUNDLE"] = env["SSL_CERT_FILE"] = str(ca)
+    # the CLI writes kernel logs with the console codepage, and our prints have
+    # emoji in them — without this the log download dies on a charmap error
+    env["PYTHONUTF8"] = "1"                    # this one is a flag, not an encoding name
+    env["PYTHONIOENCODING"] = "utf-8"
     r = subprocess.run([sys.executable, "-m", "kaggle", *args], capture_output=True,
-                       text=True, encoding="utf-8", errors="replace", env=env)
+                       text=True, encoding="utf-8", errors="replace", env=env,
+                       cwd=str(cwd) if cwd else None)
     out = (r.stdout or "") + (r.stderr or "")
     if not quiet:
         print("    " + out.strip().replace("\n", "\n    "))
     if check and r.returncode:
         raise SystemExit(f"❌ kaggle {' '.join(args)} failed ({r.returncode})")
     return out
+
+
+def _wait_for_dataset(user: str, slug: str, tries: int = 20, secs: int = 30):
+    """Block until kaggle finishes processing the upload.
+
+    Push the notebook too early and the dataset simply is not mounted — the kernel
+    dies with ModuleNotFoundError and you lose ten minutes working out why.
+    """
+    for i in range(tries):
+        time.sleep(secs)
+        out = _kaggle("datasets", "files", f"{user}/{slug}", quiet=True, check=False)
+        if "model.pt" in out and "error" not in out.lower():
+            print(f"      ✅ dataset ready after {(i + 1) * secs}s")
+            return
+    print("      ⚠️  dataset still processing, pushing the notebook anyway")
+
+
+def submission_message(cfg: dict, exp_dir) -> str:
+    """`<exp> | val 0.8596 | audit58 0.8597` — read off the finished run."""
+    exp_dir = Path(exp_dir)
+    name = cfg["experiment"]["name"]
+    try:
+        summary = json.loads((exp_dir / "results" / "training_summary.json").read_text())
+        best = float(summary["best_score"])
+    except Exception:
+        return name
+    bits = [name, f"val {best:.4f}"]
+    try:
+        log = pd.read_csv(exp_dir / "results" / "val_log.csv")
+        row = log.loc[log["val_macro_auroc"].idxmax()]
+        if "audit_macro_auroc" in log.columns and pd.notna(row["audit_macro_auroc"]):
+            bits.append(f"audit58 {float(row['audit_macro_auroc']):.4f}")
+    except Exception:
+        pass
+    return " | ".join(bits)
 
 
 def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
@@ -2930,16 +3023,18 @@ def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
     _banner("KAGGLE PUBLISH", "\U0001F680")
 
     print(f"  1/4 dataset {user}/{dataset_slug}")
+    # kaggle CLI 2.2.4 mangles -p on windows (weights/config.json -> weights_config.json),
+    # so run it from inside the folder and hand it a bare dot
+    w = assets / "weights"
     # `datasets status` answers 403 for a dataset that does not exist yet, so asking
     # is useless — try to create, and fall back to a new version if it is already there
-    out = _kaggle("datasets", "create", "-p", str(assets / "weights"),
-                  "--dir-mode", "zip", check=False)
-    if "already exists" in out.lower() or "409" in out:
+    out = _kaggle("datasets", "create", "-p", ".", cwd=w, check=False)
+    if "already exists" in out.lower() or "409" in out or "403" in out:
         print("      exists -> new version")
-        _kaggle("datasets", "version", "-p", str(assets / "weights"), "-m", message,
-                "--dir-mode", "zip")
+        _kaggle("datasets", "version", "-p", ".", "-m", message, cwd=w)
     elif "error" in out.lower() or "forbidden" in out.lower():
         raise SystemExit("❌ dataset upload failed")
+    _wait_for_dataset(user, dataset_slug)
 
     print(f"\n  2/4 notebook {user}/{notebook_slug}")
     out = _kaggle("kernels", "push", "-p", str(assets / "notebook"))
