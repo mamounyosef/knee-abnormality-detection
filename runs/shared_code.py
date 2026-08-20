@@ -592,8 +592,22 @@ class KneeShardDataset(Dataset):
         vols = []
         for slot in self.slots:
             series = chosen.get(slot)                   # None when this study lacks that view
-            v = (self._load(study, series, rng) if series is not None
-                 else np.zeros((self.n_slices * self.ctx, self.size, self.size), np.float32))
+            blank = np.zeros((self.n_slices * self.ctx, self.size, self.size), np.float32)
+            if series is None:
+                v = blank
+            else:
+                try:
+                    v = self._load(study, series, rng)
+                except Exception as e:
+                    # a worker that raises kills the whole DataLoader, and at submission
+                    # time that costs every study, not just this one. an unreadable
+                    # series becomes an empty slot, exactly like a missing one.
+                    if not self.train:
+                        print(f"  ⚠️  {study[:16]}… {slot}: "
+                              f"{type(e).__name__}: {e} -> blank slot", flush=True)
+                        v = blank
+                    else:
+                        raise
             if self.aug is not None:
                 v = self._augment(v, rng)             # same warp across a slice's channels
             if self.ctx > 1:
@@ -2979,7 +2993,22 @@ def predict_dicom(cfg: dict, model, studies_df: pd.DataFrame, plan: dict,
                         pin_memory=device.type == "cuda",
                         persistent_workers=False)
     out, done, t0, failed = [], 0, time.time(), 0
-    for x, _ in loader:
+    it = iter(loader)
+    while True:
+        # the fetch itself has to be guarded: a worker that dies decoding a study
+        # raises HERE, not inside the loop body, and would otherwise escape and
+        # cost every remaining study
+        try:
+            x, _ = next(it)
+        except StopIteration:
+            break
+        except Exception as e:
+            left = n - done
+            print(f"  ❌ loader died at study {done} ({type(e).__name__}: {e}); "
+                  f"remaining {left} score 0.5")
+            out.append(np.full((left, len(cfg["tasks"])), 0.5, np.float32))
+            failed += left
+            break
         k = x.shape[0]
         try:
             with torch.autocast("cuda", enabled=cfg["training"]["amp"] and device.type == "cuda"):
