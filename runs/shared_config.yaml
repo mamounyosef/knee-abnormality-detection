@@ -83,7 +83,7 @@ evaluation:
   # often, later ones are where the best checkpoint usually appears.
   eval_every_steps_before: 400            # epochs 1..(threshold-1)
   eval_every_steps_after: 200             # from `threshold` onward
-  eval_every_steps_epoch_threshold: 3     # first epoch that uses the "after" rate
+  eval_every_steps_epoch_threshold: 6     # first epoch that uses the "after" rate
   eval_every_epochs: null                 # null = no extra epoch-end validation
   audit:
     enable: true                    # report-only, never drives best.pt (58 studies, +/-0.05)

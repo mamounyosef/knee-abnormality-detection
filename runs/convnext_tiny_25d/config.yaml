@@ -16,7 +16,7 @@ model:
   drop_rate: 0.1                    # dropout in the head, mild regularization
 
 training:
-  epochs: 8
+  epochs: 10
   grad_clip: 1.0                    # cap gradient size so one bad batch can't blow up training
   optimizer:
     name: "adamw"
@@ -41,7 +41,7 @@ training:
     enable: true
     monitor: "val_macro_auroc"
     mode: "max"
-    patience: 7                     # epochs without improvement before quitting
+    patience: 3                     # epochs without improvement before quitting
 
 # CPU-side loading; decoding shards is the bottleneck, so keep workers busy
 dataloader:
@@ -51,7 +51,7 @@ dataloader:
                                     # same as 4x2 but half the peak memory
   val_batch_size: 4                 # no backward pass, so no stored activations -> 2x fits
 
-  num_workers: 16
+  num_workers: 18
   val_num_workers: null             # null = same as num_workers
   
   prefetch_factor: 4                # batches queued per worker
@@ -61,7 +61,7 @@ dataloader:
 
 modal:
   gpu: "A100-80GB"                  # 192 images of 512px per step needs the room
-  cpu: 10.0                         # one core per dataloader worker; decoding npz is CPU-bound
-  memory_gb: 32                     # 16 workers x prefetch 4 holding uint8 volumes
+  cpu: 14.0                         # one core per dataloader worker; decoding npz is CPU-bound
+  memory_gb: 36                     # 16 workers x prefetch 4 holding uint8 volumes
 
 resume: null
