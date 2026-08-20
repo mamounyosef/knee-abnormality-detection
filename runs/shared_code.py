@@ -1659,12 +1659,16 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         print(f"  \U0001F4BE saved last.pt (epoch {epoch})"
               + (f"  \U0001F3C6 top-{len(top_k_track)} kept" if top_k_track else ""))
 
+        summary_path = out / cfg["output"]["summary_json"]
         summary = json.dumps({
             "experiment": cfg["experiment"]["name"], "run_id": run_id,
             "epoch": epoch, "epochs": epochs,
             "best_score": best, "best_epoch": best_epoch, "monitor": es["monitor"],
-            "last": row, "elapsed": fmt(time.time() - t0)}, indent=2)
-        (out / cfg["output"]["summary_json"]).write_text(summary)
+            "last": row, "elapsed": fmt(time.time() - t0),
+            # always last, always null until a human fills it in after submitting.
+            # carried over on every rewrite so a filled-in record survives a resume.
+            "submission": carried_submission(summary_path)}, indent=2)
+        summary_path.write_text(summary)
         # a per-run copy too, so the sync can carry it without clobbering the other side
         (cap_dir / f"{run_id}_summary.json").write_text(summary)
         if persist_fn:
@@ -1873,6 +1877,34 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         if persist_fn:
             persist_fn()
     return best
+
+
+SUBMISSION_TEMPLATE = {
+    "submitted": None,            # UTC date, e.g. "2026-08-20"
+    "public_score": None,         # the leaderboard number
+    "private_score": None,        # only after the deadline
+    "runtime_seconds": None,      # what the Efficiency Prize is ranked on
+    "kernel": None,               # "<user>/<slug>"
+    "kernel_version": None,       # which version was submitted
+    "submission_ref": None,       # kaggle's id, so the entry can be found again
+    "checkpoint": None,           # which checkpoint went into the dataset
+    "notes": None,
+}
+
+
+def carried_submission(summary_path) -> dict:
+    """Keep a hand-filled submission record across summary rewrites.
+
+    The summary is rewritten at every validation, so a record typed in by hand would
+    otherwise be erased by the next one — or by a resume.
+    """
+    try:
+        old = json.loads(Path(summary_path).read_text()).get("submission")
+    except Exception:
+        old = None
+    if not isinstance(old, dict):
+        return dict(SUBMISSION_TEMPLATE)
+    return {k: old.get(k, v) for k, v in SUBMISSION_TEMPLATE.items()}
 
 
 def fmt(sec: float) -> str:
