@@ -58,5 +58,17 @@
     "audit_auroc_Fracture": 0.868056,
     "elapsed_s": 13997.5
   },
-  "elapsed": "3h55m14s"
+  "elapsed": "3h55m14s",
+  "submission": {
+    "submitted": "2026-08-20 18:02 UTC",
+    "public_score": 0.856,
+    "private_score": null,
+    "runtime_seconds": 2940,
+    "runtime": "49:00",
+    "kernel": "mamounhussam/knee-convnext-tiny-5slot-submit",
+    "kernel_version": 1,
+    "submission_ref": 55651916,
+    "checkpoint": "best.pt (epoch 8, step 3600)",
+    "notes": "5 slots vs 4slot's 0.859; the extra coronal-plain slot does not help on the test set either"
+  }
 }
