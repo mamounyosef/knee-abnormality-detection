@@ -2722,20 +2722,55 @@ def scan_dicom_index(dicom_root, series_csv: pd.DataFrame) -> tuple[pd.DataFrame
         print(f"  🗂️  {fast} series indexed by folder "
               f"({len(series_csv) - fast} need a header scan)")
 
-    # fallback: group by the SeriesInstanceUID in the header, so any layout works
-    if fast < len(series_csv):
-        for f in sorted(root.rglob("*")):
-            if not f.is_file():
-                continue
-            try:
-                ds = pydicom.dcmread(str(f), stop_before_pixels=True, force=True)
-            except Exception:                            # not a DICOM, skip it
-                continue
-            ser = str(getattr(ds, "SeriesInstanceUID", "") or "")
-            if not ser or ser in by_folder:               # already indexed by folder
-                continue
-            files_by_series.setdefault(ser, []).append(f)
-            geom.setdefault(ser, _geom(ds, str(getattr(ds, "StudyInstanceUID", "") or "")))
+    # fallback for whatever the folder pass could not place. this must stay scoped to
+    # the studies actually missing: rglob over the whole root is ~240k header reads on
+    # the real test set, and a single series without a folder would trigger it.
+    missing = series_csv[~series_csv["SeriesInstanceUID"].astype(str).isin(by_folder)]
+    if len(missing):
+        print(f"  \U0001F50E {len(missing)} series not found by folder, searching "
+              f"{missing['StudyInstanceUID'].nunique()} study dirs", flush=True)
+        want_all = set(missing["SeriesInstanceUID"].astype(str))
+        for study_uid, g in missing.groupby("StudyInstanceUID"):
+            sdir = root / str(study_uid)
+            if not sdir.is_dir():
+                continue                                 # handled by the sweep below
+            want = set(g["SeriesInstanceUID"].astype(str))
+            for f in sdir.rglob("*"):
+                if not f.is_file():
+                    continue
+                try:
+                    ds = pydicom.dcmread(str(f), stop_before_pixels=True, force=True)
+                except Exception:                        # not a DICOM, skip it
+                    continue
+                ser = str(getattr(ds, "SeriesInstanceUID", "") or "")
+                if ser not in want:
+                    continue
+                files_by_series.setdefault(ser, []).append(f)
+                geom.setdefault(ser, _geom(ds, str(study_uid)))
+                want_all.discard(ser)
+
+        # only now, if some series has no study folder to look in at all (a flat dump,
+        # say), sweep the whole root. this is the expensive path and it says so.
+        still = want_all - set(files_by_series)
+        if still:
+            print(f"  \u26A0\uFE0F  {len(still)} series still unplaced, sweeping the "
+                  f"whole root by header — this is slow", flush=True)
+            for f in root.rglob("*"):
+                if not still:
+                    break
+                if not f.is_file():
+                    continue
+                try:
+                    ds = pydicom.dcmread(str(f), stop_before_pixels=True, force=True)
+                except Exception:
+                    continue
+                ser = str(getattr(ds, "SeriesInstanceUID", "") or "")
+                if ser not in still and ser not in files_by_series:
+                    continue
+                if ser in still or ser in geom:
+                    files_by_series.setdefault(ser, []).append(f)
+                    geom.setdefault(ser, _geom(
+                        ds, str(getattr(ds, "StudyInstanceUID", "") or "")))
 
     plane_map = {"sagittal": "sag", "coronal": "cor", "axial": "ax"}
     rows = []
