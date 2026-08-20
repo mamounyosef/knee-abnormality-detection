@@ -63,4 +63,7 @@ modal:
   cpu: 10.0                         # one core per dataloader worker; decoding npz is CPU-bound
   memory_gb: 32                     # 16 workers x prefetch 4 holding uint8 volumes
 
-resume: null
+# stopped at step 1400 to drop eval_every_steps_epoch_threshold to 4, so epoch 4
+# validates every 200 steps instead of 400. ResumableSampler skips the 38 studies
+# epoch 4 had already consumed, so nothing is replayed and nothing is missed.
+resume: 1400
