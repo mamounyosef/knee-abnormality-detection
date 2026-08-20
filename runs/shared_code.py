@@ -2634,13 +2634,22 @@ def dicom_series_volume(files) -> np.ndarray:
     import pydicom
 
     slices = []
+    bad = 0
     for f in files:
-        ds = pydicom.dcmread(str(f))
-        a = ds.pixel_array
+        # one slice that will not decode should cost that slice, not the series.
+        # transfer syntaxes vary across this corpus and a single odd file is common.
+        try:
+            ds = pydicom.dcmread(str(f), force=True)
+            a = ds.pixel_array
+        except Exception:
+            bad += 1
+            continue
         if a.ndim == 3:                                  # multi-frame: split it out
             slices.extend((ds, a[k], k) for k in range(a.shape[0]))
         else:
             slices.append((ds, a, None))
+    if bad:
+        print(f"  ⚠️  {bad}/{len(files)} slices would not decode", flush=True)
     if not slices:
         return np.zeros((0, 0, 0), np.uint8)
 
@@ -2701,7 +2710,7 @@ def scan_dicom_index(dicom_root, series_csv: pd.DataFrame) -> tuple[pd.DataFrame
         if not fs:
             continue
         try:
-            ds = pydicom.dcmread(str(fs[0]), stop_before_pixels=True)
+            ds = pydicom.dcmread(str(fs[0]), stop_before_pixels=True, force=True)
         except Exception:
             continue
         ser = str(r["SeriesInstanceUID"])
@@ -2719,7 +2728,7 @@ def scan_dicom_index(dicom_root, series_csv: pd.DataFrame) -> tuple[pd.DataFrame
             if not f.is_file():
                 continue
             try:
-                ds = pydicom.dcmread(str(f), stop_before_pixels=True)
+                ds = pydicom.dcmread(str(f), stop_before_pixels=True, force=True)
             except Exception:                            # not a DICOM, skip it
                 continue
             ser = str(getattr(ds, "SeriesInstanceUID", "") or "")
@@ -2913,15 +2922,30 @@ except Exception:
 except Exception:
     bail('model load failed'); raise SystemExit(0)''',
 
-        '''# one study per batch: 4 slots x 24 slices is already 96 images, and kaggle's
+        '''# STRESS repeats the public studies to imitate the hidden set's size. the
+# rerun log is never shown to us, so this is the only way to prove the pipeline
+# survives ~1300 studies before spending a submission. 0 = a normal run.
+STRESS = 0
+
+todo = sub[['StudyInstanceUID']]
+if STRESS:
+    reps = -(-STRESS // len(todo))
+    todo = pd.concat([todo] * reps, ignore_index=True).head(STRESS)
+    print('STRESS MODE:', len(todo), 'studies')
+
+# one study per batch: 4 slots x 24 slices is already 96 images, and kaggle's
 # T4 has 15 GB against the 80 GB this trained on
 try:
-    pred = sc.predict_dicom(cfg, model, sub[['StudyInstanceUID']], plan,
-                            idx, files_by_series, batch_size=1)
-    assert len(pred) == len(sub), f'{len(pred)} rows for {len(sub)} studies'
-    pred[TASKS] = pred[TASKS].astype(float).fillna(0.5).clip(0, 1)
-    pred.to_csv('submission.csv', index=False)
-    print(pred[TASKS].describe().T[['mean', 'min', 'max']])
+    pred = sc.predict_dicom(cfg, model, todo, plan, idx, files_by_series,
+                            batch_size=1)
+    if not STRESS:
+        # merge rather than trust row order, and fill anything missing with 0.5,
+        # so the file always has exactly the studies the sample submission asks for
+        out = sub[['StudyInstanceUID']].merge(pred, on='StudyInstanceUID', how='left')
+        out[TASKS] = out[TASKS].astype(float).fillna(0.5).clip(0, 1)
+        assert len(out) == len(sub), f'{len(out)} rows for {len(sub)} studies'
+        out.to_csv('submission.csv', index=False)
+        print(out[TASKS].describe().T[['mean', 'min', 'max']])
 except Exception:
     bail('inference failed')
 pd.read_csv('submission.csv').head()''',
