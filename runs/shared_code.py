@@ -1986,8 +1986,19 @@ def launch_run_id(cfg: dict, exp_dir) -> str:
     return rid
 
 
-def sync_back(cfg: dict, status: str = "") -> None:
-    """Pull this run's artifacts home. Fires on success AND on crash; never raises."""
+_SYNCED = False
+
+
+def sync_back(cfg: dict, status: str = "", once: bool = True) -> None:
+    """Pull this run's artifacts home. Fires on success, on crash, and on Ctrl+C.
+
+    `once` guards against syncing twice when both the signal handler and the
+    entrypoint's finally fire for the same interrupt.
+    """
+    global _SYNCED
+    if once and _SYNCED:
+        return
+    _SYNCED = True
     try:
         sr = _sync_module()
         s = sr.session_from_env()
@@ -1998,6 +2009,39 @@ def sync_back(cfg: dict, status: str = "") -> None:
         sr.sync_session(s, cfg["experiment"]["name"])
     except Exception as e:                     # a failed sync must never mask a training error
         print(f"  ⚠️  artifact sync failed: {type(e).__name__}: {e}")
+
+
+def sync_on_interrupt(cfg: dict) -> None:
+    """Sync on Ctrl+C too, by hooking the signal rather than trusting `finally`.
+
+    `modal run` installs its own SIGINT handler and tears the local process down
+    before the entrypoint's finally block gets there, so stopping a run by hand used
+    to leave the CSVs and debug images sitting on the volume. The container itself
+    keeps committing (`output.commit_every_steps`), so they were never lost — but
+    they had to be fetched by hand afterwards.
+
+    Modal's handler still runs after ours, so Ctrl+C keeps stopping the app as before.
+    """
+    import signal
+
+    def make(previous):
+        def handler(signum, frame):
+            print("\n  \u23F9\uFE0F  interrupted — pulling artifacts before exit "
+                  "(Ctrl+C again to skip)", flush=True)
+            sync_back(cfg, "interrupted")
+            if callable(previous):
+                return previous(signum, frame)      # let modal stop the app as usual
+            signal.signal(signum, signal.SIG_DFL)
+            os.kill(os.getpid(), signum)
+        return handler
+
+    for sig in (signal.SIGINT, getattr(signal, "SIGTERM", None)):
+        if sig is None:
+            continue
+        try:
+            signal.signal(sig, make(signal.getsignal(sig)))
+        except Exception:                           # not the main thread, or no such signal
+            pass
 
 
 def remote_cfg(cfg: dict) -> dict:

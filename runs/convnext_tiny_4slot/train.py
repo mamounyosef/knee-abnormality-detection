@@ -115,6 +115,7 @@ try:
 
     @app.local_entrypoint()                        # what `modal run train.py` calls
     def modal_main():
+        sc.sync_on_interrupt(cfg)                  # ctrl+c still pulls the artifacts
         run_id = sc.launch_run_id(cfg, EXP_DIR)    # sequential, reserved here
         status = "crashed"
         try:
