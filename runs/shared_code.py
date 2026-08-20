@@ -2807,6 +2807,16 @@ def build_kaggle_assets(cfg: dict, exp_dir, out_dir, checkpoint_path,
                         if not l.startswith("cfg = sc.load_config("))
         (out / "weights" / "model_def.py").write_text(src, encoding="utf-8")
 
+    # the test DICOMs arrive as JPEG Lossless and JPEG 2000 as well as raw, and the
+    # notebook has no internet to pip install a decoder — so ship the wheels with it
+    wheels_src = Path(__file__).resolve().parent / "_wheels"
+    if wheels_src.is_dir():
+        wd = out / "weights" / "wheels"
+        wd.mkdir(exist_ok=True)
+        for whl in wheels_src.glob("*.whl"):
+            shutil.copy(whl, wd / whl.name)
+        print(f"  \U0001F4E6 wheels     -> {len(list(wd.glob('*.whl')))} dicom decoders")
+
     (out / "notebook" / "kernel-metadata.json").write_text(json.dumps({
         "id": f"{kaggle_user}/{notebook_slug}",
         "title": f"knee {exp} submit",
@@ -2821,48 +2831,86 @@ def build_kaggle_assets(cfg: dict, exp_dir, out_dir, checkpoint_path,
     }, indent=2))
 
     cells = [
-        "import sys, glob, json\n"
-        "from pathlib import Path\n"
-        "# find the weights dataset wherever kaggle mounted it\n"
-        "hits = sorted(glob.glob('/kaggle/input/**/shared_code.py', recursive=True))\n"
-        "if not hits:\n"
-        "    raise SystemExit('shared_code.py not found. tree: '\n"
-        "                     + str(sorted(glob.glob('/kaggle/input/**/*',\n"
-        "                                            recursive=True))[:200]))\n"
-        "W = Path(hits[0]).parent\n"
-        "subs = sorted(glob.glob('/kaggle/input/**/sample_submission.csv', recursive=True))\n"
-        "if not subs:\n"
-        "    raise SystemExit('competition data not found under /kaggle/input')\n"
-        "COMP = Path(subs[0]).parent\n"
-        "print('comp dir:', COMP)\n"
-        "sys.path.insert(0, str(W))\n"
-        "print('weights dir:', W)\n"
-        "import shared_code as sc, pandas as pd, torch",
+        '''# kaggle nests the mounts (/kaggle/input/datasets/<user>/<slug>) and the rerun
+# swaps in the hidden data, so nothing here may be hardcoded
+import sys, glob, json, subprocess, traceback
+from pathlib import Path
+hits = sorted(glob.glob('/kaggle/input/**/shared_code.py', recursive=True))
+if not hits:
+    raise SystemExit('shared_code.py not found. tree: '
+                     + str(sorted(glob.glob('/kaggle/input/**/*', recursive=True))[:200]))
+W = Path(hits[0]).parent
+sys.path.insert(0, str(W))
+subs = sorted(glob.glob('/kaggle/input/**/sample_submission.csv', recursive=True))
+if not subs:
+    raise SystemExit('competition data not found under /kaggle/input')
+COMP = Path(subs[0]).parent
+print('weights:', W, '| comp:', COMP)''',
 
-        "cfg  = json.loads((W / 'config.json').read_text())\n"
-        "cfg['model']['pretrained'] = False        # no internet: weights come from the ckpt\n"
-        "series = pd.read_csv(COMP / 'test_series.csv')\n"
-        "sub    = pd.read_csv(COMP / 'sample_submission.csv')\n"
-        "print(len(sub), 'studies to score')",
+        '''# the test set mixes JPEG Lossless and JPEG 2000 in with the raw series and
+# pydicom reads neither on its own. no internet here, so the wheels ride along
+# inside the weights dataset.
+wheels = sorted(glob.glob(str(W / 'wheels' / '*.whl')))
+try:
+    import pylibjpeg, openjpeg, libjpeg
+    print('dicom decoders already present')
+except ImportError:
+    if wheels:
+        r = subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-index',
+                            '--no-deps', '-q', *wheels], capture_output=True, text=True)
+        print('installed decoders rc=', r.returncode, r.stderr[-300:])
+    else:
+        print('WARNING: no decoder wheels, compressed series will fail')''',
 
-        "# header-only scan gives the slot plan and the mm/px geometry\n"
-        "idx, files_by_series = sc.scan_dicom_index(COMP / 'test_series', series)\n"
-        "plan = sc.plan_slots(idx, cfg)\n"
-        "print(len(plan), 'studies planned')",
+        '''import shared_code as sc, pandas as pd, torch
+cfg = json.loads((W / 'config.json').read_text())
+cfg['model']['pretrained'] = False        # no internet: weights come from the ckpt
+series = pd.read_csv(COMP / 'test_series.csv')
+sub = pd.read_csv(COMP / 'sample_submission.csv')
+TASKS = [c for c in sub.columns if c != 'StudyInstanceUID']
+print(len(sub), 'studies to score')
 
-        "sys.path.insert(0, str(W))\n"
-        "from model_def import build_model\n"
-        "model = build_model(cfg)\n"
-        "ck = torch.load(W / 'model.pt', map_location='cpu', weights_only=False)\n"
-        "model.load_state_dict(ck['model'])\n"
-        "print('loaded epoch', ck.get('epoch'), 'score', ck.get('score'))",
+def bail(why):
+    # always leave a valid file behind: 0.5 everywhere scores about 0.5, while no
+    # file at all scores nothing and still costs one of the five daily attempts
+    traceback.print_exc()
+    print('FALLING BACK TO 0.5:', why)
+    out = sub.copy()
+    out[TASKS] = 0.5
+    out.to_csv('submission.csv', index=False)
 
-        "# one study at a time: 4 slots x 24 slices is already 96 images per study,\n"
-        "# and kaggle's T4 has 15 GB against the 80 GB the run trained on\n"
-        "pred = sc.predict_dicom(cfg, model, sub[['StudyInstanceUID']], plan,\n"
-        "                        idx, files_by_series, batch_size=1)\n"
-        "pred.to_csv('submission.csv', index=False)\n"
-        "pred.head()",
+bail('nothing has run yet')          # overwritten the moment real work lands''',
+
+        '''# header scan -> which series fills which slot, plus the mm/px geometry
+try:
+    idx, files_by_series = sc.scan_dicom_index(COMP / 'test_series', series)
+    plan = sc.plan_slots(idx, cfg)
+    print(len(plan), 'studies planned of', len(sub))
+except Exception:
+    bail('scan/plan failed'); raise SystemExit(0)''',
+
+        '''try:
+    from model_def import build_model
+    model = build_model(cfg)
+    ck = torch.load(W / 'model.pt', map_location='cpu', weights_only=False)
+    model.load_state_dict(ck['model'])
+    print('loaded epoch', ck.get('epoch'), 'score', ck.get('score'))
+except Exception:
+    bail('model load failed'); raise SystemExit(0)''',
+
+        '''# one study per batch: 4 slots x 24 slices is already 96 images, and kaggle's
+# T4 has 15 GB against the 80 GB this trained on
+try:
+    pred = sc.predict_dicom(cfg, model, sub[['StudyInstanceUID']], plan,
+                            idx, files_by_series, batch_size=1)
+    assert len(pred) == len(sub), f'{len(pred)} rows for {len(sub)} studies'
+    pred[TASKS] = pred[TASKS].astype(float).fillna(0.5).clip(0, 1)
+    pred.to_csv('submission.csv', index=False)
+    print(pred[TASKS].describe().T[['mean', 'min', 'max']])
+except Exception:
+    bail('inference failed')
+pd.read_csv('submission.csv').head()''',
+
     ]
     nb = {"cells": [{"cell_type": "code", "metadata": {}, "source": c.splitlines(True),
                      "outputs": [], "execution_count": None} for c in cells],
