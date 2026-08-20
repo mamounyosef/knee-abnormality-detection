@@ -2768,34 +2768,55 @@ def build_kaggle_assets(cfg: dict, exp_dir, out_dir, checkpoint_path,
     shutil.copy(Path(__file__), out / "weights" / "shared_code.py")
     train_py = Path(exp_dir) / "train.py"
     if train_py.exists():
-        shutil.copy(train_py, out / "weights" / "model_def.py")
+        # keep only the model definition — the kaggle kernel has no yaml configs and
+        # no modal, so the module-level load_config and everything from run_local down
+        # would blow up on import
+        src = train_py.read_text(encoding="utf-8")
+        src = src.split("def run_local(")[0]
+        src = "\n".join(l for l in src.splitlines()
+                        if not l.startswith("cfg = sc.load_config("))
+        (out / "weights" / "model_def.py").write_text(src, encoding="utf-8")
 
     (out / "notebook" / "kernel-metadata.json").write_text(json.dumps({
         "id": f"{kaggle_user}/{notebook_slug}",
         "title": f"knee {exp} submit",
         "code_file": "submit.ipynb", "language": "python", "kernel_type": "notebook",
         "is_private": True, "enable_gpu": True, "enable_internet": False,
+        # the competition bans P100 (sm_60, no kernels in kaggle's torch build).
+        # this is the exact enum the server uses for "GPU T4 x2" in the UI.
+        "machine_shape": "NvidiaTeslaT4",
         "dataset_sources": [f"{kaggle_user}/{dataset_slug}"],
         "competition_sources": ["rsna-knee-abnormality-detection"],
         "kernel_sources": [],
     }, indent=2))
 
     cells = [
-        "import sys, glob\n"
-        "sys.path.insert(0, '/kaggle/input/%s')\n"
-        "import shared_code as sc, pandas as pd, torch, json\n"
-        "from pathlib import Path" % dataset_slug,
+        "import sys, glob, json\n"
+        "from pathlib import Path\n"
+        "# find the weights dataset wherever kaggle mounted it\n"
+        "hits = sorted(glob.glob('/kaggle/input/**/shared_code.py', recursive=True))\n"
+        "if not hits:\n"
+        "    raise SystemExit('shared_code.py not found. tree: '\n"
+        "                     + str(sorted(glob.glob('/kaggle/input/**/*',\n"
+        "                                            recursive=True))[:200]))\n"
+        "W = Path(hits[0]).parent\n"
+        "subs = sorted(glob.glob('/kaggle/input/**/sample_submission.csv', recursive=True))\n"
+        "if not subs:\n"
+        "    raise SystemExit('competition data not found under /kaggle/input')\n"
+        "COMP = Path(subs[0]).parent\n"
+        "print('comp dir:', COMP)\n"
+        "sys.path.insert(0, str(W))\n"
+        "print('weights dir:', W)\n"
+        "import shared_code as sc, pandas as pd, torch",
 
-        "COMP = Path('/kaggle/input/rsna-knee-abnormality-detection')\n"
-        "W    = Path('/kaggle/input/%s')\n"
         "cfg  = json.loads((W / 'config.json').read_text())\n"
         "cfg['model']['pretrained'] = False        # no internet: weights come from the ckpt\n"
         "series = pd.read_csv(COMP / 'test_series.csv')\n"
         "sub    = pd.read_csv(COMP / 'sample_submission.csv')\n"
-        "print(len(sub), 'studies to score')" % dataset_slug,
+        "print(len(sub), 'studies to score')",
 
         "# header-only scan gives the slot plan and the mm/px geometry\n"
-        "idx, files_by_series = sc.scan_dicom_index(COMP / 'test_images', series)\n"
+        "idx, files_by_series = sc.scan_dicom_index(COMP / 'test_series', series)\n"
         "plan = sc.plan_slots(idx, cfg)\n"
         "print(len(plan), 'studies planned')",
 
@@ -2806,8 +2827,10 @@ def build_kaggle_assets(cfg: dict, exp_dir, out_dir, checkpoint_path,
         "model.load_state_dict(ck['model'])\n"
         "print('loaded epoch', ck.get('epoch'), 'score', ck.get('score'))",
 
+        "# one study at a time: 4 slots x 24 slices is already 96 images per study,\n"
+        "# and kaggle's T4 has 15 GB against the 80 GB the run trained on\n"
         "pred = sc.predict_dicom(cfg, model, sub[['StudyInstanceUID']], plan,\n"
-        "                        idx, files_by_series)\n"
+        "                        idx, files_by_series, batch_size=1)\n"
         "pred.to_csv('submission.csv', index=False)\n"
         "pred.head()",
     ]
@@ -2831,12 +2854,35 @@ def build_kaggle_assets(cfg: dict, exp_dir, out_dir, checkpoint_path,
     return out
 
 
+def usable_cuda() -> bool:
+    """True only if torch actually has kernels for this GPU.
+
+    Kaggle hands out P100s (sm_60) that their own torch build can't run — without
+    this check inference dies with `no kernel image is available for execution`.
+    """
+    if not torch.cuda.is_available():
+        return False
+    try:
+        cap = "sm_%d%d" % torch.cuda.get_device_capability(0)
+        arch = torch.cuda.get_arch_list()
+        if arch and cap not in arch:
+            print(f"  ⚠️  {torch.cuda.get_device_name(0)} is {cap}, "
+                  f"torch has {arch} — falling back to CPU")
+            return False
+        torch.zeros(1, device="cuda").add_(1)       # a real launch, in case the list lies
+        return True
+    except Exception as e:
+        print(f"  ⚠️  cuda unusable ({e}) — falling back to CPU")
+        return False
+
+
 @torch.no_grad()
 def predict_dicom(cfg: dict, model, studies_df: pd.DataFrame, plan: dict,
                   index: pd.DataFrame, files_by_series: dict, device=None,
                   batch_size: int | None = None) -> pd.DataFrame:
     """Score studies straight from DICOM and return the submission frame."""
-    device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = device or torch.device("cuda" if usable_cuda() else "cpu")
+    print(f"  🖥️  inference device: {device}")
     model = model.to(device).eval()
     ds = KneeShardDataset(studies_df.assign(**{t: 0.0 for t in cfg["tasks"]}),
                           cfg, plan, train=False,
