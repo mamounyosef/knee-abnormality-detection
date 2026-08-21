@@ -1523,8 +1523,10 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     es = cfg["training"]["early_stopping"]
     best, best_epoch, bad, gstep = -math.inf, 0, 0, 0
     start_epoch, top_k_track = 1, []
-    # declared up here because the resume block below restores into it
+    # declared up here because the resume block below restores into them
     audit_best = [-math.inf, 0]   # [score, epoch] - a report only, never drives best.pt
+    audit_bad = [0]               # audit's own patience count, shown but never acted on
+    prev_eval = {}                # each set's last metrics, for the printed deltas
     ck = load_checkpoint(cfg.get("resume"), model, ckpt_dir, opt, sched, scaler,
                          device, cfg_now=cfg)
     resumed_elapsed, history, resume_skip = 0.0, [], 0
@@ -1538,6 +1540,8 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         top_k_track = tr.get("top_k", [])
         history = list(tr.get("history", []))     # so the final summary sees the whole run
         audit_best[:] = list(tr.get("audit_best", [-math.inf, 0]))
+        audit_bad[0] = int(tr.get("audit_bad", 0))
+        prev_eval.update(tr.get("prev_eval", {}))  # deltas survive a resume
         resumed_elapsed = float(ck.get("elapsed_sec") or 0.0)
         if ck.get("epoch_complete", True):
             start_epoch = ck_epoch + 1
@@ -1560,8 +1564,16 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     prev_loss = None
 
     last_val_step = -1
-    prev_eval = {}                # each set's last metrics, for the printed deltas
     score, improved = -math.inf, False
+
+    def _track():
+        """Everything a resume needs that is not weights. ONE definition: the periodic
+        step checkpoint used to write its own shorter version, so audit_best and the
+        eval deltas were lost on every hand-off (we always resume from a step*.pt)."""
+        return {"best": best, "best_epoch": best_epoch, "bad": bad,
+                "top_k": top_k_track, "history": history,
+                "audit_best": list(audit_best), "audit_bad": audit_bad[0],
+                "prev_eval": dict(prev_eval)}
 
     def _validate_and_checkpoint(epoch: int, gstep: int, tag: str = "epoch"):
         """Score val (and audit), log, checkpoint, update early stopping."""
@@ -1622,9 +1634,13 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                 a_prev = audit_best[0]
                 was = "" if a_prev == -math.inf else f"  (was {a_prev:.4f}, {a_score - a_prev:+.4f})"
                 audit_best[0], audit_best[1] = a_score, epoch
+                audit_bad[0] = 0
                 print(f"     \u2B50 new best audit_macro_auroc = {a_score:.4f}{was}")
             else:
-                print(f"     \u26A0\uFE0F  no improvement  audit_macro_auroc = {a_score:.4f}, "
+                audit_bad[0] += 1
+                # same denominator as val so the two lines read alike, but nothing
+                # ever stops on it - 58 studies are far too few to trust that way
+                print(f"     \u26A0\uFE0F  no improvement ({audit_bad[0]}/{es['patience']})  audit_macro_auroc = {a_score:.4f}, "
                       f"best {audit_best[0]:.4f} @ epoch {audit_best[1]}")
             print("     \u2139\uFE0F  report only - the panel's labels, never drives best.pt")
             row["audit_macro_auroc"] = round(am["macro_auroc"], 6)
@@ -1640,11 +1656,6 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                    gstep)
 
         done = (tag == "epoch")          # mid-epoch checkpoints must replay their epoch
-
-        def _track():
-            return {"best": best, "best_epoch": best_epoch, "bad": bad,
-                    "top_k": top_k_track, "history": history,
-                    "audit_best": list(audit_best)}
 
         # update the top-K board FIRST, so best.pt/last.pt carry the current board.
         # Saving before it left the board a step stale, and a resumed run then could
@@ -1764,9 +1775,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                 if every and gstep % every == 0:
                     save_checkpoint(ckpt_dir / f"step{gstep}.pt", cfg, model, opt, sched,
                                     scaler, epoch, gstep,
-                                    track={"best": best, "best_epoch": best_epoch,
-                                           "bad": bad, "top_k": top_k_track,
-                                           "history": history},
+                                    track=_track(),
                                     device=device, elapsed_sec=el, epoch_complete=False)
                     prune_checkpoints(ckpt_dir, cfg["output"].get("keep_last_n", 3))
                     print(f"  \U0001F4BE periodic checkpoint @ step {gstep} "
