@@ -53,7 +53,7 @@ dataloader:
                                     # same as tiny and small, so the curves still compare
   val_batch_size: 4                 # no backward pass, so no stored activations
 
-  num_workers: 24                   # Small ran data-wait 0% at 190 img/s on an A100. The
+  num_workers: 26                   # Small ran data-wait 0% at 190 img/s on an A100. The
                                     # H200 at batch 2 wants ~380 img/s sustained and
                                     # retrieval averaged ~185 between bursts, so the loader
                                     # becomes the bottleneck here unless it scales too

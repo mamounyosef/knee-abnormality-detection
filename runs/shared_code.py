@@ -3358,23 +3358,34 @@ def _wait_for_dataset(user: str, slug: str, tries: int = 20, secs: int = 30):
 
 
 def submission_message(cfg: dict, exp_dir) -> str:
-    """`<exp> | val 0.8596 | audit58 0.8597` — read off the finished run."""
+    """`<exp> | val 0.8940 | audit58 0.8901` - read off the finished run.
+
+    Both numbers come from val_log.csv, deliberately. training_summary.json used to
+    supply the val score, and it is a per-side "latest" file that the sync would leave
+    stale - which is how convnext_small_4slot went to Kaggle labelled val 0.8491 when
+    it had actually scored 0.8940. The CSV is merged across every workspace, so it is
+    the one source that is always complete.
+
+    audit58 is the panel score AT the best-val checkpoint, not the audit's own best,
+    because best.pt is the checkpoint being submitted.
+    """
     exp_dir = Path(exp_dir)
     name = cfg["experiment"]["name"]
+    res = exp_dir / cfg.get("output", {}).get("run_dir", "results")
     try:
-        summary = json.loads((exp_dir / "results" / "training_summary.json").read_text())
-        best = float(summary["best_score"])
-    except Exception:
-        return name
-    bits = [name, f"val {best:.4f}"]
-    try:
-        log = pd.read_csv(exp_dir / "results" / "val_log.csv")
+        log = pd.read_csv(res / "val_log.csv")
         row = log.loc[log["val_macro_auroc"].idxmax()]
+        bits = [name, f"val {float(row['val_macro_auroc']):.4f}"]
         if "audit_macro_auroc" in log.columns and pd.notna(row["audit_macro_auroc"]):
             bits.append(f"audit58 {float(row['audit_macro_auroc']):.4f}")
+        return " | ".join(bits)
     except Exception:
         pass
-    return " | ".join(bits)
+    try:                                    # no CSV: fall back to the summary
+        summary = json.loads((res / "training_summary.json").read_text())
+        return f"{name} | val {float(summary['best_score']):.4f}"
+    except Exception:
+        return name
 
 
 def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,

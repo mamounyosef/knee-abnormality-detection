@@ -69,6 +69,6 @@
     "kernel_version": 1,
     "submission_ref": 55674158,
     "checkpoint": "best.pt (epoch 10, step 4200, val 0.8940)",
-    "notes": "ConvNeXt-Small, 4 slots, duplicate RGB channels. Public 0.908 vs 0.859 for convnext_tiny_4slot: +0.049 from capacity alone. Graded between 17:30 and 18:25 UTC; runtime_seconds still needs the exact figure from the browser. The kaggle description reads 'val 0.8491' because training_summary.json was stale at submit time - the real val is 0.8940."
+    "notes": "ConvNeXt-Small, 4 slots, duplicate RGB channels. Public 0.908 vs 0.859 for convnext_tiny_4slot: +0.049 from capacity alone. Graded between 17:30 and 18:25 UTC; runtime_seconds still needs the exact figure from the browser. Kaggle description was corrected by hand to 'convnext_small_4slot | val 0.8940 | audit58 0.8901'; it went up reading val 0.8491 from a stale training_summary.json."
   }
 }

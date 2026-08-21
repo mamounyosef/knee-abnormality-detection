@@ -69,6 +69,6 @@
     "kernel_version": 1,
     "submission_ref": 55674096,
     "checkpoint": "best.pt (epoch 10, step 4200, val 0.8935)",
-    "notes": "Same model with slice_context: neighbours (2.5D). 0.905 vs 0.908 for the plain 4slot - 2.5D is confirmed null on the leaderboard too, matching the -0.0005 mean gap across the last 10 validations. Kept as an ensemble partner. runtime_seconds needs the browser figure."
+    "notes": "Same model with slice_context: neighbours (2.5D). 0.905 vs 0.908 for the plain 4slot - 2.5D is confirmed null on the leaderboard too, matching the -0.0005 mean gap across the last 10 validations. Kept as an ensemble partner. runtime_seconds needs the browser figure. Kaggle description corrected by hand: val 0.8935, not 0.8927."
   }
 }
