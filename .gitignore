@@ -236,3 +236,6 @@ current_modal_commands.txt
 
 debugged_images/
 runs/*/kaggle/
+
+# per-run console captures: local notes for me, never shared
+runs/*/results/train_config/

@@ -58,7 +58,11 @@ RESULTS = "results"
 # never synced: too big, or purely local bookkeeping
 # plots are drawn locally from the merged CSVs (make_plots is off on Modal), so a
 # remote plots/ is at best stale and at worst a partial curve from one workspace
-SKIP_DIRS = {"checkpoints", "plots", "__pycache__", ".run_ids", ".ipynb_checkpoints"}
+# train_config is the user's own console capture, plots are drawn locally from the
+# merged CSVs - neither belongs on a volume, and syncing them was what bred those
+# run001-ws1-ws2-ws3_... names as each hand-off re-prefixed an already-prefixed file
+SKIP_DIRS = {"checkpoints", "plots", "train_config",
+             "__pycache__", ".run_ids", ".ipynb_checkpoints"}
 # row-level merge, with the columns that identify a row
 MERGE_CSVS = {"train_log.csv": ("run_id", "global_step"),
               "val_log.csv": ("run_id", "step", "trigger")}
