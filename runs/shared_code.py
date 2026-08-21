@@ -1092,7 +1092,8 @@ def _restore_rng(st: dict, device):
 
 def save_checkpoint(path: Path, cfg, model, opt=None, sched=None, scaler=None,
                     epoch=0, step=0, score=None, track=None, device=None,
-                    weights_only=False, elapsed_sec=0.0, epoch_complete=True):
+                    weights_only=False, elapsed_sec=0.0, epoch_complete=True,
+                    saver=None):
     """Full state by default, so a run can resume exactly where it stopped.
 
     epoch_complete=False marks a checkpoint written part-way through an epoch, so
@@ -1110,10 +1111,71 @@ def save_checkpoint(path: Path, cfg, model, opt=None, sched=None, scaler=None,
             payload["scaler"] = scaler.state_dict()
         if device is not None:
             payload["rng"] = _rng_state(device)
+    if saver is not None:
+        # freeze it here, on the training thread, THEN hand it off. Serialising live
+        # tensors on a worker while the next step mutates them is the way this goes
+        # wrong; a host-RAM copy costs ~0.2s against ~10s of torch.save.
+        return saver.write(_cpu_snapshot(payload), path)
+    _write_checkpoint(payload, path)
+    return path
+
+
+def _write_checkpoint(payload: dict, path: Path) -> Path:
+    """torch.save via a temp file, so a kill mid-write cannot leave a half checkpoint."""
     tmp = path.with_suffix(".tmp")
     torch.save(payload, tmp)
     tmp.replace(path)                          # atomic: never leave a half-written ckpt
     return path
+
+
+def _cpu_snapshot(x):
+    """Deep-copy every tensor to host RAM, leaving plain python objects alone."""
+    if torch.is_tensor(x):
+        return x.detach().to("cpu", copy=True)
+    if isinstance(x, dict):
+        return {k: _cpu_snapshot(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return type(x)(_cpu_snapshot(v) for v in x)
+    return x
+
+
+class AsyncSaver:
+    """Write checkpoints on a worker thread, from a frozen CPU copy.
+
+    Base writes last.pt + best.pt + a top-k file at every validation (~2.4 GB) and a
+    1 GB periodic checkpoint every 100 steps. Inline, the GPU idles through all of it.
+
+    Only ONE write runs at a time, and starting a new one first joins the previous:
+    that keeps file operations ordered, so pruning and top-k eviction can never race
+    a write. In practice it never blocks - saves are minutes apart and take seconds.
+    """
+
+    def __init__(self, enabled: bool = True):
+        self.enabled, self.thread = bool(enabled), None
+        self.count, self.error = 0, None
+
+    def write(self, payload: dict, path: Path) -> Path:
+        if not self.enabled:
+            return _write_checkpoint(payload, path)
+        self.join()
+        import threading
+        self.thread = threading.Thread(target=self._run, args=(payload, path),
+                                       daemon=True)
+        self.thread.start()
+        return path
+
+    def _run(self, payload, path):
+        try:
+            _write_checkpoint(payload, path)
+            self.count += 1
+        except Exception as e:                 # a failed write must not kill training
+            self.error = f"{path.name}: {type(e).__name__}: {e}"
+            print(f"  ⚠️  checkpoint write failed, {self.error}")
+
+    def join(self, timeout: float = 900.0) -> None:
+        """Block until nothing is in flight. Call before touching checkpoint files."""
+        if self.thread is not None and self.thread.is_alive():
+            self.thread.join(timeout)
 
 
 def _resolve_resume(resume, ckpt_dir: Path) -> Path | None:
@@ -1203,10 +1265,12 @@ def save_predictions(pred_dir: Path, split: str, run_id: str, epoch: int, step: 
         return None
 
 
-def prune_checkpoints(ckpt_dir: Path, keep_last_n: int, keep_names=()):
+def prune_checkpoints(ckpt_dir: Path, keep_last_n: int, keep_names=(), saver=None):
     """Rolling window over the periodic step checkpoints."""
     if keep_last_n <= 0:
         return
+    if saver is not None:
+        saver.join()          # a pending write must land before we decide what to delete
     files = sorted(ckpt_dir.glob("step*.pt"), key=lambda q: q.stat().st_mtime)
     for f in files[:-keep_last_n]:
         if f.name not in keep_names:
@@ -1220,7 +1284,7 @@ def prune_checkpoints(ckpt_dir: Path, keep_last_n: int, keep_names=()):
 
 
 def update_top_k(ckpt_dir: Path, cfg, model, epoch: int, step: int, score: float,
-                 track: list, k: int, weights_only: bool = True) -> list:
+                 track: list, k: int, weights_only: bool = True, saver=None) -> list:
     """Keep the K best validations of the whole run, not just the single best.
 
     best.pt is overwritten every improvement, so every runner-up is otherwise
@@ -1235,7 +1299,9 @@ def update_top_k(ckpt_dir: Path, cfg, model, epoch: int, step: int, score: float
     keep, drop = track[:k], track[k:]
     if any(r["step"] == step for r in keep):
         save_checkpoint(ckpt_dir / f"top_step{step}.pt", cfg, model, epoch=epoch,
-                        step=step, score=score, weights_only=weights_only)
+                        step=step, score=score, weights_only=weights_only, saver=saver)
+    if drop and saver is not None:
+        saver.join()          # never unlink while a write is still in flight
     for r in drop:
         f = ckpt_dir / r["file"]
         if f.exists():
@@ -1564,6 +1630,7 @@ class AsyncPersist:
 def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None, log_fn=None):
     """Full training run: loaders, loss, optimizer, epoch loop, eval, checkpoints, logs."""
     persist = AsyncPersist(persist_fn)         # volume flushes, off the training thread
+    saver = AsyncSaver(cfg["output"].get("async_checkpoints", True))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     epochs = cfg["training"]["epochs"]
     run_id = cfg.setdefault("experiment", {}).get("run_id") or ""
@@ -1783,16 +1850,17 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         # not evict files it did not know about (keep_top_k=2 kept 3).
         top_k_track = update_top_k(ckpt_dir, cfg, model, epoch, gstep, score, top_k_track,
                                    cfg["output"].get("keep_top_k", 0),
-                                   cfg["output"].get("top_k_weights_only", True))
+                                   cfg["output"].get("top_k_weights_only", True),
+                                   saver=saver)
 
         if improved:
             save_checkpoint(ckpt_dir / cfg["output"]["best_name"], cfg, model, opt, sched,
                             scaler, epoch, gstep, score, track=_track(), device=device,
-                            elapsed_sec=el, epoch_complete=done)
+                            elapsed_sec=el, epoch_complete=done, saver=saver)
 
         save_checkpoint(ckpt_dir / "last.pt", cfg, model, opt, sched, scaler, epoch, gstep,
                         score, track=_track(), device=device,
-                        elapsed_sec=el, epoch_complete=done)
+                        elapsed_sec=el, epoch_complete=done, saver=saver)
         # raw logits for both splits, every validation. Ensembling top-K checkpoints
         # later then costs nothing: load, average, score - no model, no GPU.
         pred_dir = out / cfg["output"].get("predictions_dir", "predictions")
@@ -1914,8 +1982,10 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                     save_checkpoint(ckpt_dir / f"step{gstep}.pt", cfg, model, opt, sched,
                                     scaler, epoch, gstep,
                                     track=_track(),
-                                    device=device, elapsed_sec=el, epoch_complete=False)
-                    prune_checkpoints(ckpt_dir, cfg["output"].get("keep_last_n", 3))
+                                    device=device, elapsed_sec=el,
+                                    epoch_complete=False, saver=saver)
+                    prune_checkpoints(ckpt_dir, cfg["output"].get("keep_last_n", 3),
+                                      saver=saver)
                     print(f"  \U0001F4BE periodic checkpoint @ step {gstep} "
                           f"(rolling, keep_last_n={cfg['output'].get('keep_last_n', 3)})")
                     persist()             # flush logs to the volume too
@@ -2025,6 +2095,9 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     if cfg["output"].get("make_plots", True):
         _safe("make_plots", make_plots, cfg, out,
               cfg["output"].get("plots_dir", "plots"))
+        saver.join()                       # every checkpoint on disk before we flush
+        if saver.error:
+            print(f"  ⚠️  a checkpoint write failed: {saver.error}")
         persist(blocking=True)             # the run is over: this one has to land
         if persist.skipped:
             print(f"  ℹ️  {persist.done} volume flushes, {persist.skipped} "

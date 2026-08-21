@@ -124,6 +124,11 @@ output:
   commit_every_steps: 25            # flush logs to the Modal volume this often;
                                     # independent of validation and checkpoints
   checkpoint_every_steps: 100         # 0 = epoch-end only
+  async_checkpoints: true           # write checkpoints on a worker thread, from a
+                                    # frozen CPU copy of the tensors. Base writes
+                                    # ~2.4 GB per validation and 1 GB every 100 steps;
+                                    # inline, the GPU idles through all of it.
+                                    # false = the old synchronous behaviour
   keep_last_n: 15                    # rolling window over periodic step checkpoints
   keep_top_k: 8                     # best K validations of the whole run, for ensembling
   top_k_weights_only: true          # top-K store weights only, ~3x smaller
