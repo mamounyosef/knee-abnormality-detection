@@ -129,6 +129,11 @@ output:
   top_k_weights_only: true          # top-K store weights only, ~3x smaller
   save_debug_images: 200            # every N steps dump a batch exactly as the model sees it
   debug_dir: "debugged_images"
+  predictions_dir: "predictions"    # raw per-study logits, one .npz per validation
+                                    # per split. ~34 KB for the 704-study val set and
+                                    # 3 KB for the 58-row panel, so keeping every
+                                    # validation costs under a megabyte a run - and
+                                    # makes checkpoint ensembling a local, GPU-free job
   make_plots: false                 # NOT on Modal: the container only has its own
                                     # workspace's CSV rows, so it draws a partial curve.
                                     # Run plot_results.py locally instead - the local CSVs

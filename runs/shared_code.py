@@ -1175,6 +1175,34 @@ def load_checkpoint(resume, model, ckpt_dir: Path, opt=None, sched=None,
     return ck
 
 
+def save_predictions(pred_dir: Path, split: str, run_id: str, epoch: int, step: int,
+                     score, logits, targets, study_ids, tasks) -> Path | None:
+    """One .npz of raw per-study logits, so ensembling later needs no GPU at all.
+
+    704 studies x 12 findings of float32 is 34 KB, and the 58-row panel is 3 KB, so a
+    whole run's worth is under a megabyte - cheap enough to keep every validation
+    rather than guessing now which checkpoints we will want to combine later.
+
+    study_ids are stored because that is what makes the rows alignable: across
+    checkpoints, and across runs. Both eval loaders are shuffle=False, so row order
+    follows dataset.df, but relying on that silently would be a trap the day it changes.
+    """
+    try:
+        pred_dir.mkdir(parents=True, exist_ok=True)
+        f = pred_dir / f"{run_id}_{split}_s{step}.npz"
+        np.savez_compressed(
+            f, logits=np.asarray(logits, np.float32),
+            targets=np.asarray(targets, np.float32),
+            study_ids=np.asarray(study_ids, dtype=object),
+            tasks=np.asarray(list(tasks), dtype=object),
+            meta=np.asarray([run_id, split, str(epoch), str(step),
+                             "" if score is None else f"{score:.6f}"], dtype=object))
+        return f
+    except Exception as e:                    # bookkeeping must never kill a run
+        print(f"  ⚠️  could not save {split} predictions: {type(e).__name__}: {e}")
+        return None
+
+
 def prune_checkpoints(ckpt_dir: Path, keep_last_n: int, keep_names=()):
     """Rolling window over the periodic step checkpoints."""
     if keep_last_n <= 0:
@@ -1247,22 +1275,35 @@ def eval_interval(cfg: dict, epoch: int) -> int:
 
 
 @torch.no_grad()                                   # no gradients: eval only, saves memory
-def evaluate(model, loader, loss_fn, cfg, device) -> dict:
-    """Run the whole loader and return macro AUROC, per-label AUROC and mean loss."""
+def evaluate(model, loader, loss_fn, cfg, device, collect: dict | None = None) -> dict:
+    """Run the whole loader and return macro AUROC, per-label AUROC and mean loss.
+
+    Pass `collect` to also keep the raw per-study outputs. They are computed either
+    way - this only stops throwing them away - and they are what makes checkpoint
+    ensembling free later: averaging saved logits costs no GPU at all.
+    """
     model.eval()
-    all_predictions, all_targets, batch_losses = [], [], []
+    all_logits, all_predictions, all_targets, batch_losses = [], [], [], []
     use_amp = cfg["training"]["amp"] and device.type == "cuda"
     for images, targets in loader:
         targets = targets.to(device, non_blocking=True)
         with torch.autocast("cuda", enabled=use_amp):
             logits = model(prepare_batch(images, cfg, device))
             batch_losses.append(loss_fn(logits, targets).item())
+        lg = logits.float().cpu().numpy()
+        if collect is not None:
+            all_logits.append(lg)
         # sigmoid turns raw logits into 0-1 probabilities
         all_predictions.append(torch.sigmoid(logits.float()).cpu().numpy())
         all_targets.append(targets.cpu().numpy())
     metrics = compute_metrics(np.concatenate(all_targets), np.concatenate(all_predictions), cfg["tasks"])
     metrics["loss"] = float(np.mean(batch_losses))
     metrics["sample_count"] = int(np.concatenate(all_targets).shape[0])
+    if collect is not None:
+        # logits, not probabilities: averaging in logit space is the usual way to
+        # ensemble, and the probabilities are one sigmoid away whenever we want them
+        collect["logits"] = np.concatenate(all_logits).astype(np.float32)
+        collect["targets"] = np.concatenate(all_targets).astype(np.float32)
     return metrics
 
 
@@ -1620,12 +1661,14 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         print(f"\U0001F50E VALIDATION ({tag}) - epoch {epoch}/{epochs}  step {gstep}  "
               f"({len(loaders['val'])} batches, {len(loaders['val'].dataset)} studies) ...")
         _t = time.time()
-        vm = evaluate(model, loaders["val"], loss_fn, cfg, device)
+        _vp = {}
+        vm = evaluate(model, loaders["val"], loss_fn, cfg, device, collect=_vp)
         val_secs = time.time() - _t
         _print_eval("VAL", epoch, epochs, gstep, vm, el, eta, cfg["tasks"],
                     prev=prev_eval.get("val"), took=val_secs)
         prev_eval["val"] = dict(vm)
 
+        _ap = {}                      # stays empty when there is no audit split
         row = {"epoch": epoch, "step": gstep, "trigger": tag,
                "val_loss": round(vm["loss"], 6),
                "val_macro_auroc": round(vm["macro_auroc"], 6),
@@ -1654,7 +1697,8 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
 
         if "audit" in loaders:
             _t = time.time()
-            am = evaluate(model, loaders["audit"], loss_fn, cfg, device)
+            _ap = {}
+            am = evaluate(model, loaders["audit"], loss_fn, cfg, device, collect=_ap)
             audit_secs = time.time() - _t
             _print_eval("AUDIT-58", epoch, epochs, gstep, am, el, eta, cfg["tasks"],
                         "\U0001F9EA", prev=prev_eval.get("audit"), took=audit_secs)
@@ -1704,6 +1748,23 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         save_checkpoint(ckpt_dir / "last.pt", cfg, model, opt, sched, scaler, epoch, gstep,
                         score, track=_track(), device=device,
                         elapsed_sec=el, epoch_complete=done)
+        # raw logits for both splits, every validation. Ensembling top-K checkpoints
+        # later then costs nothing: load, average, score - no model, no GPU.
+        pred_dir = out / cfg["output"].get("predictions_dir", "predictions")
+        _saved = []
+        for _split, _pack in (("val", _vp), ("audit", _ap)):
+            _ldr = loaders.get(_split)
+            if not _pack or _ldr is None:
+                continue
+            _ids = _ldr.dataset.df["StudyInstanceUID"].tolist()
+            _f = save_predictions(pred_dir, _split, run_id, epoch, gstep, score,
+                                  _pack["logits"], _pack["targets"], _ids, cfg["tasks"])
+            if _f:
+                _saved.append(f"{_split}:{_pack['logits'].shape[0]}")
+        if _saved:
+            print("  📦 predictions saved (" + ", ".join(_saved)
+                  + f") -> {pred_dir.name}/")
+
         print(f"  \U0001F4BE saved last.pt (epoch {epoch})"
               + (f"  \U0001F3C6 top-{len(top_k_track)} kept" if top_k_track else ""))
 
