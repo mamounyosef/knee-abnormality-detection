@@ -749,8 +749,16 @@ def make_loaders(cfg: dict):
         # drop the soft ones first, or the rename makes duplicate column names.
         df = df.drop(columns=[t for t in cfg["tasks"] if t in df.columns], errors="ignore")
         df = df.rename(columns={f"official_{t}": t for t in cfg["tasks"]})
+        # 58 studies is ~15 batches, so vnw (24 here) would spawn two dozen processes
+        # for one batch each, at every validation, against the train loader's workers.
+        anw = max(0, min(vnw, 4))
         out["audit"] = DataLoader(KneeShardDataset(df, cfg, plan, False),
-                                  batch_size=vbs, shuffle=False, num_workers=vnw)
+                                  batch_size=vbs, shuffle=False, num_workers=anw,
+                                  pin_memory=dl.get("pin_memory", True),
+                                  persistent_workers=anw > 0,
+                                  worker_init_fn=seed_worker,
+                                  prefetch_factor=(dl.get("prefetch_factor", 2)
+                                                   if anw > 0 else None))
     return out
 
 
