@@ -64,9 +64,10 @@ modal:
   memory_gb: 32                     # 16 workers x prefetch 4 holding uint8 volumes
 
 # credits/preemption keep cutting this run short: session 3 stopped at 2900, session 4
-# reached 3900 before Modal preempted it. Each time the newest step checkpoint and the
-# top-k weights are copied onto the next workspace's knee-runs volume by hand, so this
-# continues rather than restarts. Now on session 6, 640 steps from the end.
-# "last" rather than a step number: session 4 was preempted, restarted on the same
-# input, re-read the number here and replayed 1000 steps it had already done.
+# reached 3900 before Modal preempted it, session 6 is now at 4300 of 4540. Checkpoints
+# were copied by hand onto each new workspace's knee-runs volume; this last stretch stays
+# on session 6, so there is nothing to move.
+# "last" rather than a step number: session 4 was preempted, restarted on the same input,
+# re-read the number here and replayed 1000 steps it had already done. Right now it
+# resolves to step4300.pt - 240 steps, ~20 min from the end.
 resume: "last"
