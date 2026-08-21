@@ -129,7 +129,10 @@ output:
   top_k_weights_only: true          # top-K store weights only, ~3x smaller
   save_debug_images: 200            # every N steps dump a batch exactly as the model sees it
   debug_dir: "debugged_images"
-  make_plots: true                  # training-curve PNGs at the end of every run
+  make_plots: false                 # NOT on Modal: the container only has its own
+                                    # workspace's CSV rows, so it draws a partial curve.
+                                    # Run plot_results.py locally instead - the local CSVs
+                                    # are the merged history across every hand-off.
   plots_dir: "plots"
   thresholds_json: "thresholds.json"   # frozen per-finding cut-offs from calibration
 

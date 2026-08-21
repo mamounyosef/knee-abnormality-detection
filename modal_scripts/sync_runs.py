@@ -56,7 +56,9 @@ VOL = "knee-runs"
 RESULTS = "results"
 
 # never synced: too big, or purely local bookkeeping
-SKIP_DIRS = {"checkpoints", "__pycache__", ".run_ids", ".ipynb_checkpoints"}
+# plots are drawn locally from the merged CSVs (make_plots is off on Modal), so a
+# remote plots/ is at best stale and at worst a partial curve from one workspace
+SKIP_DIRS = {"checkpoints", "plots", "__pycache__", ".run_ids", ".ipynb_checkpoints"}
 # row-level merge, with the columns that identify a row
 MERGE_CSVS = {"train_log.csv": ("run_id", "global_step"),
               "val_log.csv": ("run_id", "step", "trigger")}
