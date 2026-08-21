@@ -1922,6 +1922,10 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         return score
 
 
+    # images per optimizer step: studies per batch x accumulation x slots x slices.
+    # Fixed for the run, so total images is just gstep x this.
+    per_step_imgs = (train_batch_size(cfg) * accum
+                     * len(cfg["input"]["slots"]) * cfg["input"]["n_slices"])
     retr_prev = (0, 0, 0, 0.0)      # last retrieval snapshot
     for epoch in range(start_epoch, epochs + 1):
         print("\n" + "=" * 70)
@@ -1981,6 +1985,12 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                 ips = win_imgs / comp_t                      # compute-only
                 real_ips = r_i / r_w                         # incl. data wait, 20-step
                 wait_pct = 100.0 * r_d / r_w
+                # the number that actually decides what the run costs: every image
+                # since step 0 over every second since step 0. Unlike the two above it
+                # carries validation, checkpoint writes, volume commits and epoch
+                # boundaries - all the things the in-loop figures step around.
+                # gstep and elapsed both survive a resume, so it spans the whole run.
+                overall_ips = gstep * per_step_imgs / max(time.time() - t0, 1e-9)
                 mem = (torch.cuda.max_memory_allocated() / 1024**3
                        if device.type == "cuda" else 0.0)
                 el = time.time() - t0
@@ -1991,6 +2001,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                                "gnorm": round(gnorm, 4), "img_s": round(ips, 1),
                                "real_img_s": round(real_ips, 1),
                                "data_wait_pct": round(wait_pct, 1),
+                               "overall_img_s": round(overall_ips, 1),
                                "gpu_mem_gb": round(mem, 2), "elapsed_s": round(el, 1)})
                 # flushing the volume is its own concern - a crash between two
                 # validations must not cost the log rows written in between
@@ -2037,6 +2048,10 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                           f"elapsed={fmt(el)}  ETA={fmt(eta)}  gpu_mem(peak)={mem:.2f}GB")
                     print(f"     throughput: {ips:.0f} img/s compute | {real_ips:.0f} img/s real "
                           f"({len(roll)}-step) | data-wait {wait_pct:.0f}%")
+                    _eff = 100.0 * overall_ips / max(real_ips, 1e-9)
+                    print(f"     ➤ END-TO-END: {overall_ips:.0f} img/s over the whole "
+                          f"run ({_eff:.0f}% of in-loop) — {gstep * per_step_imgs / 1e6:.2f}M "
+                          f"images in {fmt(time.time() - t0)}")
                     # slices/s and MB/s off the shard volume, summed over every worker,
                     # for the window since the last print. ms/img is per-slice latency.
                     _ri, _rb, _rns = _retr_snapshot()
