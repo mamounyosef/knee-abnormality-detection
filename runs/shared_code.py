@@ -1517,8 +1517,53 @@ def _print_eval(tag: str, epoch: int, epochs: int, gstep: int, m: dict,
         print(f"        {t:18s} AUROC={au}  AUPRC={ap}  (pos={v['pos']})")
 
 
+class AsyncPersist:
+    """Flush the Modal volume off the training thread.
+
+    volume.commit() is a blocking network flush. Called inline every N steps it stalls
+    the GPU for its whole duration - visible on the Modal dashboard as utilisation
+    dropping to zero on exactly the commit period. The data is already written to the
+    container filesystem by then; commit only publishes it, so nothing is lost by
+    doing it slightly later.
+
+    One worker at a time: if a commit is still running when the next is due, skip it
+    rather than queue - the next one publishes the same files plus more. Overlapping
+    commits are also what the volume API is least happy about.
+    """
+
+    def __init__(self, fn):
+        self.fn, self.thread, self.skipped, self.done = fn, None, 0, 0
+        self.last_error = None
+
+    def __call__(self, blocking: bool = False):
+        if self.fn is None:
+            return
+        if blocking:
+            self.join()
+            self._run()
+            return
+        if self.thread is not None and self.thread.is_alive():
+            self.skipped += 1                  # a flush is already in flight
+            return
+        import threading
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.thread.start()
+
+    def _run(self):
+        try:
+            self.fn()
+            self.done += 1
+        except Exception as e:                 # a failed flush must not kill training
+            self.last_error = f"{type(e).__name__}: {e}"
+
+    def join(self, timeout: float = 300.0):
+        if self.thread is not None and self.thread.is_alive():
+            self.thread.join(timeout)
+
+
 def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None, log_fn=None):
     """Full training run: loaders, loss, optimizer, epoch loop, eval, checkpoints, logs."""
+    persist = AsyncPersist(persist_fn)         # volume flushes, off the training thread
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     epochs = cfg["training"]["epochs"]
     run_id = cfg.setdefault("experiment", {}).get("run_id") or ""
@@ -1781,8 +1826,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         summary_path.write_text(summary)
         # a per-run copy too, so the sync can carry it without clobbering the other side
         (cap_dir / f"{run_id}_summary.json").write_text(summary)
-        if persist_fn:
-            persist_fn()
+        persist()
         model.train()
         return score
 
@@ -1860,8 +1904,8 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                 # flushing the volume is its own concern - a crash between two
                 # validations must not cost the log rows written in between
                 ce = int(cfg["output"].get("commit_every_steps", 0) or 0)
-                if ce and gstep % ce == 0 and persist_fn:
-                    persist_fn()
+                if ce and gstep % ce == 0:
+                    persist()                  # async: never blocks the step loop
                 ev = eval_interval(cfg, epoch)
                 if ev and gstep % ev == 0:
                     _validate_and_checkpoint(epoch, gstep, f"every {ev} steps")
@@ -1874,8 +1918,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                     prune_checkpoints(ckpt_dir, cfg["output"].get("keep_last_n", 3))
                     print(f"  \U0001F4BE periodic checkpoint @ step {gstep} "
                           f"(rolling, keep_last_n={cfg['output'].get('keep_last_n', 3)})")
-                    if persist_fn:
-                        persist_fn()      # flush logs to the volume too
+                    persist()             # flush logs to the volume too
                 dbg = cfg["output"].get("save_debug_images", 0)
                 if dbg and (gstep % dbg == 0 or gstep == 1):
                     save_debug_batch(prepare_batch(x, cfg, device), cfg, dbg_dir,
@@ -1982,8 +2025,12 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     if cfg["output"].get("make_plots", True):
         _safe("make_plots", make_plots, cfg, out,
               cfg["output"].get("plots_dir", "plots"))
-        if persist_fn:
-            persist_fn()
+        persist(blocking=True)             # the run is over: this one has to land
+        if persist.skipped:
+            print(f"  ℹ️  {persist.done} volume flushes, {persist.skipped} "
+                  f"skipped as redundant (one was already in flight)")
+        if persist.last_error:
+            print(f"  ⚠️  last volume flush error: {persist.last_error}")
     return best
 
 
