@@ -66,5 +66,3 @@ modal:
   gpu: "A100-80GB"                  # 192 images of 512px per step needs the room
   cpu: 10.0                         # one core per dataloader worker; decoding npz is CPU-bound
   memory_gb: 32                     # 16 workers x prefetch 4 holding uint8 volumes
-
-resume: null

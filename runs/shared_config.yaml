@@ -136,4 +136,10 @@ output:
   plots_dir: "plots"
   thresholds_json: "thresholds.json"   # frozen per-finding cut-offs from calibration
 
-resume: null                        # where to continue from: null | "best" | "last" | <step> | <path>
+resume: "last"                      # where to continue from: null | "best" | "last" | <step> | <path>
+                                    # "last" = the newest checkpoint on the volume, and it is the
+                                    # default because Modal restarts a PREEMPTED container on the
+                                    # same input - a hardcoded step number makes it replay from
+                                    # there every time (GPU functions cannot opt out of preemption).
+                                    # A fresh volume has no checkpoints, so this starts from scratch.
+                                    # Watch for the "resuming from ..." banner if you meant to restart.

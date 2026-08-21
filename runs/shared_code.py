@@ -1096,11 +1096,15 @@ def _resolve_resume(resume, ckpt_dir: Path) -> Path | None:
         pth = ckpt_dir / "best.pt"
         return pth if pth.exists() else None
     if resume == "last":
-        cands = sorted(ckpt_dir.glob("step*.pt"), key=lambda q: q.stat().st_mtime)
+        # newest of ALL of them, not last.pt by preference: last.pt is only written at
+        # a validation, so it can trail the newest step*.pt by a whole eval interval.
+        # This is the preemption-safe setting - Modal restarts a preempted container on
+        # the same input, and a hardcoded step number makes it replay from there forever.
+        cands = list(ckpt_dir.glob("step*.pt"))
         pth = ckpt_dir / "last.pt"
         if pth.exists():
-            return pth
-        return cands[-1] if cands else None
+            cands.append(pth)
+        return max(cands, key=lambda q: q.stat().st_mtime) if cands else None
     if isinstance(resume, int) or str(resume).isdigit():
         pth = ckpt_dir / f"step{int(resume)}.pt"
         return pth if pth.exists() else None
