@@ -1,0 +1,351 @@
+[capture] full console of this run -> /runs/convnext_small_4slot/results/train_config/run002_2026-08-20_21-44-25.txt
+[capture] run_id: run002  workspace: local
+[capture] command: /pkg/modal/_container_entrypoint.py
+[capture] started 2026-08-20 21:44:25
+######################################################################
+# 🚀 run_experiment: convnext_small_4slot
+# 🆔 run_id=run002  workspace=local
+# 🖥️  device=cuda  epochs=10
+######################################################################
+[set_seed] seed=42  deterministic=False
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║ 🖥️ ENVIRONMENT                                                             ║
+╚════════════════════════════════════════════════════════════════════════════╝
+┌─ 📦 software────────────────────────────────────────────────────────────────┐
+│ host                  │ modal                                              │
+│ platform              │ Linux 4.19.0-gvisor                                │
+│ python                │ 3.11.12                                            │
+│ torch                 │ 2.13.0+cu130                                       │
+│ cuda (torch)          │ 13.0                                               │
+│ timm                  │ 1.0.28                                             │
+│ numpy / pandas        │ 2.4.6 / 3.0.5                                      │
+│ opencv                │ 5.0.0                                              │
+└────────────────────────────────────────────────────────────────────────────┘
+┌─ 🧮 cpu / memory────────────────────────────────────────────────────────────┐
+│ logical cores         │ 26                                                 │
+│ physical cores        │ 26                                                 │
+│ RAM total             │ 1006.8 GiB                                         │
+│ RAM available         │ 1003.0 GiB                                         │
+└────────────────────────────────────────────────────────────────────────────┘
+  🎮 gpu
+┌───┬───────────────────────┬──────────┬────────────┬─────┐
+│ # │ device                │ memory   │ capability │ SMs │
+├───┼───────────────────────┼──────────┼────────────┼─────┤
+│ 0 │ NVIDIA A100 80GB PCIe │ 79.3 GiB │ 8.0        │ 108 │
+└───┴───────────────────────┴──────────┴────────────┴─────┘
+  cudnn benchmark=True  tf32_matmul=False  tf32_cudnn=True
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║ ⚙️ CONFIGURATION                                                           ║
+╚════════════════════════════════════════════════════════════════════════════╝
+┌─ 🎯 run─────────────────────────────────────────────────────────────────────┐
+│ experiment            │ convnext_small_4slot                               │
+│ run_id                │ run002                                             │
+│ model                 │ convnext_small.fb_in22k_ft_in1k  (pretrained=True) │
+│ pooling               │ mean                                               │
+│ findings              │ 12  ACL, MCL, Medial Meniscus, Lateral Meniscus ...│
+│ resume                │ 1400                                               │
+│ seed                  │ 42  deterministic=False                            │
+└────────────────────────────────────────────────────────────────────────────┘
+┌─ 📁 paths───────────────────────────────────────────────────────────────────┐
+│ data_dir              │ /root/data                                         │
+│ shards_dir            │ /shards                                            │
+│ train csv             │ 05_train.csv                                       │
+│ val csv               │ 05_val.csv                                         │
+│ audit csv             │ 05_audit58.csv                                     │
+└────────────────────────────────────────────────────────────────────────────┘
+  🖼️ input slots
+┌───┬───────────┬──────────┬──────────────────────┐
+│ # │ slot      │ plane    │ setting              │
+├───┼───────────┼──────────┼──────────────────────┤
+│ 1 │ sag_plain │ sagittal │ plain (anatomy)      │
+│ 2 │ sag_fluid │ sagittal │ fluid (bright water) │
+│ 3 │ cor_fluid │ coronal  │ fluid (bright water) │
+│ 4 │ ax_fluid  │ axial    │ fluid (bright water) │
+└───┴───────────┴──────────┴──────────────────────┘
+┌─ 📐 geometry & intensity────────────────────────────────────────────────────┐
+│ images per study      │ 4 slots x 24 slices = 96                           │
+│ resolution            │ 512 x 512 px @ 0.4 mm/px = 205 mm field            │
+│ slice sampling        │ train=random  eval=even  margin=0.05               │
+│ missing slots         │ fallback_same_plane=True                           │
+│ duplicate rule        │ coverage                                           │
+├────────────────────────────────────────────────────────────────────────────┤
+│ window                │ volume  pct=[1.0, 99.0]                            │
+│ channels              │ 3                                                  │
+│ norm mean/std         │ [0.485, 0.456, 0.406] / [0.229, 0.224, 0.225]      │
+└────────────────────────────────────────────────────────────────────────────┘
+  🎲 augmentation (train split only)
+┌───────────────┬─────┬──────────────────┐
+│ transform     │ p   │ params           │
+├───────────────┼─────┼──────────────────┤
+│ rotation      │ 0.3 │ deg=10           │
+│ translate     │ 0.3 │ frac=0.05        │
+│ scale         │ 0.3 │ range=[0.9, 1.1] │
+│ brightness    │ 0.3 │ factor=0.15      │
+│ contrast      │ 0.3 │ factor=0.15      │
+│ hflip         │ 0.0 │ -                │
+│ slice_dropout │ 0.1 │ frac=0.1         │
+└───────────────┴─────┴──────────────────┘
+┌─ 🏋️ training───────────────────────────────────────────────────────────────┐
+│ epochs                │ 10                                                 │
+│ batch                 │ 1 studies x accum 8 = 8 studies (768 images) per...│
+│ optimizer             │ adamw  backbone lr=5.00e-05  head lr=1.00e-04  w...│
+│ scheduler             │ cosine  warmup=5%  floor=1% of base                │
+│ loss                  │ bce  pos_weight=None                               │
+│ target                │ soft  (LLM probabilities, 0.895 macro AUROC vs t...│
+│ precision             │ amp=True  channels_last=True  grad_clip=1.0        │
+│ early stopping        │ val_macro_auroc (max), patience=7                  │
+└────────────────────────────────────────────────────────────────────────────┘
+┌─ 🚚 dataloader──────────────────────────────────────────────────────────────┐
+│ num_workers           │ 16                                                 │
+│ prefetch/persist      │ 4 / True                                           │
+│ pin_memory            │ True                                               │
+│ drop_last             │ False                                              │
+└────────────────────────────────────────────────────────────────────────────┘
+┌─ 📋 evaluation & output─────────────────────────────────────────────────────┐
+│ eval cadence          │ 400 steps until epoch 4, then every 200 steps      │
+│ audit set             │ enable=True  (58 studies, report only)             │
+│ run_dir               │ results                                            │
+│ checkpoints           │ checkpoints/  best=best.pt  keep_last_n=15         │
+│ logs                  │ train_log.csv, val_log.csv, training_summary.json  │
+│ console               │ log_every=20  capture=train_config                 │
+└────────────────────────────────────────────────────────────────────────────┘
+┌─ ☁️ modal (cloud)──────────────────────────────────────────────────────────┐
+│ gpu                   │ A100-80GB                                          │
+│ cpu / memory          │ 10.0 cores / 32 GB                                 │
+│ timeout               │ 8 h                                                │
+│ shards volume         │ knee-shards -> /shards                             │
+│ runs volume           │ knee-runs -> /runs                                 │
+└────────────────────────────────────────────────────────────────────────────┘
+
+── raw merged config (verbatim) ───────────────────────────────────────────────
+paths:
+  data_dir: /root/data
+  shards_dir: /shards
+  train_csv: 05_train.csv
+  val_csv: 05_val.csv
+  audit_csv: 05_audit58.csv
+  series_index: 07_series_index.csv
+tasks:
+- ACL
+- MCL
+- Medial Meniscus
+- Lateral Meniscus
+- Medial OA
+- Lateral OA
+- PF OA
+- Effusion
+- Synovitis
+- Baker's
+- Contusion
+- Fracture
+input:
+  slots:
+  - sag_plain
+  - sag_fluid
+  - cor_fluid
+  - ax_fluid
+  fallback_same_plane: true
+  duplicate_rule: coverage
+  n_slices: 24
+  slice_margin: 0.05
+  slice_sampling: even
+  train_slice_sampling: random
+  mm_per_px: 0.4
+  size: 512
+  interpolation: area
+  window: volume
+  window_pct:
+  - 1.0
+  - 99.0
+  channels: 3
+  norm_mean:
+  - 0.485
+  - 0.456
+  - 0.406
+  norm_std:
+  - 0.229
+  - 0.224
+  - 0.225
+augmentation:
+  enable: true
+  rotation:
+    p: 0.3
+    deg: 10
+  translate:
+    p: 0.3
+    frac: 0.05
+  scale:
+    p: 0.3
+    range:
+    - 0.9
+    - 1.1
+  brightness:
+    p: 0.3
+    factor: 0.15
+  contrast:
+    p: 0.3
+    factor: 0.15
+  hflip:
+    p: 0.0
+  slice_dropout:
+    p: 0.1
+    frac: 0.1
+target:
+  mode: soft
+  hard_threshold: 0.5
+  label_smoothing: 0.0
+training:
+  amp: true
+  channels_last: true
+  perf:
+    tf32: true
+    compile: false
+    compile_mode: default
+  epochs: 10
+  grad_clip: 1.0
+  optimizer:
+    name: adamw
+    weight_decay: 0.05
+    lr: 5.0e-05
+    backbone_lr_mult: 0.5
+    layer_decay: null
+  scheduler:
+    name: cosine
+    warmup_frac: 0.05
+    min_lr_mult: 0.01
+  loss:
+    name: bce
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  early_stopping:
+    enable: true
+    monitor: val_macro_auroc
+    mode: max
+    patience: 7
+evaluation:
+  eval_every_steps_before: 400
+  eval_every_steps_after: 200
+  eval_every_steps_epoch_threshold: 4
+  eval_every_epochs: null
+  audit:
+    enable: true
+    csv: 05_audit58.csv
+reproducibility:
+  seed: 42
+  deterministic: false
+modal:
+  timeout_hours: 8
+  shards_volume: knee-shards
+  shards_mount: /shards
+  runs_volume: knee-runs
+  runs_mount: /runs
+  wandb_secret: wandb-secret
+  gpu: A100-80GB
+  cpu: 10.0
+  memory_gb: 32
+wandb:
+  enabled: false
+  project: knee-abnormality
+  log_every: 20
+output:
+  run_dir: results
+  checkpoints_dir: checkpoints
+  best_name: best.pt
+  train_log_csv: train_log.csv
+  val_log_csv: val_log.csv
+  summary_json: training_summary.json
+  console_log_every: 20
+  console_capture_dir: train_config
+  commit_every_steps: 25
+  checkpoint_every_steps: 100
+  keep_last_n: 15
+  keep_top_k: 8
+  top_k_weights_only: true
+  save_debug_images: 200
+  debug_dir: debugged_images
+  make_plots: true
+  plots_dir: plots
+  thresholds_json: thresholds.json
+resume: 1400
+experiment:
+  name: convnext_small_4slot
+  run_id: run002
+model:
+  name: convnext_small.fb_in22k_ft_in1k
+  pretrained: true
+  pool: mean
+  drop_rate: 0.1
+dataloader:
+  batch_size: 1
+  accum_steps: 8
+  val_batch_size: 2
+  num_workers: 16
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+──────────────────────────────────────────────────────────────────────────────
+[paths] results -> /runs/convnext_small_4slot/results
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║ 📦 DATA                                                                     ║
+╚════════════════════════════════════════════════════════════════════════════╝
+  📊 splits
+┌───────┬─────────┬─────────┬─────────┬───────────┐
+│ split │ studies │ batches │ images  │ labels    │
+├───────┼─────────┼─────────┼─────────┼───────────┤
+│ train │ 3,639   │ 3,639   │ 349,344 │ soft LLM  │
+│ val   │ 704     │ 352     │ 67,584  │ soft LLM  │
+│ audit │ 58      │ 29      │ 5,568   │ panel 0/1 │
+└───────┴─────────┴─────────┴─────────┴───────────┘
+  ⚖️ label balance
+┌──────────────────┬──────────────┬────────────┬────────────┬──────────┬───────────┐
+│ finding          │ train mean p │ train >0.5 │ val mean p │ val >0.5 │ audit pos │
+├──────────────────┼──────────────┼────────────┼────────────┼──────────┼───────────┤
+│ ACL              │ 0.230        │ 17.7%      │ 0.218      │ 16.2%    │ 41.4%     │
+│ MCL              │ 0.182        │ 14.4%      │ 0.175      │ 13.4%    │ 15.5%     │
+│ Medial Meniscus  │ 0.431        │ 40.0%      │ 0.398      │ 37.4%    │ 44.8%     │
+│ Lateral Meniscus │ 0.202        │ 14.6%      │ 0.198      │ 14.2%    │ 39.7%     │
+│ Medial OA        │ 0.301        │ 21.9%      │ 0.286      │ 20.6%    │ 25.9%     │
+│ Lateral OA       │ 0.225        │ 12.8%      │ 0.217      │ 12.6%    │ 19.0%     │
+│ PF OA            │ 0.332        │ 26.3%      │ 0.327      │ 27.0%    │ 36.2%     │
+│ Effusion         │ 0.586        │ 59.7%      │ 0.575      │ 59.5%    │ 60.3%     │
+│ Synovitis        │ 0.365        │ 22.0%      │ 0.357      │ 20.2%    │ 46.6%     │
+│ Baker's          │ 0.315        │ 25.2%      │ 0.306      │ 24.1%    │ 20.7%     │
+│ Contusion        │ 0.224        │ 15.5%      │ 0.207      │ 13.8%    │ 32.8%     │
+│ Fracture         │ 0.117        │ 6.9%       │ 0.111      │ 5.7%     │ 31.0%     │
+└──────────────────┴──────────────┴────────────┴────────────┴──────────┴───────────┘
+  🧩 slot coverage (after fallback)
+┌───────────┬─────────┬────────┐
+│ slot      │ studies │ %      │
+├───────────┼─────────┼────────┤
+│ sag_plain │ 4407    │ 100.0% │
+│ sag_fluid │ 4407    │ 100.0% │
+│ cor_fluid │ 4407    │ 100.0% │
+│ ax_fluid  │ 4407    │ 100.0% │
+└───────────┴─────────┴────────┘
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║ 🧠 MODEL                                                                    ║
+╚════════════════════════════════════════════════════════════════════════════╝
+┌─ 🧱 architecture────────────────────────────────────────────────────────────┐
+│ backbone              │ convnext_small.fb_in22k_ft_in1k                    │
+│ pretrained            │ True                                               │
+│ pooling               │ mean over 96 images/study                          │
+│ output logits         │ 12  (one per finding)                              │
+├────────────────────────────────────────────────────────────────────────────┤
+│ total params          │ 49,463,916  (49.46 M)                              │
+│ trainable             │ 49,463,916  (49.46 M, 100.0%)                      │
+│ frozen                │ 0  (0.00 M)                                        │
+└────────────────────────────────────────────────────────────────────────────┘
+  🧮 lr groups: backbone 49.45M @ 5.00e-05 (config lr)  |  head 0.01M @ 1.00e-04  (lr / 0.5)
+[setup] optimizer=adamw  scheduler=cosine  amp=True
+[setup] steps/epoch=454  total_steps=4540  accum=8  images/optimizer-step=768
+[setup] loss=bce  train bs=1/16w  val bs=2/16w
+  ↩️  resuming from /runs/convnext_small_4slot/results/checkpoints/step1400.pt
+  ↩️  resumed at epoch 4, step 1400, score=None

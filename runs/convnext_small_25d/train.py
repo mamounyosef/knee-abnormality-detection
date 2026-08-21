@@ -1,10 +1,10 @@
 """
-train.py — convnext_tiny_25d
+train.py — convnext_small_25d
 
 Thin entry point: load config, build the model, hand off to the engine.
 
-Local:  python runs/convnext_tiny_25d/train.py
-Modal:  modal run runs/convnext_tiny_25d/train.py
+Local:  python runs/convnext_small_25d/train.py
+Modal:  modal run runs/convnext_small_25d/train.py
 """
 
 import sys
@@ -14,7 +14,7 @@ import timm
 import torch
 import torch.nn as nn
 
-EXP_NAME = "convnext_tiny_25d"
+EXP_NAME = "convnext_small_25d"
 
 
 def _pkg_root() -> Path:

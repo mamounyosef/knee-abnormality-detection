@@ -1,16 +1,17 @@
-# Ablation: identical to convnext_tiny_4slot except each slice carries its two
-# neighbours in the RGB channels instead of three copies of itself.
-# Same compute, same memory - those channels were already there, just wasted.
+# 2.5D ablation, at Small: each slice carries its two neighbours in the RGB channels
+# instead of three copies of itself. Same compute, same memory - those channels were
+# already there, just wasted. Run at Small rather than Tiny because Small clearly beat
+# Tiny (0.891 vs 0.859), so a Tiny 2.5D result would say nothing about the real model.
 
 experiment:
-  name: "convnext_tiny_25d"
+  name: "convnext_small_25d"
 
 input:
   slice_context: "neighbours"       # duplicate = copy the slice 3x | neighbours = k-1, k, k+1
   slice_context_stride: 1           # 1 = adjacent slices; >1 widens the through-plane span
 
 model:
-  name: "convnext_tiny.fb_in22k_ft_in1k"   # timm id: ConvNeXt-Tiny pretrained on ImageNet-22k
+  name: "convnext_small.fb_in22k_ft_in1k"  # timm id: ConvNeXt-Small pretrained on ImageNet-22k
   pretrained: true
   pool: "mean"                      # how the 96 slice features collapse per study: mean | max | attn
   drop_rate: 0.1                    # dropout in the head, mild regularization
@@ -41,17 +42,19 @@ training:
     enable: true
     monitor: "val_macro_auroc"
     mode: "max"
-    patience: 3                     # epochs without improvement before quitting
+    patience: 4                     # epochs without improvement before quitting
 
 # CPU-side loading; decoding shards is the bottleneck, so keep workers busy
 dataloader:
-  batch_size: 2                     # 2 studies x 4 slots x 24 slices = 192 images @512.
-                                    # 4 studies (384 images) OOMs an 80GB A100
-  accum_steps: 4                    # effective 8 studies per update -> 455 steps/epoch,
-                                    # same as 4x2 but half the peak memory
-  val_batch_size: 4                 # no backward pass, so no stored activations -> 2x fits
+  batch_size: 1                     # 1 study x 4 slots x 24 slices = 96 images @512.
+                                    # tiny OOMed at 4 studies, and small holds ~1.8x the
+                                    # activations per image, so 2 would sit on the edge —
+                                    # an OOM three hours in costs more than this does
+  accum_steps: 8                    # effective 8 studies per update -> 455 steps/epoch,
+                                    # identical to the tiny run, so the curves compare
+  val_batch_size: 2                 # no backward pass, but small needs the headroom
 
-  num_workers: 18
+  num_workers: 16
   val_num_workers: null             # null = same as num_workers
   
   prefetch_factor: 4                # batches queued per worker
@@ -61,7 +64,7 @@ dataloader:
 
 modal:
   gpu: "A100-80GB"                  # 192 images of 512px per step needs the room
-  cpu: 14.0                         # one core per dataloader worker; decoding npz is CPU-bound
-  memory_gb: 36                     # 16 workers x prefetch 4 holding uint8 volumes
+  cpu: 10.0                         # one core per dataloader worker; decoding npz is CPU-bound
+  memory_gb: 32                     # 16 workers x prefetch 4 holding uint8 volumes
 
 resume: null

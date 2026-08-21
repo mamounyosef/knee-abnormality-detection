@@ -4,15 +4,15 @@ plot_results.py — redraw this run's plots from the CSVs, no retraining.
 Handy after a sync pulls in rows from another workspace, or after tweaking a
 plot in shared_code.py.
 
-    python runs/convnext_tiny_25d/plot_results.py
-    python runs/convnext_tiny_25d/plot_results.py --results /runs/convnext_tiny_25d/results
+    python runs/convnext_small_25d/plot_results.py
+    python runs/convnext_small_25d/plot_results.py --results /runs/convnext_small_25d/results
 """
 
 import argparse
 import sys
 from pathlib import Path
 
-EXP_NAME = "convnext_tiny_25d"
+EXP_NAME = "convnext_small_25d"
 
 
 def _pkg_root() -> Path:
