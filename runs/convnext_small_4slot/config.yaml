@@ -63,6 +63,7 @@ modal:
   cpu: 10.0                         # one core per dataloader worker; decoding npz is CPU-bound
   memory_gb: 32                     # 16 workers x prefetch 4 holding uint8 volumes
 
-# session 3 ran out of credits at epoch 7. step2900.pt + best.pt were moved by hand
-# to session 4's knee-runs volume, so this picks up where the credits stopped it.
-resume: 2900
+# credits keep running out mid-run: session 3 died at step 2900, session 4 at 3000.
+# Each time the newest step checkpoint + best.pt get copied onto the next workspace's
+# knee-runs volume by hand, so this continues rather than restarts. Now on session 6.
+resume: 3000
