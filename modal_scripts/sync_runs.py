@@ -120,6 +120,72 @@ def _modal(session: int, *args, timeout: int = 900):
         return 1, f"{type(e).__name__}: {e}"
 
 
+# the modal CLI costs ~2.4s of process startup and auth per invocation, so a 40-file
+# sync spent well over a minute doing nothing but spawning interpreters. This runs the
+# whole transfer inside ONE subprocess via the Python SDK. Still a subprocess and not an
+# import, because the workspace is chosen by MODAL_CONFIG_PATH, which modal reads once
+# at import time - we cannot switch workspaces inside this process.
+_BATCH_SRC = r"""
+import json, os, sys, pathlib
+import modal
+
+vol_name, ops = json.loads(sys.stdin.read())
+vol = modal.Volume.from_name(vol_name)
+done, failed = [], []
+
+puts = [o for o in ops if o[0] == "put"]
+if puts:
+    try:
+        with vol.batch_upload(force=True) as b:
+            for _, local, rel in puts:
+                b.put_file(local, "/" + rel)
+        done += [o[2] for o in puts]
+    except Exception as e:
+        failed += [[o[2], f"{type(e).__name__}: {e}"] for o in puts]
+
+for kind, rel, dest in [o for o in ops if o[0] == "get"]:
+    try:
+        d = pathlib.Path(dest)
+        d.parent.mkdir(parents=True, exist_ok=True)
+        tmp = d.with_suffix(d.suffix + ".part")
+        with open(tmp, "wb") as fh:
+            for chunk in vol.read_file(rel):
+                fh.write(chunk)
+        os.replace(tmp, d)
+        done.append(rel)
+    except Exception as e:
+        failed.append([rel, f"{type(e).__name__}: {e}"])
+
+print("__BATCH__" + json.dumps({"done": done, "failed": failed}))
+"""
+
+
+def batch(session: int, ops: list, vol: str = VOL, timeout: int = 3600):
+    """ops: [("put", local, rel)] and [("get", rel, dest)] -> (done, failed).
+
+    One process for the whole list instead of one per file.
+    """
+    if not ops:
+        return [], []
+    env = dict(_env(session))
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+    payload = json.dumps([vol, [list(o) for o in ops]])
+    try:
+        r = subprocess.run([sys.executable, "-c", _BATCH_SRC], input=payload, env=env,
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return [], [[o[2] if o[0] == "put" else o[1], "timeout"] for o in ops]
+    out = (r.stdout or "") + (r.stderr or "")
+    for line in out.splitlines():
+        if line.startswith("__BATCH__"):
+            d = json.loads(line[len("__BATCH__"):])
+            return d["done"], d["failed"]
+    return [], [[o[2] if o[0] == "put" else o[1], out.strip()[-200:] or "no output"]
+                for o in ops]
+
+
 def _json_list(text: str):
     i = text.find("[")
     if i < 0:
@@ -415,6 +481,7 @@ def sync_experiment(session: int, exp: str, direction="both", dry=False,
 
     print(f"\n  📁 {exp}   local {len(local)} file(s) · remote {len(remote)} file(s)")
     rows, up, down = [], 0, 0
+    ops = []                       # every transfer, sent as ONE batch at the end
 
     for name, keys in MERGE_CSVS.items():
         if name in local or name in remote:
@@ -439,17 +506,19 @@ def sync_experiment(session: int, exp: str, direction="both", dry=False,
         if in_l and direction in ("both", "up"):
             rows.append([rel, "⬆ upload", f"{local[rel]:,} B"])
             up += 1
-            if not dry:
-                rc, out = push(session, lbase / rel, f"{rbase}/{rel}", vol)
-                if rc != 0:
-                    print(f"    ⚠️  upload of {rel} failed: {out.strip()[:120]}")
+            ops.append(("put", str(lbase / rel), f"{rbase}/{rel}"))
         elif in_r and direction in ("both", "down"):
             rows.append([rel, "⬇ download", f"{remote[rel]:,} B"])
             down += 1
-            if not dry:
-                rc, out = pull(session, f"{rbase}/{rel}", lbase / rel, vol)
-                if rc != 0:
-                    print(f"    ⚠️  download of {rel} failed: {out.strip()[:120]}")
+            ops.append(("get", f"{rbase}/{rel}", str(lbase / rel)))
+
+    if ops and not dry:
+        t0 = time.time()
+        _done, _failed = batch(session, ops, vol)
+        print(f"    ⚡ {len(_done)}/{len(ops)} file(s) in one call, "
+              f"{time.time() - t0:.1f}s")
+        for _rel, _err in _failed:
+            print(f"    ⚠️  {_rel} failed: {_err[:120]}")
 
     _table(f"{exp} — {'DRY RUN, nothing written' if dry else 'done'}",
            ["file", "action", "detail"], rows, "🔄")

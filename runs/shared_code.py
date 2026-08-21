@@ -1964,7 +1964,12 @@ def modal_image():
 def modal_resources(cfg: dict) -> dict:
     """gpu/timeout always; cpu and memory only when the run config asks for them."""
     m = cfg["modal"]
-    kw = {"gpu": m["gpu"], "timeout": int(m.get("timeout_hours", 8) * 3600)}
+    kw = {"gpu": m["gpu"], "timeout": int(m.get("timeout_hours", 8) * 3600),
+          # release the GPU the moment training returns. Modal's default is 60s of
+          # idle-but-billed reservation, which we would pay for while this PC is still
+          # syncing artifacts back in the local entrypoint. One run per app here, so
+          # there is no cold start to amortise and nothing to keep warm for.
+          "scaledown_window": int(m.get("scaledown_window", 2))}
     if m.get("cpu"):
         kw["cpu"] = float(m["cpu"])              # cores, a reservation not a cap
     if m.get("memory_gb"):
