@@ -324,6 +324,36 @@ def allocate_run_id(results_dir, known=()) -> str:
             n += 1
 
 
+def hardware_info(cfg: dict) -> dict:
+    """What this run actually trained on. Asked of the driver, not the config.
+
+    The config records what we REQUESTED; a run that silently landed on a different
+    card, or fell back to CPU, would otherwise look identical in the summary. That
+    matters here because runs get handed across workspaces mid-flight.
+    """
+    m = cfg.get("modal", {}) or {}
+    dl = cfg.get("dataloader", {}) or {}
+    hw = {"gpu_requested": m.get("gpu"), "workspace": workspace_name(),
+          "cpu_requested": m.get("cpu"), "memory_gb_requested": m.get("memory_gb"),
+          "num_workers": dl.get("num_workers"),
+          "batch_size": dl.get("batch_size"), "accum_steps": dl.get("accum_steps")}
+    try:
+        hw["torch"] = torch.__version__
+        if torch.cuda.is_available():
+            props = torch.cuda.get_device_properties(0)
+            hw["gpu"] = torch.cuda.get_device_name(0)
+            hw["gpu_count"] = torch.cuda.device_count()
+            hw["gpu_memory_gb"] = round(props.total_memory / 1024**3, 1)
+            hw["gpu_capability"] = f"sm_{props.major}{props.minor}"
+            hw["cuda"] = torch.version.cuda
+            hw["gpu_peak_gb"] = round(torch.cuda.max_memory_allocated() / 1024**3, 2)
+        else:
+            hw["gpu"] = "cpu"
+    except Exception as e:                        # never let bookkeeping kill a run
+        hw["gpu"] = f"unknown ({type(e).__name__})"
+    return hw
+
+
 def workspace_name() -> str:
     """Which Modal workspace this is, from MODAL_CONFIG_PATH + modal_setup_commands.txt."""
     ws = os.environ.get("MODAL_WORKSPACE") or os.environ.get("MODAL_PROFILE")
@@ -331,7 +361,9 @@ def workspace_name() -> str:
         return ws
     m = re.search(r"modal_session(\d+)", os.environ.get("MODAL_CONFIG_PATH", ""))
     if not m:
-        return "local"
+        # MODAL_CONFIG_PATH only exists on the launching PC. Inside the container it
+        # is gone, so "local" would be exactly backwards - say so honestly instead.
+        return "modal-container" if os.environ.get("MODAL_TASK_ID") else "local"
     try:
         txt = (Path(__file__).resolve().parent.parent
                / "modal_setup_commands.txt").read_text(encoding="utf-8-sig")
@@ -1680,6 +1712,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
             "experiment": cfg["experiment"]["name"], "run_id": run_id,
             "epoch": epoch, "epochs": epochs,
             "best_score": best, "best_epoch": best_epoch, "monitor": es["monitor"],
+            "hardware": hardware_info(cfg),
             "last": row, "elapsed": fmt(time.time() - t0),
             # always last, always null until a human fills it in after submitting.
             # carried over on every rewrite so a filled-in record survives a resume.

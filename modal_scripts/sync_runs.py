@@ -471,6 +471,35 @@ def _disambiguate(rel: str, ws: str) -> str:
     return f"{head}/{leaf}" if head else leaf
 
 
+def _read_submission(path: Path):
+    """The hand-filled submission block, or None. Never raises on a bad file."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8")).get("submission")
+    except Exception:
+        return None
+
+
+def _restore_submission(path: Path, keep) -> None:
+    """Put a hand-filled submission block back after the remote summary overwrote it.
+
+    The container rewrites training_summary.json every validation and always writes
+    submission: all-nulls, because it has no idea the run was ever submitted. Only
+    this PC knows. An all-null remote block must not clobber a filled-in local one.
+    """
+    if not keep or not any(v is not None for v in keep.values()):
+        return                                   # nothing worth keeping
+    try:
+        d = json.loads(path.read_text(encoding="utf-8"))
+        fresh = d.get("submission") or {}
+        if any(v is not None for v in fresh.values()):
+            return                               # remote already has a real one
+        d["submission"] = keep                   # stays last: it is last in the template
+        path.write_text(json.dumps(d, indent=2), encoding="utf-8")
+        print(f"    📌 kept the submission record in {path.name}")
+    except Exception as e:
+        print(f"    ⚠️  could not restore the submission block: {e}")
+
+
 def sync_experiment(session: int, exp: str, direction="both", dry=False,
                     vol: str = VOL, ws: str = "") -> dict:
     lbase, rbase = RUNS_DIR / exp / RESULTS, f"{exp}/{RESULTS}"
@@ -486,6 +515,8 @@ def sync_experiment(session: int, exp: str, direction="both", dry=False,
     print(f"\n  📁 {exp}   local {len(local)} file(s) · remote {len(remote)} file(s)")
     rows, up, down = [], 0, 0
     ops = []                       # every transfer, sent as ONE batch at the end
+    merges = []                    # summaries needing their submission block restored
+    _keep = {}                     # their local submission blocks, read before overwrite
 
     for name, keys in MERGE_CSVS.items():
         if name in local or name in remote:
@@ -497,8 +528,20 @@ def sync_experiment(session: int, exp: str, direction="both", dry=False,
             continue
         in_l, in_r = rel in local, rel in remote
         if in_l and in_r:
-            if local[rel] == remote[rel] or rel in LATEST_ONLY:
-                continue                          # same file, or a per-side "latest"
+            if local[rel] == remote[rel]:
+                continue                          # identical, nothing to do
+            if rel in LATEST_ONLY:
+                # the remote is the record of the run that just executed, so its
+                # training numbers win - but the local copy carries the hand-filled
+                # submission block, which the container knows nothing about. Take
+                # the remote and graft the submission back on.
+                if direction in ("both", "down") and not dry:
+                    ops.append(("get", f"{rbase}/{rel}", str(lbase / rel)))
+                    merges.append(lbase / rel)
+                    _keep[lbase / rel] = _read_submission(lbase / rel)
+                rows.append([rel, "⬇ refresh", "remote run data + local submission"])
+                down += 1
+                continue
             # namespacing makes this impossible; if it fires, keep both copies
             dest = lbase / _disambiguate(rel, ws)
             print(f"    🚨 {rel}: both sides differ ({local[rel]} vs {remote[rel]} B) — "
@@ -523,6 +566,8 @@ def sync_experiment(session: int, exp: str, direction="both", dry=False,
               f"{time.time() - t0:.1f}s")
         for _rel, _err in _failed:
             print(f"    ⚠️  {_rel} failed: {_err[:120]}")
+        for _m in merges:
+            _restore_submission(_m, _keep.get(_m))
 
     _table(f"{exp} — {'DRY RUN, nothing written' if dry else 'done'}",
            ["file", "action", "detail"], rows, "🔄")
