@@ -2061,6 +2061,32 @@ def sync_back(cfg: dict, status: str = "", once: bool = True) -> None:
         sr.sync_session(s, cfg["experiment"]["name"])
     except Exception as e:                     # a failed sync must never mask a training error
         print(f"  ⚠️  artifact sync failed: {type(e).__name__}: {e}")
+    plot_after_run(cfg, status)                # after the sync: it needs the merged CSVs
+
+
+def plot_after_run(cfg: dict, status: str = "") -> None:
+    """Draw the training curves here on this PC, once the run has actually finished.
+
+    make_plots is off on Modal because the container only holds its own workspace's
+    CSV rows - a run handed across four workspaces would produce four partial curves.
+    By the time this runs the sync has merged every workspace's rows into the local
+    CSVs, so this is the only place the whole run can be drawn at all.
+
+    Only on "finished": a crashed or interrupted run gets picked up again later, and
+    redrawing a half-run on every hand-off is noise.
+    """
+    if status != "finished":
+        return
+    try:
+        exp = cfg["experiment"]["name"]
+        results = (Path(__file__).resolve().parent / exp
+                   / cfg["output"].get("run_dir", "results"))
+        if not (results / cfg["output"]["train_log_csv"]).exists():
+            print(f"  ⚠️  no local CSVs in {results} - skipping the plots")
+            return
+        make_plots(cfg, results, cfg["output"].get("plots_dir", "plots"))
+    except Exception as e:                     # a bad plot must never mask a finished run
+        print(f"  ⚠️  plotting failed: {type(e).__name__}: {e}")
 
 
 def sync_on_interrupt(cfg: dict) -> None:
