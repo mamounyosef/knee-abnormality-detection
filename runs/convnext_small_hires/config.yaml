@@ -1,0 +1,84 @@
+# Maximum-resolution run: 672 px at 0.31 mm/px, and 32 slices instead of 24.
+#
+# 512 px was never a detail ceiling - it was the ceiling AT 0.40 mm/px, past which
+# you only add empty margin around the knee. The way to gain real detail is to
+# shrink the spacing instead. 0.31 mm/px is the MEDIAN NATIVE spacing of the
+# series, so this is the last stop before we would be upsampling most of them.
+#
+#   512 x 0.40 = 205 mm field of view      672 x 0.31 = 208 mm
+#
+# Same anatomy in frame - crop safety is unchanged, still ~0.7% of series losing
+# anything - but 1.72x the pixels on it. Thin structures (meniscal tears, fracture
+# lines, cartilage) are the findings this should reach.
+#
+# Slices go 24 -> 32 on the same axis of reasoning: through-plane gaps are ~10x
+# coarser than in-plane, and at 24 a 2-slice lesion falls between samples in 2.6%
+# of series. Still real slices, evenly spaced, never interpolated.
+#
+# Everything else is convnext_small_4slot exactly, because this is the run that
+# decides the input geometry for EVERY run after it - including mricore_vitb and
+# anything we ensemble. Prove it once here, inherit it everywhere.
+
+experiment:
+  name: "convnext_small_hires"
+
+model:
+  name: "convnext_small.fb_in22k_ft_in1k"  # timm id: ConvNeXt-Small pretrained on ImageNet-22k
+  pretrained: true
+  pool: "mean"
+  drop_rate: 0.1
+
+input:
+  mm_per_px: 0.31                 # median native spacing - below this we upsample
+  size: 672                       # 0.31 x 672 = 208 mm, same framing as 0.40 x 512
+  n_slices: 32                    # was 24; real slices, evenly spaced, no interpolation
+
+training:
+  epochs: 10
+  grad_clip: 3.0                  # now the default for every run
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-5                    # BACKBONE lr - unchanged from convnext_small_4slot
+    backbone_lr_mult: 0.5         # head = 1.0e-4
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05
+    min_lr_mult: 0.01
+  loss:
+    name: "bce"
+    pos_weight: null              # plain BCE. auto_clamped LOST on convnext_small_posweight
+                                  # (0.8923 vs 0.8940), so it does not come along.
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 4                   # VALIDATIONS without improvement, not epochs
+
+dataloader:
+  batch_size: 1                   # 1 study x 4 slots x 32 slices = 128 images @672.
+                                  # convnext_small_4slot peaked at 46.7 GB for 96 @512;
+                                  # 1.72x the pixels and 1.33x the slices puts this near
+                                  # 107 GB of the H200's 141 GB. Tight but inside.
+  accum_steps: 8                  # effective 8 studies per update - IDENTICAL to every
+                                  # run so far, which is what keeps this comparable
+  val_batch_size: 1               # no backward pass, but 672px leaves less headroom
+  num_workers: 24                 # 672px resize is more CPU work per slice than 512
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+modal:
+  gpu: "H200"
+  cpu: 16.0
+  memory_gb: 64                   # each queued batch holds 1.33x more slices, and the
+                                  # native volumes are decoded before the resize
+  timeout_hours: 12               # ~2.3x the compute of convnext_small_4slot
+
+# fresh run - inherits resume: "last" from shared_config
