@@ -239,3 +239,6 @@ runs/*/kaggle/
 
 # per-run console captures: local notes for me, never shared
 runs/*/results/train_config/
+
+# raw per-study logits: small but numerous, and rebuilt by any run
+runs/*/results/predictions/
