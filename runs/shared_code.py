@@ -383,6 +383,91 @@ def num_output_logits(cfg: dict) -> int:
     return len(cfg["tasks"])          # one logit per label, 12
 
 
+class SlicePool(nn.Module):
+    """Collapse a study's per-slice features into ONE vector. `pool` picks how.
+
+    The 12 labels are per STUDY, but the backbone sees 96 images (4 slots x 24 slices),
+    so something has to combine them. That step is the whole architecture:
+
+      mean   plain average. A fracture on 2 of 96 slices is diluted 48x, and each slice
+             gets 1/96 of the gradient. The weakest findings are the FOCAL ones
+             (Fracture AUPRC 0.43, MCL 0.50) while diffuse ones (Effusion 0.93) do
+             fine - which is what that dilution looks like.
+      max    strongest slice wins. Undoes the dilution, but one slice decides.
+      attn   learned weight per slice, softmaxed (attention-MIL, Ilse et al. 2018).
+             Permutation-invariant: it can weight slice 40 highly but cannot know it
+             sits between 39 and 41.
+      transformer  self-attention over all 96, with slice-position AND slot-type
+             embeddings. The only option where a slice on one view can look at a slice
+             on ANOTHER - a meniscus tear corroborated on sagittal and coronal, say.
+             Our 4-slot input creates that opportunity; a single-volume model has no
+             such thing, which is why the RSNA competition solutions (CNN + GRU over
+             slices) never needed it.
+
+    `out_dim` is what the classifier head should take - the transformer pools in its
+    own d_model, everything else in the backbone's width.
+    """
+
+    def __init__(self, cfg: dict, feat: int):
+        super().__init__()
+        m = cfg["model"]
+        self.kind = m.get("pool", "mean")
+        self.n_slots = len(cfg["input"]["slots"])
+        self.n_slices = int(cfg["input"]["n_slices"])
+        self.out_dim = feat
+
+        if self.kind == "attn":
+            self.pool_attn = nn.Sequential(nn.Linear(feat, 128), nn.Tanh(),
+                                           nn.Linear(128, 1))
+        elif self.kind == "transformer":
+            t = m.get("pool_transformer", {}) or {}
+            d = int(t.get("d_model", 448))
+            heads = int(t.get("n_heads", 7))
+            if d % heads:
+                raise ValueError(f"d_model {d} must divide by n_heads {heads}")
+            layers = int(t.get("n_layers", 1))
+            ratio = float(t.get("ffn_ratio", 2))
+            drop = float(t.get("dropout", 0.1))
+            # project first: attention costs scale with d^2, and 768 would make this
+            # block a large fraction of a model that has already shown it gains
+            # nothing from capacity (Base: +0.0008 for 38M params)
+            self.proj = nn.Linear(feat, d)
+            # slice index is anatomically meaningful WITHIN a series; which slot a
+            # slice came from is meaningful too. Both are learned, not sinusoidal -
+            # there are only 24 and 4 of them.
+            self.pos_slice = nn.Parameter(torch.zeros(1, self.n_slices, d))
+            self.pos_slot = nn.Parameter(torch.zeros(1, self.n_slots, d))
+            nn.init.trunc_normal_(self.pos_slice, std=0.02)
+            nn.init.trunc_normal_(self.pos_slot, std=0.02)
+            enc = nn.TransformerEncoderLayer(
+                d_model=d, nhead=heads, dim_feedforward=int(d * ratio),
+                dropout=drop, batch_first=True, norm_first=True, activation="gelu")
+            # enable_nested_tensor is a no-op under norm_first and only warns
+            self.encoder = nn.TransformerEncoder(enc, num_layers=layers,
+                                                 enable_nested_tensor=False)
+            self.norm = nn.LayerNorm(d)
+            self.score = nn.Linear(d, 1)      # attention pool over the 96 outputs
+            self.out_dim = d
+        elif self.kind not in ("mean", "max"):
+            raise ValueError(f"unknown pool {self.kind!r}")
+
+    def forward(self, f):                     # f: (B, slots*slices, F)
+        if self.kind == "max":
+            return f.max(dim=1).values
+        if self.kind == "attn":
+            w = torch.softmax(self.pool_attn(f), dim=1)
+            return (f * w).sum(dim=1)
+        if self.kind == "transformer":
+            b, n, _ = f.shape
+            x = self.proj(f).view(b, self.n_slots, self.n_slices, -1)
+            x = x + self.pos_slice[:, None, :, :] + self.pos_slot[:, :, None, :]
+            x = self.encoder(x.reshape(b, n, -1))
+            x = self.norm(x)
+            w = torch.softmax(self.score(x), dim=1)
+            return (x * w).sum(dim=1)
+        return f.mean(dim=1)                  # mean
+
+
 def resolve(name: str, cfg: dict) -> Path:
     """Bare filename -> data_dir/<name>; absolute paths pass through."""
     p = Path(name)
