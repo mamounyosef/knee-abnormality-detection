@@ -11,16 +11,16 @@
 # anything - but 1.72x the pixels on it. Thin structures (meniscal tears, fracture
 # lines, cartilage) are the findings this should reach.
 #
-# Slices go 24 -> 32 on the same axis of reasoning: through-plane gaps are ~10x
+# Slices go 24 -> 28 on the same axis of reasoning: through-plane gaps are ~10x
 # coarser than in-plane, and at 24 a 2-slice lesion falls between samples in 2.6%
-# of series. Still real slices, evenly spaced, never interpolated.
+# of series. 28 is the stop, not 32 - see the n_slices comment below.
 #
 # Everything else is convnext_small_4slot exactly, because this is the run that
 # decides the input geometry for EVERY run after it - including mricore_vitb and
 # anything we ensemble. Prove it once here, inherit it everywhere.
 
 experiment:
-  name: "convnext_small_672px_32slices"
+  name: "convnext_small_672px_28slices"
 
 model:
   name: "convnext_small.fb_in22k_ft_in1k"  # timm id: ConvNeXt-Small pretrained on ImageNet-22k
@@ -31,7 +31,11 @@ model:
 input:
   mm_per_px: 0.31                 # median native spacing - below this we upsample
   size: 672                       # 0.31 x 672 = 208 mm, same framing as 0.40 x 512
-  n_slices: 32                    # was 24; real slices, evenly spaced, no interpolation
+  n_slices: 28                    # was 24. NOT higher: pick_slices repeats indices when a
+                                  # stack is too short rather than interpolating fake slices,
+                                  # and the stacks are shallow - median 30 real slices. At 28
+                                  # that repeat hits 42% of series, at 32 it hits 74.6%, so 32
+                                  # would buy duplicated images for 1.33x the compute.
 
 training:
   epochs: 10
@@ -60,10 +64,10 @@ training:
     patience: 4                   # VALIDATIONS without improvement, not epochs
 
 dataloader:
-  batch_size: 1                   # 1 study x 4 slots x 32 slices = 128 images @672.
+  batch_size: 1                   # 1 study x 4 slots x 28 slices = 112 images @672.
                                   # convnext_small_4slot peaked at 46.7 GB for 96 @512;
-                                  # 1.72x the pixels and 1.33x the slices puts this near
-                                  # 107 GB of the H200's 141 GB. Tight but inside.
+                                  # 1.72x the pixels and 1.17x the slices puts this near
+                                  # 94 GB of the H200's 141 GB.
   accum_steps: 8                  # effective 8 studies per update - IDENTICAL to every
                                   # run so far, which is what keeps this comparable
   val_batch_size: 1               # no backward pass, but 672px leaves less headroom
@@ -79,6 +83,6 @@ modal:
   cpu: 16.0
   memory_gb: 64                   # each queued batch holds 1.33x more slices, and the
                                   # native volumes are decoded before the resize
-  timeout_hours: 12               # ~2.3x the compute of convnext_small_4slot
+  timeout_hours: 12               # ~2.0x the compute of convnext_small_4slot
 
 # fresh run - inherits resume: "last" from shared_config
