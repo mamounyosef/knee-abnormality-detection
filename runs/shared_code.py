@@ -465,14 +465,21 @@ class SlicePool(nn.Module):
             w = torch.softmax(self.pool_attn(f), dim=1)
             return (f * w).sum(dim=1)
         if self.kind == "transformer":
-            b, n, _ = f.shape
-            x = self.proj(f).view(b, self.n_slots, self.n_slices, -1)
-            # broadcast the two embeddings into all 96 (slot, slice) positions
+            # shapes for the default 4 slots x 24 slices, d_model 448:
+            b, n, _ = f.shape                        # f:  (B, 96, 768)
+            x = self.proj(f)                         #     (B, 96, 448)
+            x = x.view(b, self.n_slots, self.n_slices, -1)   # (B, 4, 24, 448)
+            # (1,1,24,448) + (1,4,1,448) broadcast to all 96 (slot, slice) positions
             x = x + self.pos_slice[:, None, :, :] + self.pos_slot[:, :, None, :]
-            x = self.encoder(x.reshape(b, n, -1))    # every slice sees all 95 others
-            x = self.norm(x)                         # the pre-LN final norm, not a skip
-            w = torch.softmax(self.score(x), dim=1)  # how much each slice matters
-            return (x * w).sum(dim=1)                # -> one vector per study
+            x = x.reshape(b, n, -1)                  #     (B, 96, 448)  96 tokens
+            x = self.encoder(x)                      #     (B, 96, 448)  each sees all 95
+            x = self.norm(x)                         #     (B, 96, 448)  pre-LN final norm
+            # weighted average over the 96 slices: score each one, softmax the scores
+            # into weights summing to 1, blend. Same as mean pooling except the
+            # weights are learned instead of all being 1/96.
+            slice_scores = self.score(x)             #     (B, 96, 1)  "how much does
+            slice_w = torch.softmax(slice_scores, 1) #     (B, 96, 1)   this slice matter"
+            return (x * slice_w).sum(dim=1)          # ->  (B, 448)    one per study
         return f.mean(dim=1)                  # mean
 
 
@@ -524,7 +531,14 @@ def plan_slots(index: pd.DataFrame, cfg: dict) -> dict[str, dict[str, str]]:
                 cand = g[g.plane == PLANE_OF[slot]]      # same plane, either setting
             if cand.empty:
                 continue                                 # slot stays empty -> zeros at load time
-            chosen[slot] = cand.sort_values(sort_by, ascending=asc).iloc[0]["series"]
+            ranked = cand.sort_values(sort_by, ascending=asc)
+            # slot_variant > 0 takes the 2nd/3rd/... best candidate instead of the
+            # winner. Only used for test-time augmentation: 38% of studies have a
+            # slot with several series and we normally discard all but one, so this
+            # is a second look at the SAME knee through different images. Clamped, so
+            # a slot with one candidate simply keeps it.
+            k = min(int(cfg["input"].get("slot_variant", 0)), len(ranked) - 1)
+            chosen[slot] = ranked.iloc[k]["series"]
         plan[study] = chosen
     return plan
 

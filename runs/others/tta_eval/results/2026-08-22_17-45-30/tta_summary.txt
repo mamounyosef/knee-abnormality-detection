@@ -1,0 +1,52 @@
+==============================================================================
+DUPLICATE-SERIES TTA  —  convnext_small_4slot  —  checkpoint best
+variants: (0, 1, 2)
+==============================================================================
+
+[val]  n=704
+  no TTA (variant 0) : 0.8940
+  TTA average             : 0.8914  (-0.0025)
+  per variant:
+     variant 0: 0.8940
+     variant 1: 0.8885
+     variant 2: 0.8884
+  by group (TTA can only change studies with a duplicated slot):
+     duplicated     n= 268  0.9028 -> 0.8963  (-0.0065)
+     single-series  n= 436  0.8862 -> 0.8861  (-0.0000)
+  per finding (TTA):
+     ACL                0.9101
+     MCL                0.8525
+     Medial Meniscus    0.9315
+     Lateral Meniscus   0.8955
+     Medial OA          0.9055
+     Lateral OA         0.8960
+     PF OA              0.8551
+     Effusion           0.8908
+     Synovitis          0.8500
+     Baker's            0.9179
+     Contusion          0.8842
+     Fracture           0.9078
+
+[audit]  n=58
+  no TTA (variant 0) : 0.8901
+  TTA average             : 0.8913  (+0.0011)
+  per variant:
+     variant 0: 0.8901
+     variant 1: 0.8893
+     variant 2: 0.8901
+  by group (TTA can only change studies with a duplicated slot):
+     duplicated     n=  25  0.8766 -> 0.8938  (+0.0172)
+     single-series  n=  33  0.9023 -> 0.9023  (+0.0000)
+  per finding (TTA):
+     ACL                0.9547
+     MCL                0.8118
+     Medial Meniscus    0.9603
+     Lateral Meniscus   0.8360
+     Medial OA          0.9519
+     Lateral OA         0.8375
+     PF OA              0.8481
+     Effusion           0.9180
+     Synovitis          0.7885
+     Baker's            0.9547
+     Contusion          0.9460
+     Fracture           0.8875
