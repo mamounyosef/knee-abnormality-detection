@@ -1,0 +1,82 @@
+# Class-imbalance ablation. Identical to convnext_small_4slot except pos_weight.
+#
+# The weak findings are exactly the rare ones - Fracture AUPRC 0.44 at 11.7% mean
+# prevalence, MCL 0.50 at 18.2%, against Effusion 0.93 at 58.6%. Under plain BCE the
+# rare positives barely register, so most of the loss is minimised by predicting
+# "absent" well. Macro AUROC weights all 12 findings equally, so lifting the weak
+# four is worth more than polishing Effusion.
+#
+# Capacity is exhausted (Tiny->Small +0.034, Small->Base +0.0008), 5 slots and 2.5D
+# were null, and duplicate-series TTA measured NEGATIVE (-0.0025). The loss is one of
+# the few levers left that has never been touched.
+
+experiment:
+  name: "convnext_small_posweight"
+
+model:
+  name: "convnext_small.fb_in22k_ft_in1k"  # timm id: ConvNeXt-Small pretrained on ImageNet-22k
+  pretrained: true
+  pool: "mean"                      # how the 96 slice features collapse per study: mean | max | attn
+  drop_rate: 0.1                    # dropout in the head, mild regularization
+
+training:
+  epochs: 10
+  grad_clip: 1.0                    # cap gradient size so one bad batch can't blow up training
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-5                      # BACKBONE lr — the trunk is 99.9% of the weights
+    backbone_lr_mult: 0.5           # head = lr / 0.5 = 1.0e-4, twice the trunk. Knee MRI
+                                    # is far from ImageNet, so the trunk needs real adaptation
+    layer_decay: null               # layer-wise lr decay, e.g. 0.75: each layer down gets 75%
+                                    # of the one above. Replaces backbone_lr_mult when set.
+  scheduler:
+    name: "cosine"                  # learning rate warms up, then decays along a cosine curve
+    warmup_frac: 0.05
+    min_lr_mult: 0.01               # floor: ends at 1% of the base learning rate
+  loss:
+    name: "bce"                     # bce = binary cross-entropy | focal = focuses on hard cases
+                                    # aucm = pairwise surrogate for AUROC, the actual metric
+    pos_weight: "auto_clamped"      # per-finding (1-prev)/prev, floored at 1.0.
+                                    # Targets are soft LLM probabilities, so prev is a
+                                    # mean probability: Fracture 7.6x, MCL 4.5x, down to
+                                    # 1.0. Plain "auto" would put Effusion at 0.71x, and
+                                    # Effusion is our STRONGEST finding (AUROC 0.89) -
+                                    # nothing to gain, something to lose. The floor keeps
+                                    # this a one-directional change.
+    focal_gamma: 2.0
+    aucm_margin: 1.0                # how far apart aucm pushes a positive from a negative
+    aucm_bce_mix: 0.1               # bit of bce mixed in, keeps the probabilities sane
+  early_stopping:                   # stop once val stops improving, saves GPU hours
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 4                     # VALIDATIONS without improvement, not epochs.
+                                    # With eval_every_steps that is several per
+                                    # epoch; the counter is only CHECKED at an
+                                    # epoch boundary.
+
+# CPU-side loading; decoding shards is the bottleneck, so keep workers busy
+dataloader:
+  batch_size: 1                     # 1 study x 4 slots x 24 slices = 96 images @512.
+                                    # tiny OOMed at 4 studies, and small holds ~1.8x the
+                                    # activations per image, so 2 would sit on the edge —
+                                    # an OOM three hours in costs more than this does
+  accum_steps: 8                    # effective 8 studies per update -> 455 steps/epoch,
+                                    # identical to the tiny run, so the curves compare
+  val_batch_size: 2                 # no backward pass, but small needs the headroom
+
+  num_workers: 16
+  val_num_workers: null             # null = same as num_workers
+  
+  prefetch_factor: 4                # batches queued per worker
+  pin_memory: true                  # page-locked memory, faster CPU -> GPU copies
+  persistent_workers: true          # don't respawn workers every epoch
+  drop_last: false                  # keep the ragged final batch
+
+modal:
+  gpu: "A100-80GB"                  # 192 images of 512px per step needs the room
+  cpu: 10.0                         # one core per dataloader worker; decoding npz is CPU-bound
+  memory_gb: 32                     # 16 workers x prefetch 4 holding uint8 volumes
+
+# fresh run - inherits resume: "last" from shared_config

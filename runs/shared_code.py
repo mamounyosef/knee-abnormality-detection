@@ -1030,10 +1030,18 @@ def build_loss(cfg: dict, train_df: pd.DataFrame | None, device) -> nn.Module:
     """Plain or focal binary cross-entropy, optionally re-weighted for rare labels."""
     lc = cfg["training"]["loss"]
     pw = None
-    if lc.get("pos_weight") == "auto" and train_df is not None:
-        # rare labels get a bigger weight so they aren't drowned out by the common ones
+    if lc.get("pos_weight") in ("auto", "auto_clamped") and train_df is not None:
+        # rare labels get a bigger weight so they aren't drowned out by the common ones.
+        # Targets are soft LLM probabilities, so "prevalence" is a mean probability, not
+        # a positive count - which is why Fracture lands at 7.6x rather than ~16x.
         prev = train_df[cfg["tasks"]].mean().values
-        pw = torch.tensor((1 - prev) / np.maximum(prev, 1e-3), dtype=torch.float32, device=device)
+        w = (1 - prev) / np.maximum(prev, 1e-3)
+        if lc["pos_weight"] == "auto_clamped":
+            # floor at 1.0: boost the rare findings, but never DOWN-weight a common one.
+            # Only Effusion is above 50% prevalence, and it is our strongest finding
+            # (AUROC 0.89) - nothing to gain there and something to lose.
+            w = np.maximum(w, 1.0)
+        pw = torch.tensor(w, dtype=torch.float32, device=device)
     if lc["name"] == "focal":
         return FocalBCE(lc.get("focal_gamma", 2.0), pw).to(device)
     if lc["name"] == "aucm":
