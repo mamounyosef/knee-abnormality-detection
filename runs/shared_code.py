@@ -432,9 +432,12 @@ class SlicePool(nn.Module):
             # block a large fraction of a model that has already shown it gains
             # nothing from capacity (Base: +0.0008 for 38M params)
             self.proj = nn.Linear(feat, d)
-            # slice index is anatomically meaningful WITHIN a series; which slot a
-            # slice came from is meaningful too. Both are learned, not sinusoidal -
-            # there are only 24 and 4 of them.
+            # position here is a PAIR, (slot, slice), so the embedding is factorised
+            # rather than one flat table of 96. Flat would make the model relearn
+            # "5th slice through the knee" separately for each of the 4 views; this
+            # way the slice meaning is shared across slots and the view identity is
+            # shared across slices - 28 vectors instead of 96. Learned, not
+            # sinusoidal: there are only 24 and 4 of them.
             self.pos_slice = nn.Parameter(torch.zeros(1, self.n_slices, d))
             self.pos_slot = nn.Parameter(torch.zeros(1, self.n_slots, d))
             nn.init.trunc_normal_(self.pos_slice, std=0.02)
@@ -445,6 +448,10 @@ class SlicePool(nn.Module):
             # enable_nested_tensor is a no-op under norm_first and only warns
             self.encoder = nn.TransformerEncoder(enc, num_layers=layers,
                                                  enable_nested_tensor=False)
+            # norm_first=True is PRE-LN: each sublayer normalises its INPUT, so the
+            # encoder's output never passes through a final norm. This is that norm.
+            # (The residual/skip connections are inside TransformerEncoderLayer -
+            # there are none at this level.)
             self.norm = nn.LayerNorm(d)
             self.score = nn.Linear(d, 1)      # attention pool over the 96 outputs
             self.out_dim = d
@@ -460,11 +467,12 @@ class SlicePool(nn.Module):
         if self.kind == "transformer":
             b, n, _ = f.shape
             x = self.proj(f).view(b, self.n_slots, self.n_slices, -1)
+            # broadcast the two embeddings into all 96 (slot, slice) positions
             x = x + self.pos_slice[:, None, :, :] + self.pos_slot[:, :, None, :]
-            x = self.encoder(x.reshape(b, n, -1))
-            x = self.norm(x)
-            w = torch.softmax(self.score(x), dim=1)
-            return (x * w).sum(dim=1)
+            x = self.encoder(x.reshape(b, n, -1))    # every slice sees all 95 others
+            x = self.norm(x)                         # the pre-LN final norm, not a skip
+            w = torch.softmax(self.score(x), dim=1)  # how much each slice matters
+            return (x * w).sum(dim=1)                # -> one vector per study
         return f.mean(dim=1)                  # mean
 
 
