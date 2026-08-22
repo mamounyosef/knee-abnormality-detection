@@ -2333,7 +2333,7 @@ def modal_image():
             # only the small split CSVs travel in the image; stats/ alone is 824 MB of
             # local analysis output the container never opens
             .add_local_dir(str(Path(__file__).parent.parent / "data"), "/root/data",
-                           ignore=["shards", "raw", "backups", "stats", "sample_dicoms",
+                           ignore=["shards", "raw", "backups", "stats", "sample_dicoms", "pretrained",
                                    "*.jsonl", "*.parquet"]))
 
 

@@ -242,3 +242,6 @@ runs/*/results/train_config/
 
 # raw per-study logits: small but numerous, and rebuilt by any run
 runs/*/results/predictions/
+
+# 435 MB MRI-CORE checkpoint - lives on the Modal volume, not in git
+data/pretrained/

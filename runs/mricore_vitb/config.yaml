@@ -1,0 +1,87 @@
+# Pretraining ablation: MRI-CORE ViT-B/16 instead of ImageNet ConvNeXt-Small.
+#
+# Every backbone we have tried was pretrained on natural web photos. MRI-CORE was
+# self-supervised (DINO) on 6M MRI SLICES from 110k volumes across 18 body regions
+# (Duke-110K) - same modality, same 2D-slice framing as our pipeline. Apache-2.0,
+# no gating. It is the only downloadable checkpoint that saw MRI during pretraining
+# on an architecture worth using.
+#
+# NOTE: the repo README describes a SAM-style 1024px encoder; the checkpoint on the
+# Drive link is actually a plain DINO ViT-B/16 @224 (cls_token + pos_embed 1x197x768).
+# It maps onto timm vit_base_patch16 with zero missing/unexpected keys once the
+# position embedding is resampled 14x14 -> 32x32 for our 512px input.
+#
+# Two things change at once here - pretraining AND architecture (ConvNeXt -> ViT) -
+# because there is no MRI-pretrained ConvNeXt in existence. If this wins, we cannot
+# say which half did it; that is the price of the only in-domain option available.
+
+experiment:
+  name: "mricore_vitb"
+
+model:
+  name: "vit_base_patch16_224"      # timm skeleton; the weights below overwrite it entirely
+  pretrained: false                 # never fetch ImageNet weights - we load MRI-CORE instead
+  weights: "MRI_CORE_vitb.pth"      # looked up on the runs volume first, then data/pretrained/
+  pool: "mean"                      # unchanged from the baseline, so pooling is not a variable
+  drop_rate: 0.1
+  drop_path_rate: 0.1               # stochastic depth - ViTs overfit small data without it
+  grad_checkpointing: true          # recompute activations in the backward pass. ViT-B at 512
+                                    # is 1024 tokens x 96 images per study; without this the
+                                    # activations do not fit even on a 141GB H200.
+
+input:
+  # MRI-CORE was trained on slices min-max normalized to [0,1], NOT ImageNet statistics.
+  # Feeding it ImageNet-standardised input would shift every activation off distribution.
+  norm_mean: [0.0, 0.0, 0.0]
+  norm_std:  [1.0, 1.0, 1.0]
+
+training:
+  epochs: 10
+  grad_clip: 3.0
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 3.0e-5                      # BACKBONE lr. Lower than the ConvNeXt runs' 5e-5: ViTs are
+                                    # less stable early, and this trunk is already in-domain,
+                                    # so it needs less moving than an ImageNet one did.
+    backbone_lr_mult: 0.5           # head = 6e-5
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.10               # doubled from 0.05 - ViT training is famously fragile in
+                                    # the first few hundred steps
+    min_lr_mult: 0.01
+  loss:
+    name: "bce"
+    pos_weight: "auto_clamped"      # carried over from convnext_small_posweight
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 4                     # VALIDATIONS without improvement, not epochs
+
+dataloader:
+  batch_size: 1                     # 1 study x 4 slots x 24 slices = 96 images @512 = 1024
+                                    # tokens each. ViT-B here is ~2.5x the FLOPs of
+                                    # ConvNeXt-Small, so halve the studies per forward pass.
+  accum_steps: 8                    # effective 8 studies per update - IDENTICAL to every
+                                    # ConvNeXt run, which keeps the comparison honest
+  val_batch_size: 2
+  num_workers: 24
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+modal:
+  gpu: "H200"
+  cpu: 16.0
+  memory_gb: 56
+  timeout_hours: 10                 # ViT-B at 512 is slower per step than ConvNeXt-Small;
+                                    # 8h was already close for the baseline
+
+# fresh run - inherits resume: "last" from shared_config
