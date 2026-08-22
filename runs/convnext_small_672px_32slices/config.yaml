@@ -20,7 +20,7 @@
 # anything we ensemble. Prove it once here, inherit it everywhere.
 
 experiment:
-  name: "convnext_small_hires"
+  name: "convnext_small_672px_32slices"
 
 model:
   name: "convnext_small.fb_in22k_ft_in1k"  # timm id: ConvNeXt-Small pretrained on ImageNet-22k
