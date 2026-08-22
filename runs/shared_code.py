@@ -1886,6 +1886,9 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
 
     last_val_step = -1
     score, improved = -math.inf, False
+    stop_now = [False]            # raised the moment patience runs out, so the step
+                                  # loop can stop AT 4/4 rather than carrying on to
+                                  # 5/4 or 6/4 and only checking at the epoch boundary
 
     def _track():
         """Everything a resume needs that is not weights. ONE definition: the periodic
@@ -1940,6 +1943,8 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
             print(f"     ⭐ new best {es['monitor']} = {score:.4f}{was} -> best.pt")
         else:
             bad += 1
+            if es["enable"] and bad >= es["patience"]:
+                stop_now[0] = True     # stop right here, not at the next epoch end
             print(f"     ⚠️  no improvement ({bad}/{es['patience']})  "
                   f"{es['monitor']} = {score:.4f}, best {best:.4f} @ epoch {best_epoch}")
 
@@ -2126,6 +2131,8 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                 ev = eval_interval(cfg, epoch)
                 if ev and gstep % ev == 0:
                     _validate_and_checkpoint(epoch, gstep, f"every {ev} steps")
+                    if stop_now[0]:
+                        break             # stop AT patience, not at the next epoch end
                 every = cfg["output"].get("checkpoint_every_steps", 0)
                 if every and gstep % every == 0:
                     save_checkpoint(ckpt_dir / f"step{gstep}.pt", cfg, model, opt, sched,
@@ -2195,9 +2202,9 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         if ee and epoch % ee == 0:
             _validate_and_checkpoint(epoch, gstep, "epoch")
 
-        if es["enable"] and bad >= es["patience"]:
+        if stop_now[0] or (es["enable"] and bad >= es["patience"]):
             print(f"\n🛑 early stop: {bad} validations without improvement "
-                  f"(patience={es['patience']}, checked at each epoch end)")
+                  f"(patience={es['patience']})")
             break
 
     if last_val_step != gstep:
