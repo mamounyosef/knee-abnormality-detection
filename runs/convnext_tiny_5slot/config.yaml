@@ -42,7 +42,10 @@ training:
     enable: true
     monitor: "val_macro_auroc"
     mode: "max"
-    patience: 7                     # epochs without improvement before quitting
+    patience: 7                     # VALIDATIONS without improvement, not epochs.
+                                    # With eval_every_steps that is several per
+                                    # epoch; the counter is only CHECKED at an
+                                    # epoch boundary.
 
 # CPU-side loading; decoding shards is the bottleneck, so keep workers busy
 dataloader:

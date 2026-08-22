@@ -2081,7 +2081,8 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
             _validate_and_checkpoint(epoch, gstep, "epoch")
 
         if es["enable"] and bad >= es["patience"]:
-            print(f"\n\U0001F6D1 early stop: no improvement for {bad} epochs")
+            print(f"\n🛑 early stop: {bad} validations without improvement "
+                  f"(patience={es['patience']}, checked at each epoch end)")
             break
 
     if last_val_step != gstep:
