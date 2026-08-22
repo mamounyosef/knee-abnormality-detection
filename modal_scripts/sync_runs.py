@@ -58,11 +58,14 @@ RESULTS = "results"
 # never synced: too big, or purely local bookkeeping
 # plots are drawn locally from the merged CSVs (make_plots is off on Modal), so a
 # remote plots/ is at best stale and at worst a partial curve from one workspace
-# train_config is the user's own console capture, plots are drawn locally from the
-# merged CSVs - neither belongs on a volume, and syncing them was what bred those
-# run001-ws1-ws2-ws3_... names as each hand-off re-prefixed an already-prefixed file
-SKIP_DIRS = {"checkpoints", "plots", "train_config",
-             "__pycache__", ".run_ids", ".ipynb_checkpoints"}
+# plots are drawn locally from the merged CSVs, so a remote plots/ is at best stale
+SKIP_DIRS = {"checkpoints", "plots", "__pycache__", ".run_ids", ".ipynb_checkpoints"}
+# Come home, but never go back up. The console capture is APPENDED to as a run
+# proceeds, so every workspace holds a different-length copy of the same file and the
+# sync flags it as a conflict; pushing the disambiguated copy back up then made it a
+# new file to be disambiguated again, which is how one run reached 18 filenames.
+# Download-only breaks that loop and still brings the captures to this PC.
+DOWNLOAD_ONLY = {"train_config", "debugged_images", "predictions"}
 # row-level merge, with the columns that identify a row
 MERGE_CSVS = {"train_log.csv": ("run_id", "global_step"),
               "val_log.csv": ("run_id", "step", "trigger")}
@@ -527,6 +530,16 @@ def sync_experiment(session: int, exp: str, direction="both", dry=False,
         if rel in MERGE_CSVS:
             continue
         in_l, in_r = rel in local, rel in remote
+        top = rel.split("/")[0]
+        if top in DOWNLOAD_ONLY:
+            # before the conflict branch on purpose: these ALWAYS differ (the capture
+            # is appended to as the run proceeds), and "keep both under a new name"
+            # is what bred the run001-ws1-ws2-ws3_... explosion.
+            if in_r and direction in ("both", "down") and not in_l:
+                rows.append([rel, "⬇ download", f"{remote[rel]:,} B"])
+                down += 1
+                ops.append(("get", f"{rbase}/{rel}", str(lbase / rel)))
+            continue
         if in_l and in_r:
             if local[rel] == remote[rel]:
                 continue                          # identical, nothing to do

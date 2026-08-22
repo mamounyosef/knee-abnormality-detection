@@ -21,7 +21,12 @@ model:
 
 training:
   epochs: 10
-  grad_clip: 1.0                    # cap gradient size so one bad batch can't blow up training
+  grad_clip: 3.0                    # was 1.0, which fired on 32% of steps
+                                    # (median gnorm 0.90, p99 3.29) - a brake on the
+                                    # biggest-gradient updates, which are typically
+                                    # the batches holding the rare findings. 3.0 sits
+                                    # just under p99: outliers only. Now the default
+                                    # for every run.
   optimizer:
     name: "adamw"
     weight_decay: 0.05
@@ -58,25 +63,30 @@ training:
 
 # CPU-side loading; decoding shards is the bottleneck, so keep workers busy
 dataloader:
-  batch_size: 1                     # 1 study x 4 slots x 24 slices = 96 images @512.
-                                    # tiny OOMed at 4 studies, and small holds ~1.8x the
-                                    # activations per image, so 2 would sit on the edge —
-                                    # an OOM three hours in costs more than this does
-  accum_steps: 8                    # effective 8 studies per update -> 455 steps/epoch,
-                                    # identical to the tiny run, so the curves compare
-  val_batch_size: 2                 # no backward pass, but small needs the headroom
+  batch_size: 2                     # 2 studies x 4 slots x 24 slices = 192 images @512.
+                                    # Small peaked at 46.7GB for 96 on an A100, so ~95GB
+                                    # of the H200's 141GB. The pooling block is 2M params
+                                    # and 96 tokens of attention - negligible next to that.
+  accum_steps: 4                    # effective 8 studies per update -> 455 steps/epoch,
+                                    # IDENTICAL to convnext_small_4slot. Splitting the same
+                                    # effective batch differently is numerically ~neutral
+                                    # (LayerNorm, so no batch-statistics coupling), which is
+                                    # what keeps the pooling comparison clean.
+  val_batch_size: 4                 # no backward pass, so no stored activations
 
-  num_workers: 16
+  num_workers: 24                   # the H200 is ~1.7x the A100, so the loader has to keep
+                                    # up: Base needed 24 to hold data-wait at 0% here
   val_num_workers: null             # null = same as num_workers
-  
+
   prefetch_factor: 4                # batches queued per worker
   pin_memory: true                  # page-locked memory, faster CPU -> GPU copies
   persistent_workers: true          # don't respawn workers every epoch
   drop_last: false                  # keep the ragged final batch
 
 modal:
-  gpu: "A100-80GB"                  # 192 images of 512px per step needs the room
-  cpu: 10.0                         # one core per dataloader worker; decoding npz is CPU-bound
-  memory_gb: 32                     # 16 workers x prefetch 4 holding uint8 volumes
+  gpu: "H200"                       # ~6h on an A100, ~3.5h here for about the same money
+  cpu: 16.0                         # one core per dataloader worker; decoding npz is CPU-bound
+  memory_gb: 56                     # 24 workers x prefetch 4, and batch 2 doubles the bytes
+                                    # each queued batch holds
 
 # fresh run - inherits resume: "last" from shared_config
