@@ -2868,8 +2868,12 @@ def _eval_df(cfg: dict, csv_name: str) -> pd.DataFrame:
 def _predict_dataframe(cfg: dict, model, df: pd.DataFrame, device, loss_fn=None,
                        plan: dict | None = None, batch_size: int | None = None,
                        num_workers: int | None = None, amp: bool | None = None,
-                       desc: str = "") -> tuple:
-    """Score one dataframe with the eval transforms. -> (y_true, y_prob, mean_loss)."""
+                       desc: str = "", collect: dict | None = None) -> tuple:
+    """Score one dataframe with the eval transforms. -> (y_true, y_prob, mean_loss).
+
+    Pass `collect` to also keep the raw logits. They are computed either way - this
+    only stops throwing them away - and they are what ensemble.py reads as a member.
+    """
     if plan is None:
         plan = plan_slots(pd.read_csv(resolve(cfg["paths"]["series_index"], cfg)), cfg)
     vbs, vnw = val_loader_settings(cfg)
@@ -2895,6 +2899,8 @@ def _predict_dataframe(cfg: dict, model, df: pd.DataFrame, device, loss_fn=None,
             if loss_fn is not None:
                 losses.append(float(loss_fn(logits, y)) * y.shape[0])
         P.append(torch.sigmoid(logits.float()).cpu().numpy()); Y.append(y.cpu().numpy())
+        if collect is not None:
+            collect.setdefault("_lg", []).append(logits.float().cpu().numpy())
         seen += y.shape[0]
         now = time.time()
         if now - last >= 5.0 or bi == len(loader):     # throttled progress line
@@ -3162,9 +3168,23 @@ def evaluate_official(cfg: dict, model, experiment_dir, device=None,
             print(f"  ⚠️  CSV not found - skipping {label}")
             continue
         df = _eval_df(cfg, csv_name)
+        _pk = {}
         y_true, y_prob, loss = _predict_dataframe(cfg, model, df, device, loss_fn,
-                                                  desc=f"eval/{label}", **kw)
+                                                  desc=f"eval/{label}", collect=_pk, **kw)
         ids = df.get("StudyInstanceUID", pd.Series(range(len(df)))).astype(str).values
+
+        # the same .npz a training-time validation writes, so a run that finished
+        # BEFORE prediction-saving existed can still be made into an ensemble member
+        # without retraining it - re-scoring one checkpoint is minutes, not hours
+        if y_true is not None and _pk.get("_lg"):
+            _rid = ((ck.get("cfg", {}).get("experiment", {}) or {}).get("run_id")
+                    or cfg.get("experiment", {}).get("run_id") or "eval")
+            _f = save_predictions(res / cfg["output"].get("predictions_dir", "predictions"),
+                                  label, str(_rid), ck.get("epoch"), ck.get("step"),
+                                  ck.get("score"), np.concatenate(_pk["_lg"]),
+                                  y_true, ids, tasks)
+            if _f:
+                print(f"  💾 {_f}")
         pred = pd.DataFrame(y_prob, columns=[f"p_{t}" for t in tasks])
         pred.insert(0, "StudyInstanceUID", ids)
         pred_path = res / f"{label}_predictions.csv"

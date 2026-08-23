@@ -47,16 +47,27 @@ def _run(cfg, exp_dir, args):
         if thr.exists():
             thr.unlink()
             print(f"  🔄 removed {thr.name}, recalibrating")
-    return sc.evaluate_official(cfg, build_model(cfg), exp_dir, device=device,
-                                checkpoint=args.checkpoint, eval_sets=tuple(args.sets),
-                                calibrate_if_missing=True, batch_size=args.batch_size,
-                                num_workers=args.num_workers, amp=args.amp)
+    # --checkpoint takes a comma-separated list: one container, one data load, several
+    # checkpoints. Scoring top1..top5 as five invocations would pay container startup
+    # and shard warm-up five times over.
+    model = build_model(cfg)
+    out = {}
+    cks = [c for c in str(args.checkpoint).split(",") if c]
+    for i, ck in enumerate(cks, 1):
+        if len(cks) > 1:
+            print("#" * 70)
+            print(f"# checkpoint {i}/{len(cks)}: {ck}")
+        out[ck] = sc.evaluate_official(cfg, model, exp_dir, device=device,
+                                       checkpoint=ck, eval_sets=tuple(args.sets),
+                                       calibrate_if_missing=True, batch_size=args.batch_size,
+                                       num_workers=args.num_workers, amp=args.amp)
+    return out if len(cks) > 1 else out[cks[0]]
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--checkpoint", default="best",
-                    help="best | last | top1..topK | <step> | path to a .pt")
+                    help="best | last | top1..topK | <step> | path, or a comma-separated list")
     ap.add_argument("--sets", nargs="*", default=["val", "audit"],
                     help="'val', 'audit', or a path to any split CSV")
     ap.add_argument("--recalibrate", action="store_true",

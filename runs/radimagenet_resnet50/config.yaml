@@ -65,7 +65,10 @@ dataloader:
                                     # Measured 0.23 GB/image, so ~87 GB of the H200's 141.
   accum_steps: 2                    # effective 8 studies per update - IDENTICAL to every
                                     # other run, which is what keeps the comparison honest
-  val_batch_size: 8
+  val_batch_size: 16                # measured 0.030 GB/image at inference (7.5x cheaper
+                                    # than training, nothing is stored for backward), so
+                                    # 1,536 images is ~47 GB - and it fits inside blocks the
+                                    # allocator already holds from the training step
   num_workers: 24
   val_num_workers: null
   prefetch_factor: 4
