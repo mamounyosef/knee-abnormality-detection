@@ -32,9 +32,12 @@ BEST_METRIC     = "weighted_mean_auroc"   # what ranks a search run; "oof_mean_a
 # ("run", 3200)             -> its step-3200 validation
 # [("r", 3200), ("r", 4000)] -> LIST = sub-ensemble, averaged first, ONE vote above
 FULL_MODELS = [
+    "convnext_small_4slot",
+    "convnext_base_4slot",
+    "convnext_small_posweight",
     "mricore_vitb",
 ]
-AUTO_TOP_N      = 10           # expand a bare run name into its N best validations
+AUTO_TOP_N      = 1            # expand a bare run name into its N best validations
 AUTO_MIN_GAP    = 400          # min steps between them, so they aren't near-duplicates
 
 # --- WEIGHTS = "search" only -----------------------------------------------
