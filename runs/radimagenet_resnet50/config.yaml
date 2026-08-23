@@ -53,8 +53,18 @@ training:
     monitor: "val_macro_auroc"
     mode: "max"
     patience: 4                     # VALIDATIONS without improvement, not epochs
+  # It ended still climbing: best score on the very LAST step of epoch 10/10, early
+  # stopping never fired. Same signature mricore_vitb had, where 6 more epochs on a
+  # fresh cosine bought +0.0036 and turned it into the best ensemble member.
   extend:
-    enable: false                   # only if it ends still climbing, as mricore_vitb did
+    enable: true
+    epochs: 6                       # epochs 11-16
+    lr: 7.0e-6                      # new PEAK. The old cosine ended at 1% of 5e-5 = 5e-7,
+                                    # so a plain resume would train on nothing. Well under
+                                    # the original peak: this is a nudge, not a restart.
+    warmup_frac: 0.03               # ~82 steps of re-warm after sitting at 5e-7
+    reset_optimizer: false          # keep the AdamW moments
+    reset_patience: true            # the extension gets its own 4 validations
 
 dataloader:
   # NOTE: ResNet-50 uses BATCH NORM, unlike every other run here (ConvNeXt and ViT are
