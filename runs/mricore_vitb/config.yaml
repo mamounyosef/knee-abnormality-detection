@@ -66,11 +66,11 @@ training:
   extend:
     enable: true
     epochs: 6                       # epochs 11-16, ~2730 more steps
-    lr: 4.0e-5                      # new PEAK. The old cosine ended at 1% of 3e-5 = 3e-7,
+    lr: 9.0e-6                      # new PEAK. The old cosine ended at 1% of 3e-5 = 3e-7,
                                     # which is why a plain resume would do nothing. Slightly
                                     # above the original peak because the run was clearly
                                     # undertrained, not because it was diverging.
-    warmup_frac: 0.02               # ~55 steps of re-warm, so the jump back up to 4e-5
+    warmup_frac: 0.03               # ~55 steps of re-warm, so the jump back up to 4e-5
                                     # does not shock weights that have been at 3e-7
     reset_optimizer: false          # keep the moments - they are well-conditioned by now
     reset_patience: true            # the extension gets its own 4 validations of rope

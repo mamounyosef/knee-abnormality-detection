@@ -1848,6 +1848,8 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     audit_best = [-math.inf, 0]   # [score, epoch] - a report only, never drives best.pt
     audit_bad = [0]               # audit's own patience count, shown but never acted on
     prev_eval = {}                # each set's last metrics, for the printed deltas
+    ext_state = {}                # the extension in progress, so a CRASH mid-extension
+                                  # resumes the SAME one instead of starting another
     ck = load_checkpoint(cfg.get("resume"), model, ckpt_dir, opt, sched, scaler,
                          device, cfg_now=cfg)
     resumed_elapsed, history, resume_skip = 0.0, [], 0
@@ -1863,6 +1865,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         audit_best[:] = list(tr.get("audit_best", [-math.inf, 0]))
         audit_bad[0] = int(tr.get("audit_bad", 0))
         prev_eval.update(tr.get("prev_eval", {}))  # deltas survive a resume
+        ext_state.update(tr.get("extend", {}) or {})
         resumed_elapsed = float(ck.get("elapsed_sec") or 0.0)
         if ck.get("epoch_complete", True):
             start_epoch = ck_epoch + 1
@@ -1895,10 +1898,27 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         extra = int(ext.get("epochs") or 0)
         if extra < 1:
             raise ValueError("training.extend.enable is set but extend.epochs < 1")
+
+        # An extension that is ALREADY under way must not start a second one. Without
+        # this, a crash at epoch 13 of an 11->16 extension would resume, read epoch 13
+        # as the new baseline, and extend to 19 - on a fresh lr curve back at its peak,
+        # every time it crashed. The extension's identity is stored in the checkpoint,
+        # so `continuing` means "carry the SAME curve on from where it stopped".
+        continuing = bool(ext_state)
+        if continuing:
+            base_epoch = int(ext_state["base_epoch"])
+            extra = int(ext_state["epochs"])          # the config cannot move the goalposts
+        else:
+            base_epoch = int(ck.get("epoch") or 0)
+        epochs = base_epoch + extra           # keep epoch numbering continuous in the logs
+        ext_start = base_epoch * steps_per_epoch      # first step OF the extension
         done_epochs = int(ck.get("epoch") or 0)
-        epochs = done_epochs + extra          # keep epoch numbering continuous in the logs
         start_epoch = done_epochs + 1
         resume_skip = 0                       # the last epoch finished; start a clean one
+        if not ck.get("epoch_complete", True):
+            # crashed mid-epoch: fall back on the same skip the normal resume path uses
+            start_epoch = done_epochs
+            resume_skip = max(0, gstep - (done_epochs - 1) * steps_per_epoch) * accum
 
         ecfg = json.loads(json.dumps(cfg))    # private copy - only the schedule differs
         if ext.get("warmup_frac") is not None:
@@ -1906,7 +1926,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         ext_total = steps_per_epoch * extra
 
         base_lr = float(cfg["training"]["optimizer"]["lr"])
-        new_lr = ext.get("lr")
+        new_lr = ext_state.get("lr") if continuing else ext.get("lr")
         if new_lr:
             # scale every group by the same ratio, so whatever split build_optimizer
             # made (backbone_lr_mult, layer_decay) survives untouched
@@ -1919,16 +1939,24 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         # fresh LambdaLR: last_epoch back to -1, so the new cosine starts at its peak
         sched = build_scheduler(opt, ecfg, ext_total)
         warm = warmup_steps(ecfg, ext_total)
-        total = gstep + ext_total             # keeps ETA and the "x of total" prints honest
-        if ext.get("reset_patience", True):
-            bad, audit_bad[0] = 0, 0
+        into = max(0, gstep - ext_start)      # steps already spent inside the extension
+        for _ in range(into):
+            sched.step()                      # fast-forward onto the SAME point of the curve
+        total = ext_start + ext_total         # keeps ETA and the "x of total" prints honest
+        if ext.get("reset_patience", True) and not continuing:
+            bad, audit_bad[0] = 0, 0          # only once, at the start of the extension
+        ext_state.update({"base_epoch": base_epoch, "epochs": extra, "lr": new_lr})
 
         _lrs = ", ".join(f"{g['lr']:.2e}" for g in opt.param_groups)
         _pat = "reset to 0" if ext.get("reset_patience", True) else f"kept at {bad}"
         _opt = "RESET" if ext.get("reset_optimizer") else "moments kept"
         _wf = ecfg["training"]["scheduler"].get("warmup_frac", 0.05)
-        _banner("EXTENDING A FINISHED RUN", "🔁")
+        _banner("CONTINUING AN EXTENSION" if continuing else "EXTENDING A FINISHED RUN",
+                "🔁")
         print(f"  from       : epoch {done_epochs}, step {gstep}, best {best:.4f}")
+        if continuing:
+            print(f"  ↩️  already {into}/{ext_total} steps into the extension that "
+                  f"started at epoch {base_epoch} - same curve, NOT a new one")
         print(f"  adding     : {extra} epochs = {ext_total} steps "
               f"(epochs {start_epoch}-{epochs}, steps {gstep + 1}-{total})")
         print(f"  peak lr    : {_lrs}   (base was {base_lr:.2e}"
@@ -1954,7 +1982,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         return {"best": best, "best_epoch": best_epoch, "bad": bad,
                 "top_k": top_k_track, "history": history,
                 "audit_best": list(audit_best), "audit_bad": audit_bad[0],
-                "prev_eval": dict(prev_eval)}
+                "prev_eval": dict(prev_eval), "extend": dict(ext_state)}
 
     def _validate_and_checkpoint(epoch: int, gstep: int, tag: str = "epoch"):
         """Score val (and audit), log, checkpoint, update early stopping."""
