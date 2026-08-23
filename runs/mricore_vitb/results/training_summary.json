@@ -76,15 +76,15 @@
   },
   "elapsed": "4h10m06s",
   "submission": {
-    "submitted": null,
-    "public_score": null,
+    "submitted": "2026-08-23 16:27:39",
+    "public_score": 0.896,
     "private_score": null,
     "runtime_seconds": null,
     "runtime": null,
-    "kernel": null,
-    "kernel_version": null,
-    "submission_ref": null,
-    "checkpoint": null,
-    "notes": null
+    "kernel": "mamounhussam/knee-mricore-vitb-submit",
+    "kernel_version": 2,
+    "submission_ref": 55719764,
+    "checkpoint": "best.pt (epoch 16, step 7000, val 0.885002)",
+    "notes": "0.896 against the convnext_small_4slot baseline's 0.908. The 0.012 LB gap tracks the 0.009 val gap, so the hidden set ranks these the same way our split does. First attempt failed in the kernel with FileNotFoundError on MRI_CORE_vitb.pth - build_kaggle_assets was shipping config.json with model.weights still set, though the trunk is already inside model.pt; the bail() guard meant no submission was consumed. Value here is as an ensemble member, not standalone: it is the only different architecture we have."
   }
 }

@@ -1,0 +1,164 @@
+{
+  "generated": "2026-08-23T20:36:14",
+  "set": "audit",
+  "n_images": 58,
+  "members": [
+    "convnext_small_4slot",
+    "convnext_small_25d"
+  ],
+  "groups": {},
+  "blend": "prob-average",
+  "combine_space": "logit",
+  "weights_source": null,
+  "class_weights": null,
+  "thresholds_source": "convnext_small_4slot/results/thresholds.json (local)",
+  "thresholds": {
+    "ACL": 0.39758747816085815,
+    "MCL": 0.23581156134605408,
+    "Medial Meniscus": 0.48025012016296387,
+    "Lateral Meniscus": 0.3705669641494751,
+    "Medial OA": 0.452808141708374,
+    "Lateral OA": 0.3767377734184265,
+    "PF OA": 0.3376401364803314,
+    "Effusion": 0.3559987246990204,
+    "Synovitis": 0.5392561554908752,
+    "Baker's": 0.355774849653244,
+    "Contusion": 0.4162032902240753,
+    "Fracture": 0.3004375696182251
+  },
+  "ensemble_mean_auroc": 0.891008051687105,
+  "cross_split": {
+    "set": "val",
+    "n": 704,
+    "ensemble_mean_auroc": 0.896144299900972,
+    "best_member_mean_auroc": 0.8939529083373993,
+    "per_class_auroc": {
+      "ACL": 0.9169640202200415,
+      "MCL": 0.8611702127659574,
+      "Medial Meniscus": 0.9358181802505539,
+      "Lateral Meniscus": 0.9043791390728476,
+      "Medial OA": 0.9095984208253656,
+      "Lateral OA": 0.9056819219877592,
+      "PF OA": 0.857398115912349,
+      "Effusion": 0.8943851274965456,
+      "Synovitis": 0.8525951080146359,
+      "Baker's": 0.9210013218770654,
+      "Contusion": 0.8893748195451688,
+      "Fracture": 0.9053652108433734
+    }
+  },
+  "ensemble_macro": {
+    "mean_auroc": 0.891008051687105,
+    "mean_auprc": 0.8218247012903671,
+    "mean_f1": 0.7224334600760455,
+    "mean_precision": 0.6643356643356644,
+    "mean_recall": 0.7916666666666666,
+    "mean_specificity": 0.7894736842105263,
+    "f1": 0.7224334600760455,
+    "precision": 0.6643356643356644,
+    "recall": 0.7916666666666666,
+    "specificity": 0.7894736842105263
+  },
+  "ensemble_per_class": {
+    "ACL": {
+      "auroc": 0.9424019607843137,
+      "auprc": 0.9272630512839911,
+      "f1": 0.8799999999999999,
+      "precision": 0.8461538461538461,
+      "recall": 0.9166666666666666,
+      "specificity": 0.8823529411764706
+    },
+    "MCL": {
+      "auroc": 0.8208616780045351,
+      "auprc": 0.48533068238950594,
+      "f1": 0.42105263157894735,
+      "precision": 0.27586206896551724,
+      "recall": 0.8888888888888888,
+      "specificity": 0.5714285714285714
+    },
+    "Medial Meniscus": {
+      "auroc": 0.9591346153846154,
+      "auprc": 0.9434724244284867,
+      "f1": 0.9019607843137256,
+      "precision": 0.92,
+      "recall": 0.8846153846153846,
+      "specificity": 0.9375
+    },
+    "Lateral Meniscus": {
+      "auroc": 0.8260869565217391,
+      "auprc": 0.8051480832334774,
+      "f1": 0.6521739130434783,
+      "precision": 0.6521739130434783,
+      "recall": 0.6521739130434783,
+      "specificity": 0.7714285714285715
+    },
+    "Medial OA": {
+      "auroc": 0.9627906976744186,
+      "auprc": 0.9112131495955025,
+      "f1": 0.8000000000000002,
+      "precision": 0.8,
+      "recall": 0.8,
+      "specificity": 0.9302325581395349
+    },
+    "Lateral OA": {
+      "auroc": 0.8143133462282399,
+      "auprc": 0.7030730297678899,
+      "f1": 0.5384615384615385,
+      "precision": 0.4666666666666667,
+      "recall": 0.6363636363636364,
+      "specificity": 0.8297872340425532
+    },
+    "PF OA": {
+      "auroc": 0.8712998712998713,
+      "auprc": 0.8428484397142457,
+      "f1": 0.6976744186046512,
+      "precision": 0.6818181818181818,
+      "recall": 0.7142857142857143,
+      "specificity": 0.8108108108108109
+    },
+    "Effusion": {
+      "auroc": 0.9130434782608695,
+      "auprc": 0.945689098698366,
+      "f1": 0.7777777777777778,
+      "precision": 0.6363636363636364,
+      "recall": 1.0,
+      "specificity": 0.13043478260869565
+    },
+    "Synovitis": {
+      "auroc": 0.7765830346475509,
+      "auprc": 0.7580719761159862,
+      "f1": 0.5833333333333334,
+      "precision": 0.6666666666666666,
+      "recall": 0.5185185185185185,
+      "specificity": 0.7741935483870968
+    },
+    "Baker's": {
+      "auroc": 0.963768115942029,
+      "auprc": 0.8785203222703223,
+      "f1": 0.7586206896551724,
+      "precision": 0.6470588235294118,
+      "recall": 0.9166666666666666,
+      "specificity": 0.8695652173913043
+    },
+    "Contusion": {
+      "auroc": 0.9473684210526316,
+      "auprc": 0.8926849228026512,
+      "f1": 0.8444444444444443,
+      "precision": 0.7307692307692307,
+      "recall": 1.0,
+      "specificity": 0.8205128205128205
+    },
+    "Fracture": {
+      "auroc": 0.8944444444444444,
+      "auprc": 0.7685812351839819,
+      "f1": 0.6,
+      "precision": 0.75,
+      "recall": 0.5,
+      "specificity": 0.925
+    }
+  },
+  "per_member_mean_auroc": {
+    "convnext_small_4slot": 0.890146787191263,
+    "convnext_small_25d": 0.8865157464690049
+  }
+}
