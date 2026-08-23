@@ -77,6 +77,23 @@ training:
     compile: false                  # torch.compile: faster steps, slow first epoch
     compile_mode: "default"
 
+  # Continue a run that FINISHED but was still improving, on a fresh lr curve.
+  # A plain `resume` restores the exhausted cosine (lr sits at 1% of base), so it
+  # would carry on training at effectively nothing. This keeps the weights and the
+  # AdamW moments and starts a NEW cosine over the extra epochs instead - far
+  # cheaper than retraining from scratch to test a longer schedule.
+  # Set enable: true in a RUN's config, run it again, and it picks up from `resume`.
+  extend:
+    enable: false                   # off everywhere by default
+    epochs: 5                       # extra epochs ON TOP of what the checkpoint did
+    lr: null                        # new PEAK lr; null = reuse training.optimizer.lr.
+                                    # Every param group is scaled by the same ratio, so
+                                    # backbone_lr_mult / layer_decay splits survive.
+    warmup_frac: 0.02               # short re-warm, so the lr jump does not shock the
+                                    # weights; null = keep the run's own warmup_frac
+    reset_optimizer: false          # false = keep the AdamW moments (usually right)
+    reset_patience: true            # start early stopping fresh for the extension
+
 evaluation:
   # validation cadence is driven by the GLOBAL STEP, not the epoch. The epoch only
   # picks which interval applies - early epochs move fast and are not worth scoring

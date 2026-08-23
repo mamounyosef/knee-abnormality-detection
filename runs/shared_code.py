@@ -1879,6 +1879,63 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         print(f"  ↩️  restored: best={best:.4f} @ epoch {best_epoch}  "
               f"patience={bad}/{es['patience']}  top_k={len(top_k_track)}  "
               f"elapsed={fmt(resumed_elapsed)}")
+
+    # ---- extend: carry a FINISHED run on under a fresh lr curve ---------------
+    # A plain resume restores the cosine schedule the checkpoint stopped under. Once
+    # that schedule has run to its end the lr sits at min_lr_mult (1% of base), so
+    # "resume" would technically continue and effectively train on nothing. `extend`
+    # keeps the weights and the AdamW moments but hands the optimizer a NEW cosine
+    # over the extra epochs, at a new peak lr - the cheap way to give a run that was
+    # still improving at its last step more room, without paying for it from scratch.
+    ext = cfg["training"].get("extend") or {}
+    if ext.get("enable"):
+        if not ck:
+            raise RuntimeError("training.extend.enable is set but no checkpoint was "
+                               "loaded - there is nothing to extend. Check `resume`.")
+        extra = int(ext.get("epochs") or 0)
+        if extra < 1:
+            raise ValueError("training.extend.enable is set but extend.epochs < 1")
+        done_epochs = int(ck.get("epoch") or 0)
+        epochs = done_epochs + extra          # keep epoch numbering continuous in the logs
+        start_epoch = done_epochs + 1
+        resume_skip = 0                       # the last epoch finished; start a clean one
+
+        ecfg = json.loads(json.dumps(cfg))    # private copy - only the schedule differs
+        if ext.get("warmup_frac") is not None:
+            ecfg["training"]["scheduler"]["warmup_frac"] = float(ext["warmup_frac"])
+        ext_total = steps_per_epoch * extra
+
+        base_lr = float(cfg["training"]["optimizer"]["lr"])
+        new_lr = ext.get("lr")
+        if new_lr:
+            # scale every group by the same ratio, so whatever split build_optimizer
+            # made (backbone_lr_mult, layer_decay) survives untouched
+            ratio = float(new_lr) / base_lr
+            for g in opt.param_groups:
+                g["initial_lr"] = g.get("initial_lr", g["lr"]) * ratio
+                g["lr"] = g["initial_lr"]
+        if ext.get("reset_optimizer"):
+            opt.state.clear()                 # throw away the AdamW moments too
+        # fresh LambdaLR: last_epoch back to -1, so the new cosine starts at its peak
+        sched = build_scheduler(opt, ecfg, ext_total)
+        warm = warmup_steps(ecfg, ext_total)
+        total = gstep + ext_total             # keeps ETA and the "x of total" prints honest
+        if ext.get("reset_patience", True):
+            bad, audit_bad[0] = 0, 0
+
+        _lrs = ", ".join(f"{g['lr']:.2e}" for g in opt.param_groups)
+        _pat = "reset to 0" if ext.get("reset_patience", True) else f"kept at {bad}"
+        _opt = "RESET" if ext.get("reset_optimizer") else "moments kept"
+        _wf = ecfg["training"]["scheduler"].get("warmup_frac", 0.05)
+        _banner("EXTENDING A FINISHED RUN", "🔁")
+        print(f"  from       : epoch {done_epochs}, step {gstep}, best {best:.4f}")
+        print(f"  adding     : {extra} epochs = {ext_total} steps "
+              f"(epochs {start_epoch}-{epochs}, steps {gstep + 1}-{total})")
+        print(f"  peak lr    : {_lrs}   (base was {base_lr:.2e}"
+              + (f", now {float(new_lr):.2e})" if new_lr else ", unchanged)"))
+        print(f"  warmup     : {warm} steps ({_wf:.0%} of the extension)")
+        print(f"  optimizer  : {_opt}")
+        print(f"  patience   : {_pat}")
     train_log = CSVLogger(out / cfg["output"]["train_log_csv"], run_id)
     val_log = CSVLogger(out / cfg["output"]["val_log_csv"], run_id)
     t0 = time.time() - resumed_elapsed            # ETA/elapsed span the whole run

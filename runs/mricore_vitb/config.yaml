@@ -58,6 +58,23 @@ training:
     focal_gamma: 2.0
     aucm_margin: 1.0
     aucm_bce_mix: 0.1
+  # The 10-epoch run ended at 0.8814 with its BEST score on the very last step and
+  # early stopping never firing - it was still climbing, and its gap to the ConvNeXt
+  # baseline had closed monotonically from -0.0185 to -0.0126. So this continues it
+  # rather than retraining: same folder, same logs, weights and AdamW moments kept,
+  # a fresh cosine over 6 more epochs. Set enable: false to leave the run as it was.
+  extend:
+    enable: true
+    epochs: 6                       # epochs 11-16, ~2730 more steps
+    lr: 4.0e-5                      # new PEAK. The old cosine ended at 1% of 3e-5 = 3e-7,
+                                    # which is why a plain resume would do nothing. Slightly
+                                    # above the original peak because the run was clearly
+                                    # undertrained, not because it was diverging.
+    warmup_frac: 0.02               # ~55 steps of re-warm, so the jump back up to 4e-5
+                                    # does not shock weights that have been at 3e-7
+    reset_optimizer: false          # keep the moments - they are well-conditioned by now
+    reset_patience: true            # the extension gets its own 4 validations of rope
+
   early_stopping:
     enable: true
     monitor: "val_macro_auroc"
@@ -65,11 +82,13 @@ training:
     patience: 4                     # VALIDATIONS without improvement, not epochs
 
 dataloader:
-  batch_size: 2                     # 2 studies x 4 slots x 24 slices = 192 images @512 = 1024
-                                    # tokens each, ~71 GB. Same split as convnext_small_posweight.
-  accum_steps: 4                    # effective 8 studies per update - IDENTICAL to every
+  batch_size: 4                     # 4 studies x 4 slots x 24 slices = 384 images @512 = 1024
+                                    # tokens each. Batch 2 measured 64 GB, so this lands near
+                                    # 128 GB of the H200's 141 GB - deliberately close to the
+                                    # edge to keep the GPU busy.
+  accum_steps: 2                    # effective 8 studies per update - IDENTICAL to every
                                     # ConvNeXt run, which keeps the comparison honest
-  val_batch_size: 4
+  val_batch_size: 8                 # no backward pass: ~0.034 GB/image vs 0.36 training
   num_workers: 24
   val_num_workers: null
   prefetch_factor: 4
