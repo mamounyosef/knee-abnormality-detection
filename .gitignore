@@ -255,3 +255,5 @@ runs/*/kaggle/
 
 # scoreboard, regenerated locally
 runs_summary.md
+
+data_code/label_v2/_cells.csv
