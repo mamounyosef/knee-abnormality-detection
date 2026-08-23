@@ -49,6 +49,8 @@ def load_env(path: Path | None = None) -> dict:
                     "Modal-Secret": env["MODAL_SECRET"],
                     "Content-Type": "application/json"},
         "sessions": int(env.get("MODAL_SESSIONS", "4")),
+        # a local Ollama/vLLM endpoint: no Modal routing, no reasoning field
+        "local": "localhost" in env["MODAL_LLM_BASE_URL"] or "127.0.0.1" in env["MODAL_LLM_BASE_URL"],
     }
     return _cfg
 
@@ -81,7 +83,11 @@ def chat(messages, *, schema=None, schema_name="response", effort="medium",
     """
     cfg = load_env()
     payload = {"model": cfg["model"], "messages": messages, "temperature": 0.0,
-               "max_tokens": max_tokens, "reasoning": {"effort": effort}}
+               "max_tokens": max_tokens}
+    if not cfg.get("local"):
+        # Modal-only knob. Ollama rejects unknown top-level fields, and a local
+        # endpoint has no reasoning-effort setting to give it anyway.
+        payload["reasoning"] = {"effort": effort}
     if schema:
         payload["response_format"] = {
             "type": "json_schema",
