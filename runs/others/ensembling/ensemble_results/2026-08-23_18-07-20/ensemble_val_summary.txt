@@ -1,0 +1,32 @@
+==============================================================================
+ENSEMBLE (prob-average, logit-space)  —  set=val  images=704
+generated: 2026-08-23T18:07:22
+thresholds (F1/P/R/Spec): mricore_vitb/results/thresholds.json (MISSING)
+==============================================================================
+  ENSEMBLE mean AUROC=0.8839  AUPRC=0.6933  F1=0.6435  P=0.5357  R=0.8057  Spec=0.8024
+  per-class:
+    ACL                AUROC=0.8937  AUPRC=0.7217  F1=0.5849  P=0.4559  R=0.8158  Spec=0.8119  (thr=0.5000)
+    MCL                AUROC=0.8748  AUPRC=0.5810  F1=0.5070  P=0.3789  R=0.7660  Spec=0.8066  (thr=0.5000)
+    Medial Meniscus    AUROC=0.9176  AUPRC=0.8547  F1=0.8218  P=0.8111  R=0.8327  Spec=0.8844  (thr=0.5000)
+    Lateral Meniscus   AUROC=0.8434  AUPRC=0.5056  F1=0.4878  P=0.3509  R=0.8000  Spec=0.7550  (thr=0.5000)
+    Medial OA          AUROC=0.9027  AUPRC=0.7733  F1=0.6445  P=0.5122  R=0.8690  Spec=0.7853  (thr=0.5000)
+    Lateral OA         AUROC=0.9023  AUPRC=0.6629  F1=0.4832  P=0.3319  R=0.8876  Spec=0.7415  (thr=0.5000)
+    PF OA              AUROC=0.8151  AUPRC=0.6278  F1=0.6137  P=0.5285  R=0.7316  Spec=0.7588  (thr=0.5000)
+    Effusion           AUROC=0.8808  AUPRC=0.9206  F1=0.8160  P=0.8579  R=0.7780  Spec=0.8105  (thr=0.5000)
+    Synovitis          AUROC=0.8483  AUPRC=0.6677  F1=0.5446  P=0.4085  R=0.8169  Spec=0.7011  (thr=0.5000)
+    Baker's            AUROC=0.9165  AUPRC=0.8138  F1=0.7629  P=0.7107  R=0.8235  Spec=0.8933  (thr=0.5000)
+    Contusion          AUROC=0.8982  AUPRC=0.7391  F1=0.5778  P=0.4509  R=0.8041  Spec=0.8435  (thr=0.5000)
+    Fracture           AUROC=0.9128  AUPRC=0.4520  F1=0.3905  P=0.2558  R=0.8250  Spec=0.8554  (thr=0.5000)
+  --------------------------------------------------------------------------
+  members (own mean AUROC):
+    0.8850   mricore_vitb @ step7000
+    0.8845   mricore_vitb @ step6600
+    0.8837   mricore_vitb @ step6200
+    0.8836   mricore_vitb @ step5800
+    0.8816   mricore_vitb @ step5200
+    0.8814   mricore_vitb @ step4550
+    0.8804   mricore_vitb @ step4000
+    0.8791   mricore_vitb @ step3600
+    0.8777   mricore_vitb @ step3200
+    0.8734   mricore_vitb @ step2800
+==============================================================================
