@@ -14,7 +14,7 @@ For every (study, finding) cell it records:
 
     python data_code/label_v2/analyze_labels.py
 
-Writes _cells.csv (the raw table) and fewshot_25.csv (the selected examples).
+Writes _cells.csv (the raw table) and fewshot.csv (the selected examples).
 """
 
 import sys
@@ -111,6 +111,20 @@ def pick_fewshot(d, k=25, coverage_bonus=2.0):
     return sel, covered
 
 
+def pick_normals(d, already, k=4, max_pos=2):
+    """Near-normal studies the labeler OVER-CALLS, as counter-examples.
+
+    Every finding but two is over-called, so the labeler's real bias is reading any
+    mention as a positive. These show the opposite: a report that discusses findings
+    while the panel still scored almost everything absent. None of the 58 is fully
+    normal (the minimum is one positive), so 'normal' here means <= max_pos positives.
+    """
+    per = d.groupby("sid").agg(n_pos=("y", "sum"), over=("p", "sum"))
+    per["over_call"] = per.over - per.n_pos
+    cand = per[(per.n_pos <= max_pos) & (~per.index.isin(already))]
+    return list(cand.sort_values("over_call", ascending=False).head(k).index)
+
+
 def main():
     d = build_cells()
     d.to_csv(OUT / "_cells.csv", index=False)
@@ -162,12 +176,20 @@ def main():
                                           accuracy=("correct", "mean")).round(3).to_string())
 
     sel, covered = pick_fewshot(d)
-    pd.Series(sel, name="StudyInstanceUID").to_csv(OUT / "fewshot_25.csv", index=False)
-    sub = d[d.sid.isin(sel)]
-    print(f"\n--- few-shot selection: {len(sel)} studies ---")
+    normals = pick_normals(d, sel)
+    full = sel + normals
+    pd.DataFrame({"StudyInstanceUID": full,
+                  "role": ["error"] * len(sel) + ["normal"] * len(normals)}
+                 ).to_csv(OUT / "fewshot.csv", index=False)
+    sub = d[d.sid.isin(full)]
+    npos = sub.groupby("sid").y.sum()
+    print(f"\n--- few-shot selection: {len(full)} studies "
+          f"({len(sel)} error-driven + {len(normals)} near-normal) ---")
     print(f"  fixable error covered : {sub.fixable.sum() / d.fixable.sum() * 100:.1f}%")
     print(f"  findings demonstrated : {len(covered)}/12")
-    print(f"  -> {OUT / 'fewshot_25.csv'}")
+    print(f"  panel positives/study : min {int(npos.min())}, median {int(npos.median())}, "
+          f"max {int(npos.max())}")
+    print(f"  -> {OUT / 'fewshot.csv'}")
 
 
 if __name__ == "__main__":
