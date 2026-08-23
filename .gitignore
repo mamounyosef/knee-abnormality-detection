@@ -252,3 +252,6 @@ runs/*/results/checkpoints/
 # built Kaggle bundles - weights are rebuilt from checkpoints on demand
 runs/others/ensembling/kaggle/
 runs/*/kaggle/
+
+# scoreboard, regenerated locally
+runs_summary.md
