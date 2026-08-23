@@ -43,7 +43,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from llm_client import chat, load_env, stats, warmup
+from llm_client import _extract_json, chat, load_env, stats, warmup
 
 ROOT = Path(__file__).resolve().parent.parent
 RAW = ROOT / "data" / "raw"
@@ -125,6 +125,38 @@ SCHEMA = {
 }
 
 
+P_KEYS = ("p", "probability", "prob", "score", "value", "confidence")
+E_KEYS = ("evidence", "sentence", "quote", "text", "snippet")
+
+
+def _coerce(obj: dict) -> dict:
+    """Force any model's answer into {"unusable": bool, "findings": {label: {p, evidence}}}.
+
+    Only Modal enforces the schema. Ollama treats it as a hint, so models invent their
+    own shape, and NOT consistently between calls: gemma4:31b puts the 12 findings at
+    the TOP level, sometimes as {"probability", "sentence"} and sometimes as the bare
+    pair [0.05, "the sentence"]. Rejecting those would throw away usable answers, so
+    normalise instead - and fail loudly only when a finding is genuinely missing.
+    """
+    src = obj.get("findings") if isinstance(obj.get("findings"), dict) else obj
+    out = {}
+    for k in LABELS:
+        v = src.get(k)
+        if v is None:
+            raise ValueError(f"no entry for {k!r}; got keys {sorted(src)[:14]}")
+        if isinstance(v, (list, tuple)):             # [0.05, "the sentence"]
+            v = {"p": v[0] if v else None,
+                 "evidence": v[1] if len(v) > 1 else ""}
+        elif not isinstance(v, dict):                # a bare number
+            v = {"p": v}
+        p = next((v[a] for a in P_KEYS if a in v and v[a] is not None), None)
+        if p is None:
+            raise ValueError(f"{k!r} has no probability; got {sorted(v)}")
+        ev = next((v[a] for a in E_KEYS if a in v and v[a]), "")
+        out[k] = {"p": min(1.0, max(0.0, float(p))), "evidence": str(ev)}
+    return {"unusable": bool(obj.get("unusable", False)), "findings": out}
+
+
 def label(text: str, effort: str = "low", timeout: int = 180) -> dict:
     """One report -> 12 probabilities.
 
@@ -136,11 +168,11 @@ def label(text: str, effort: str = "low", timeout: int = 180) -> dict:
     container slot; failing fast and retrying is cheaper than waiting 10 minutes,
     and the checkpoint means a retry costs nothing already paid for.
     """
-    return json.loads(chat(
+    return _coerce(_extract_json(chat(
         [{"role": "system", "content": SYSTEM},
          {"role": "user", "content": f"KNEE MRI REPORT:\n\n{text}"}],
         schema=SCHEMA, schema_name="knee_labels", effort=effort,
-        max_tokens=4000, timeout=timeout))
+        max_tokens=4000, timeout=timeout)))
 
 
 def main():
@@ -154,7 +186,19 @@ def main():
     ap.add_argument("--effort", choices=["low", "medium", "xhigh"], default="low")
     ap.add_argument("--timeout", type=int, default=180,
                     help="per-request seconds; short so a hung slot fails fast")
+    ap.add_argument("--tag", default="",
+                    help="isolate this run's outputs, e.g. --tag gemma4-31b writes "
+                         "03_report_labels_gemma4-31b.csv / _raw_gemma4-31b.jsonl. "
+                         "Without it a second labeler would resume from, and append "
+                         "to, the first one's checkpoint.")
     args = ap.parse_args()
+
+    if args.tag:
+        global OUT_CSV, OUT_JSONL, LOG_TXT
+        OUT_CSV = OUT_CSV.with_name(f"03_report_labels_{args.tag}.csv")
+        OUT_JSONL = OUT_JSONL.with_name(f"03_report_labels_raw_{args.tag}.jsonl")
+        LOG_TXT = LOG_TXT.with_name(f"03_labeling_log_{args.tag}.txt")
+        print(f"[tag] outputs isolated as *_{args.tag}")
 
     load_env()
     train = pd.read_csv(RAW / "train.csv")
@@ -244,7 +288,7 @@ def main():
     out = pd.DataFrame(rows)
     # --validate covers only the 58 studies, so it must NEVER overwrite the
     # full-corpus labels; it writes its own file instead.
-    csv_path = (OUT_CSV.with_name("03_report_labels_validate58.csv")
+    csv_path = (OUT_CSV.with_name(OUT_CSV.stem + "_validate58.csv")
                 if args.validate else OUT_CSV)
     out.to_csv(csv_path, index=False)
 

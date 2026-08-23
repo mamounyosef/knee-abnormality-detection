@@ -35,22 +35,29 @@ def load_env(path: Path | None = None) -> dict:
         return _cfg
     path = path or ROOT / ".env"
     if not path.exists():
-        sys.exit(f"missing {path} — needs MODAL_LLM_BASE_URL / MODAL_KEY / MODAL_SECRET")
+        sys.exit(f"missing {path} - needs MODAL_LLM_BASE_URL plus either "
+                 f"MODAL_KEY/MODAL_SECRET or OLLAMA_API_KEY")
     env = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if line and not line.startswith("#") and "=" in line:
             k, v = line.split("=", 1)
             env[k.strip()] = v.strip()
+    env.setdefault("MODAL_KEY", "")
+    env.setdefault("MODAL_SECRET", "")
     _cfg = {
         "base": env["MODAL_LLM_BASE_URL"].rstrip("/"),
         "model": env.get("MODAL_LLM_MODEL", "Qwen/Qwen3.8-2.4T-A95B"),
-        "headers": {"Modal-Key": env["MODAL_KEY"],
-                    "Modal-Secret": env["MODAL_SECRET"],
-                    "Content-Type": "application/json"},
+        "headers": ({"Authorization": f"Bearer {env['OLLAMA_API_KEY']}",
+                     "Content-Type": "application/json"}
+                    if env.get("OLLAMA_API_KEY") else
+                    {"Modal-Key": env["MODAL_KEY"],
+                     "Modal-Secret": env["MODAL_SECRET"],
+                     "Content-Type": "application/json"}),
         "sessions": int(env.get("MODAL_SESSIONS", "4")),
         # a local Ollama/vLLM endpoint: no Modal routing, no reasoning field
         "local": "localhost" in env["MODAL_LLM_BASE_URL"] or "127.0.0.1" in env["MODAL_LLM_BASE_URL"],
+        "modal": "modal" in env["MODAL_LLM_BASE_URL"],
     }
     return _cfg
 
@@ -137,9 +144,36 @@ def chat(messages, *, schema=None, schema_name="response", effort="medium",
     return None
 
 
+def _extract_json(txt: str):
+    """Parse a JSON object out of a reply that may not be pure JSON.
+
+    Modal enforces the schema with constrained decoding, so the reply IS the object.
+    Ollama Cloud does not - it treats `format`/`response_format` as a hint, and models
+    wrap the object in ```json fences or add a sentence first. So: try strict, then
+    strip fences, then take the outermost {...}.
+    """
+    try:
+        return json.loads(txt)
+    except json.JSONDecodeError:
+        pass
+    t = txt.strip()
+    if "```" in t:                                   # ```json ... ``` fences
+        parts = t.split("```")
+        for chunk in parts[1:]:
+            chunk = chunk.split(chr(10), 1)[-1] if chunk[:4].lower().startswith("json") else chunk
+            try:
+                return json.loads(chunk.strip())
+            except json.JSONDecodeError:
+                continue
+    i, j = t.find("{"), t.rfind("}")                 # prose around a bare object
+    if i >= 0 and j > i:
+        return json.loads(t[i:j + 1])
+    raise json.JSONDecodeError("no JSON object in reply", txt[:200], 0)
+
+
 def chat_json(messages, **kw):
-    """chat() plus json.loads of the response."""
-    return json.loads(chat(messages, **kw))
+    """chat() plus a tolerant parse of the response."""
+    return _extract_json(chat(messages, **kw))
 
 
 def warmup(timeout: int = 1800) -> bool:
@@ -155,6 +189,12 @@ def warmup(timeout: int = 1800) -> bool:
     the container is warm and normal short timeouts are safe.
     """
     cfg = load_env()
+    if not cfg.get("modal"):
+        # Only Modal Auto Endpoints scale to zero. Ollama (local or cloud) is either
+        # up or it is not, so waiting 30 minutes for a boot that never happens is
+        # just a hang.
+        print("[warmup] non-Modal endpoint - skipping the cold-start wait")
+        return True
     t0 = time.time()
     print(f"[warmup] waiting for a container (up to {timeout // 60} min) ...", flush=True)
     body = {"model": cfg["model"],
