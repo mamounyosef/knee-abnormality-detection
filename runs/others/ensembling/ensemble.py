@@ -35,8 +35,6 @@ FULL_MODELS = [
     "convnext_small_4slot",
     "convnext_base_4slot",
     "mricore_vitb",
-    "radimagenet_resnet50",
-    "convnext_small_25d",
 ]
 AUTO_TOP_N      = 1            # expand a bare run name into its N best validations
 AUTO_MIN_GAP    = 400          # min steps between them, so they aren't near-duplicates
