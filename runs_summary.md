@@ -10,7 +10,7 @@
 | `convnext_small_posweight` | 50M | 0.8923 | 0.8838 | **0.909** | pos_weight auto_clamped. -0.0017 val, +0.001 LB - neutral |
 | `convnext_small_672px_28slices` | 50M | 0.8879 | **0.8921** | - | 672px @0.31mm/px, 28 slices. Stopped 3400/4540, -0.005 at every matched step |
 | `mricore_vitb` | 86M | 0.8850 | 0.8775 | 0.896 | MRI-CORE ViT-B/16, DINO on 6M MRI slices. Extended to 16 epochs |
-| `radimagenet_resnet50` | 24M | 0.8794 | 0.8690 | - | RadImageNet ResNet-50, supervised on 1.35M CT/MRI/US. Extending to 16 epochs |
+| `radimagenet_resnet50` | 24M | 0.8799 | 0.8718 | - | RadImageNet ResNet-50, supervised on 1.35M CT/MRI/US. Extension gave +0.0005 then flattened, stopped at epoch 12 |
 | `convnext_small_transformer_pool` | 52M | 0.8792 | 0.8709 | - | Self-attention over the 96 slices instead of the mean |
 | `convnext_tiny_4slot` | 28M | 0.8596 | 0.8597 | 0.859 | First real run |
 | `convnext_tiny_5slot` | 28M | 0.8585 | 0.8516 | 0.856 | A 5th slot (sag_t2). Lost |

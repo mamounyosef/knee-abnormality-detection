@@ -33,6 +33,9 @@ BEST_METRIC     = "weighted_mean_auroc"   # what ranks a search run; "oof_mean_a
 # [("r", 3200), ("r", 4000)] -> LIST = sub-ensemble, averaged first, ONE vote above
 FULL_MODELS = [
     "convnext_small_4slot",
+    "convnext_base_4slot",
+    "mricore_vitb",
+    "radimagenet_resnet50",
     "convnext_small_25d",
 ]
 AUTO_TOP_N      = 1            # expand a bare run name into its N best validations
