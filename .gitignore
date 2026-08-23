@@ -259,3 +259,5 @@ runs_summary.md
 data_code/label_v2/_cells.csv
 
 .env.modal.bak
+
+.env.ollama.bak

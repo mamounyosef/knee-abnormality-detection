@@ -186,6 +186,13 @@ def main():
     ap.add_argument("--effort", choices=["low", "medium", "xhigh"], default="low")
     ap.add_argument("--timeout", type=int, default=180,
                     help="per-request seconds; short so a hung slot fails fast")
+    ap.add_argument("--fewshot", action="store_true",
+                    help="prepend label_v2/fewshot_block.txt - 45 real corrections drawn "
+                         "from 29 of the 58 panel studies")
+    ap.add_argument("--holdout", action="store_true",
+                    help="with --validate, score ONLY the panel studies that are NOT "
+                         "few-shot examples. Without it, --fewshot --validate scores "
+                         "the model on its own prompt and means nothing.")
     ap.add_argument("--tag", default="",
                     help="isolate this run's outputs, e.g. --tag gemma4-31b writes "
                          "03_report_labels_gemma4-31b.csv / _raw_gemma4-31b.jsonl. "
@@ -199,6 +206,15 @@ def main():
         OUT_JSONL = OUT_JSONL.with_name(f"03_report_labels_raw_{args.tag}.jsonl")
         LOG_TXT = LOG_TXT.with_name(f"03_labeling_log_{args.tag}.txt")
         print(f"[tag] outputs isolated as *_{args.tag}")
+
+    global SYSTEM
+    if args.fewshot:
+        blk = ROOT / "data_code" / "label_v2" / "fewshot_block.txt"
+        if not blk.exists():
+            raise SystemExit(f"{blk} not found - run label_v2/build_fewshot.py first")
+        SYSTEM = SYSTEM + "\n\n" + blk.read_text(encoding="utf-8")
+        print(f"[fewshot] +{len(blk.read_text(encoding='utf-8')) // 4:,} tokens of "
+              f"calibration examples")
 
     load_env()
     train = pd.read_csv(RAW / "train.csv")
@@ -218,6 +234,11 @@ def main():
 
     has_labels = train[LABELS].notna().all(axis=1)
     df = (train[has_labels] if args.validate else train).reset_index(drop=True)
+    if args.holdout:
+        fs = pd.read_csv(ROOT / "data_code" / "label_v2" / "fewshot.csv")
+        before = len(df)
+        df = df[~df.StudyInstanceUID.isin(set(fs.StudyInstanceUID))].reset_index(drop=True)
+        print(f"[holdout] {before} -> {len(df)} studies (dropped the few-shot examples)")
 
     uniq = df["text"].drop_duplicates().tolist()
     if args.limit:

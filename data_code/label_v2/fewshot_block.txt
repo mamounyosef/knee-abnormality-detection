@@ -1,0 +1,207 @@
+
+CALIBRATION EXAMPLES - real reports from this dataset, with what the expert panel
+actually scored. These are the cases where the report IS explicit and a careful reader
+still gets it wrong, so read them as corrections to your instinct, not as a summary of
+the rules above. "panel 0" means the panel scored the finding ABSENT despite the report
+wording shown.
+
+Example 1:
+  report: "The anterior cruciate ligament shows slightly increased signal intensity at the tibial insertion, possibly consistent with a post-distension state or "
+     -> ACL: panel 0  (a careless read gives 0.60)
+  report: "A small amount of effusion suprapatellarly and in the medial recess with a more prominent suprapatellar fat pad."
+     -> Effusion: panel 0  (a careless read gives 0.90)
+  report: "Baker's cyst measuring approximately 22x12x27 mm (AP x LL x CC)."
+     -> Baker's: panel 0  (a careless read gives 0.95)
+
+Example 2:
+  report: "There is grade II ligamentous sprain (partial tear) of the medial collateral ligament, at mid substance (deep and superficial fibers)."
+     -> MCL: panel 0  (a careless read gives 0.95)
+  report: "The lateral compartment, there is suspicious small longitudinal vertical tear at the periphery posterior horn of the lateral meniscus."
+     -> Lateral Meniscus: panel 0  (a careless read gives 0.72)
+  report: "Minimal amount of right knee effusion is 1."
+     -> Effusion: panel 0  (a careless read gives 0.90)
+
+Example 3:
+  report: "Linear signal intensity in posterior horn of medial meniscus, and increased signal of meniscocapsular junction, R/O Ramp lesion or peripheral longitud"
+     -> Medial Meniscus: panel 0  (a careless read gives 0.70)
+  report: "Hypertrophy of the synovium, indicative of synovitis."
+     -> Synovitis: panel 0  (a careless read gives 0.95)
+
+Example 4:
+  report: "mild bone marrow edema and complete loss of articular cartilage (ICRS Grade IV) are noted on the medial tibial condyle"
+     -> Contusion: panel 1  (a careless read gives 0.15)
+  report: "Microtrabecular insufficiency fractures (synonymous with SONK) of the medial tibial condyle and to a lesser extent the anterior lateral tibial condyle"
+     -> Fracture: panel 0  (a careless read gives 0.90)
+
+Example 5:
+  report: "The anterior cruciate ligament in the region of the distal insertion shows triangular hyperintensity that may correspond to a minor intrasubstance tea"
+     -> ACL: panel 0  (a careless read gives 0.80)
+  report: "Grade II chondromalacia of the lateral tibial plateau and the cartilage of the medial femoral condyle. OA changes bilaterally, more pronounced lateral"
+     -> Medial OA: panel 1  (a careless read gives 0.40)
+  report: "Minor effusion."
+     -> Effusion: panel 0  (a careless read gives 0.90)
+
+Example 6:
+  report: "Mild cartilage thinning and fissuring is present at the posterior and peripheral weightbearing aspect, with minimal degenerative subchondral bone marr"
+     -> Lateral OA: panel 1  (a careless read gives 0.35)
+  report: "Small joint effusion."
+     -> Effusion: panel 0  (a careless read gives 0.95)
+
+Example 7:
+  report: "Thinning and irregularity of the articular cartilage margin, particularly in the medial compartment and the medial articular cartilage of the patella,"
+     -> PF OA: panel 1  (a careless read gives 0.30)
+
+Example 8:
+  report: "The contour of ACL is not all in a straight line but increase signal intensity inside, in favor of grade 2 injury."
+     -> ACL: panel 0  (a careless read gives 0.90)
+  report: "Some joint effusion"
+     -> Effusion: panel 0  (a careless read gives 0.90)
+  report: "Bone contusion with neglected fracture line at fibular head."
+     -> Contusion: panel 0  (a careless read gives 0.90)
+
+Example 9:
+  report: "Interstitial hyperintense signal of ACL, in favor of grade 1 injury."
+     -> ACL: panel 0  (a careless read gives 0.80)
+  report: "Some joint effusion of right knee with mild hypertrophy of the synovium, indicative of synovitis."
+     -> Effusion: panel 0  (a careless read gives 0.90)
+  report: "mild hypertrophy of the synovium, indicative of synovitis."
+     -> Synovitis: panel 0  (a careless read gives 0.85)
+
+Example 10:
+  report: "Increased central signal of the posterior horn and body of the medial meniscus contacting the inferior articular surface, suggesting a tear."
+     -> Medial Meniscus: panel 0  (a careless read gives 0.90)
+  report: "Mild joint effusion with mild synovitis."
+     -> Effusion: panel 0  (a careless read gives 0.90)
+
+Example 11:
+  report: "Mild joint effusion."
+     -> Effusion: panel 0  (a careless read gives 0.90)
+  report: "Small popliteal cyst, without signs of complication."
+     -> Baker's: panel 0  (a careless read gives 0.90)
+
+Example 12:
+  report: "Mild joint effusion with minimal synovitis."
+     -> Effusion: panel 0  (a careless read gives 0.90)
+  report: "Mild joint effusion with minimal synovitis."
+     -> Synovitis: panel 0  (a careless read gives 0.80)
+
+Example 13:
+  report: "there is interstitial tear of the anterior cruciate ligament, at mid substance"
+     -> ACL: panel 0  (a careless read gives 0.95)
+  report: "complex tear (main radial and longitudinal vertical component) at the posterior horn of the lateral meniscus"
+     -> Lateral Meniscus: panel 0  (a careless read gives 0.95)
+
+Example 14:
+  report: "Moderate joint effusion, distended suprapatellar bursa with thickened synovial tissue are observed."
+     -> Effusion: panel 0  (a careless read gives 0.95)
+
+Example 15:
+  report: "Presence of minimal joint effusion."
+     -> Effusion: panel 0  (a careless read gives 0.90)
+  report: "Contusion bone marrow edema is visualized in the tibia centrally and towards the medial tibial plateau."
+     -> Contusion: panel 0  (a careless read gives 0.95)
+
+Example 16:
+  report: "There is focal high grade chondrosis at the the posterolateral tibial plateau (about 1.5* 1.9 cm). There is subchondral edema. Osteophytes are present"
+     -> Lateral OA: panel 0  (a careless read gives 0.70)
+
+Example 17:
+  report: "Low-grade partial-thickness tear involving the proximal fibers of the superficial and deep medial collateral ligament."
+     -> MCL: panel 0  (a careless read gives 0.90)
+
+Example 18:
+  report: "Small focus of bone marrow edema at the anteromedial tibial plateau, likely a contusion."
+     -> Contusion: panel 0  (a careless read gives 0.95)
+
+Example 19:
+  report: "High signal in the soft tissue medial to the medial collateral ligament with increased signal intensity of proximal ligament (deep MCL/meniscofemoral "
+     -> MCL: panel 0  (a careless read gives 0.95)
+
+Example 20:
+  report: "focal erosion of the articular cartilage of the medial femoral condyle at the weight-bearing axis (ICRS grade II) are observed."
+     -> Medial OA: panel 1  (a careless read gives 0.40)
+
+Example 21:
+  report: "Posterior peripheral bone marrow edema of the lateral tibial plateau with small regional subcortical fractures."
+     -> Fracture: panel 0  (a careless read gives 0.75)
+
+Example 22:
+  report: "An osteochondral fracture is visualized in the region of the medial femoral condyle. The fracture presents as a hypointense arcuate-shaped line."
+     -> Fracture: panel 0  (a careless read gives 0.90)
+
+Example 23:
+  report: "Small joint effusion."
+     -> Effusion: panel 0  (a careless read gives 0.95)
+
+Example 24:
+  report: "The distal bony avulsion with laxity of the ACL, showing some internal high T2 signal changes compatible with additional low-grade partial ligamentous"
+     -> ACL: panel 0  (a careless read gives 0.95)
+
+Example 25:
+  report: "mild bone edema of the posterior aspect of the lateral tibial plateau"
+     -> Contusion: panel 0  (a careless read gives 0.90)
+
+Example 26:
+  report: "Synovial membrane thickening in the knee joint with fluid accumulation and hofa fat pad stranding, knee arthritis with hoffitis noted"
+     -> Synovitis: panel 0  (a careless read gives 0.95)
+
+Example 27:
+  report: "There is a mild knee effusion."
+     -> Effusion: panel 0  (a careless read gives 0.90)
+
+And the other direction - the report is explicit and the panel AGREED, so these stay high:
+  report: "Known mildly comminuted undisplaced avulsion fracture of the tibial tuberosity involving the distal ACL insertion, anteriorly the anterior horn root i"
+     -> Fracture: panel 1
+  report: "Full thickness cartilage loss along the medial femoral condyle and medial tibial plateau with subchondral cystic change and marrow edema."
+     -> Medial OA: panel 1
+  report: "Large joint effusion."
+     -> Effusion: panel 1
+  report: "In the medial compartment, there is buckethandle tear at the anterior horn, body and posterior horn of the medial meniscus. There is displaced menisca"
+     -> Medial Meniscus: panel 1
+  report: "Complete tear of the superficial portion at the mid to distal third. Moderate grade partial tear of the deep meniscal femoral and meniscal tibial comp"
+     -> MCL: panel 1
+  report: "In the intercondylar notch, there is acute complete tear of the anterior cruciate ligament, at mid substance."
+     -> ACL: panel 1
+  report: "Mild to moderate joint effusion, probably hemarthrosis."
+     -> Effusion: panel 1
+  report: "a large multiloculated Baker's cyst with a craniocaudal diameter of 9.7 cm adjacent to the medial head of the gastrocnemius muscle"
+     -> Baker's: panel 1
+  report: "Full-thickness and full-width tear at the junction of the middle third and proximal third of the ACL"
+     -> ACL: panel 1
+  report: "Extensive complete tearing of the body, posterior horn, and posterior root medial meniscus with severe extrusion."
+     -> Medial Meniscus: panel 1
+  report: "Horizontal tear at anterior horn of the lateral meniscus is noted."
+     -> Lateral Meniscus: panel 1
+  report: "High-grade cartilage loss along the medial patellar facet. High grade cartilage loss at lateral trochlea."
+     -> PF OA: panel 1
+  report: "Chronic reactive synovitis, suprapatellar bursitis"
+     -> Synovitis: panel 1
+  report: "complete loss of articular cartilage (ICRS Grade IV) are noted on the medial tibial condyle, while small marginal osteophytes are present on the femor"
+     -> Medial OA: panel 1
+  report: "Tear of the anterior horn, body, and posterior horn of the lateral meniscus with minimal extrusion."
+     -> Lateral Meniscus: panel 1
+  report: "Split fractures at tibial plateau with depression of the lateral articular surface and extending to tibial intercondylar region"
+     -> Fracture: panel 1
+  report: "Bone marrow edema in distal femur, proximal tibia and fibula, and lower pole of patella, suspect bone contusion."
+     -> Contusion: panel 1
+  report: "Hypertrophy of the synovium, indicative of synovitis."
+     -> Synovitis: panel 1
+  report: "Medial collateral ligament (MCL): Grade 2 injury."
+     -> MCL: panel 1
+  report: "Abnormal signal intensity is noted in proximal tibia and distal femur, which shows low signal intensity on T1WI and high signal intensity on T2WI, in "
+     -> Contusion: panel 1
+  report: "Moderate-sized Baker cyst with slight surrounding edema likely representing leakage."
+     -> Baker's: panel 1
+  report: "Full-thickness chondral ulceration of the weight-bearing zone of the lateral femoral condyle measuring approximately 6 x 5 mm in its mediolateral and "
+     -> Lateral OA: panel 1
+  report: "Focal wearing of articular cartilage of femoral trochlea, reflecting grade 3-4 chondromalacia and mild subchondral edema."
+     -> PF OA: panel 1
+  report: "Partial-thickness chondral ulcers of the central region of the lateral tibial plateau."
+     -> Lateral OA: panel 1
+
+
+The pattern: the report MENTIONING a finding is not the same as the panel scoring it
+present, and qualified amounts ("mild", "minimal", "small", "trace") plus
+degenerative-context findings are the usual over-calls. These are corrections to
+specific wordings - they are NOT an instruction to lower every probability. A finding
+the report states plainly and without qualification should still score high.
