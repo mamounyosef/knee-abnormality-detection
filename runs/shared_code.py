@@ -3442,6 +3442,181 @@ def verify_dicom_path(cfg: dict, dicom_root, series_csv: pd.DataFrame,
     return checked > 0 and ok == checked
 
 
+def build_kaggle_ensemble_assets(members: list, out_dir, kaggle_user: str,
+                                 dataset_slug: str, notebook_slug: str, title: str = ""):
+    """Bundle SEVERAL runs into one Kaggle dataset + a notebook that averages them.
+
+    members: [(name, cfg, exp_dir, checkpoint_path), ...] - member 0 owns the loader.
+
+    Layout differs from the single-model bundle in one way that matters: each member
+    gets its own m<i>_model.pt / m<i>_config.json / m<i>_def.py, all FLAT in the
+    dataset (kaggle datasets skip subdirectories), and the notebook imports each def
+    under its own module name. `from model_def import build_model` would collide -
+    every run's train.py defines a class called SliceModel.
+    """
+    out = Path(out_dir)
+    (out / "weights").mkdir(parents=True, exist_ok=True)
+    (out / "notebook").mkdir(parents=True, exist_ok=True)
+    w = out / "weights"
+
+    manifest = []
+    for i, (name, cfg, exp_dir, ckpt) in enumerate(members):
+        ck = torch.load(ckpt, map_location="cpu", weights_only=False)
+        torch.save({"model": ck["model"], "cfg": ck.get("cfg", cfg),
+                    "epoch": ck.get("epoch"), "step": ck.get("step"),
+                    "score": ck.get("score")}, w / f"m{i}_model.pt")
+        c = json.loads(json.dumps(cfg, default=str))
+        c["model"]["pretrained"] = False           # no internet at inference
+        c["model"].pop("weights", None)            # ...and no external checkpoint either:
+                                                   # the trunk arrives inside m<i>_model.pt,
+                                                   # so _weights_path would only crash
+        (w / f"m{i}_config.json").write_text(json.dumps(c, indent=2), encoding="utf-8")
+        src = (Path(exp_dir) / "train.py").read_text(encoding="utf-8").split("def run_local(")[0]
+        src = "\n".join(l for l in src.splitlines()
+                        if not l.startswith("cfg = sc.load_config("))
+        (w / f"m{i}_def.py").write_text(src, encoding="utf-8")
+        manifest.append({"i": i, "name": name, "epoch": ck.get("epoch"),
+                         "step": ck.get("step"), "score": ck.get("score")})
+        print(f"  \U0001F4E6 m{i} {name:30s} epoch {ck.get('epoch')} "
+              f"step {ck.get('step')} score {ck.get('score')}")
+    (w / "members.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    shutil.copy(Path(__file__), w / "shared_code.py")
+    wheels_src = Path(__file__).resolve().parent / "_wheels"
+    for whl in (wheels_src.glob("*.whl") if wheels_src.is_dir() else []):
+        shutil.copy(whl, w / whl.name)
+    (w / "dataset-metadata.json").write_text(json.dumps(
+        {"title": title or f"knee ensemble weights ({len(members)})",
+         "id": f"{kaggle_user}/{dataset_slug}",
+         "licenses": [{"name": "CC0-1.0"}]}, indent=2), encoding="utf-8")
+
+    (out / "notebook" / "kernel-metadata.json").write_text(json.dumps({
+        "id": f"{kaggle_user}/{notebook_slug}",
+        "title": title or f"knee ensemble submit ({len(members)})",
+        "code_file": "submit.ipynb", "language": "python", "kernel_type": "notebook",
+        "is_private": True, "enable_gpu": True, "enable_internet": False,
+        "machine_shape": "NvidiaTeslaT4",
+        "dataset_sources": [f"{kaggle_user}/{dataset_slug}"],
+        "competition_sources": ["rsna-knee-abnormality-detection"],
+        "kernel_sources": [],
+    }, indent=2), encoding="utf-8")
+
+    cells = [
+        r"""import sys, glob, json, subprocess, traceback, importlib.util
+from pathlib import Path
+hits = sorted(glob.glob('/kaggle/input/**/shared_code.py', recursive=True))
+if not hits:
+    raise SystemExit('shared_code.py not found. tree: '
+                     + str(sorted(glob.glob('/kaggle/input/**/*', recursive=True))[:200]))
+W = Path(hits[0]).parent
+sys.path.insert(0, str(W))
+subs = sorted(glob.glob('/kaggle/input/**/sample_submission.csv', recursive=True))
+if not subs:
+    raise SystemExit('competition data not found under /kaggle/input')
+COMP = Path(subs[0]).parent
+MEMBERS = json.loads((W / 'members.json').read_text())
+print('weights:', W, '| comp:', COMP)
+print('members:', [m['name'] for m in MEMBERS])""",
+        r"""# the test set mixes JPEG Lossless and JPEG 2000 in with the raw series and pydicom
+# reads neither on its own. no internet here, so the wheels ride along in the dataset.
+wheels = sorted(glob.glob(str(W / '*.whl')))
+try:
+    import pylibjpeg, openjpeg, libjpeg
+    print('dicom decoders already present')
+except ImportError:
+    if wheels:
+        r = subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-index',
+                            '--no-deps', '-q', *wheels], capture_output=True, text=True)
+        print('installed decoders rc=', r.returncode, r.stderr[-300:])
+    else:
+        print('WARNING: no decoder wheels, compressed series will fail')""",
+        r"""import shared_code as sc, pandas as pd, torch
+series = pd.read_csv(COMP / 'test_series.csv')
+sub = pd.read_csv(COMP / 'sample_submission.csv')
+TASKS = [c for c in sub.columns if c != 'StudyInstanceUID']
+print(len(sub), 'studies to score')
+
+def bail(why):
+    # always leave a valid file behind: 0.5 everywhere scores about 0.5, while no file
+    # at all scores nothing and still costs one of the five daily attempts
+    traceback.print_exc()
+    print('FALLING BACK TO 0.5:', why)
+    out = sub.copy()
+    out[TASKS] = 0.5
+    out.to_csv('submission.csv', index=False)
+
+bail('nothing has run yet')          # overwritten the moment real work lands""",
+        r"""# member 0 owns the loader geometry; the others only re-normalise the same batch
+try:
+    CFGS = [json.loads((W / ('m%d_config.json' % m['i'])).read_text()) for m in MEMBERS]
+    idx, files_by_series = sc.scan_dicom_index(COMP / 'test_series', series)
+    plan = sc.plan_slots(idx, CFGS[0])
+    print(len(plan), 'studies planned of', len(sub))
+except Exception:
+    bail('scan/plan failed'); raise SystemExit(0)""",
+        r"""# each member's model_def under its OWN module name - every run's train.py defines a
+# class called SliceModel, so one shared `model_def` would hand every member the same
+# architecture and silently score the wrong thing
+def _load_def(i):
+    spec = importlib.util.spec_from_file_location('m%d_def' % i, W / ('m%d_def.py' % i))
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules['m%d_def' % i] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+try:
+    MODELS = []
+    for m, cfg in zip(MEMBERS, CFGS):
+        i = m['i']
+        model = _load_def(i).build_model(cfg)
+        ck = torch.load(W / ('m%d_model.pt' % i), map_location='cpu', weights_only=False)
+        model.load_state_dict(ck['model'])
+        MODELS.append(model.eval())
+        print('m%d %-30s epoch %s score %s' % (i, m['name'], ck.get('epoch'), ck.get('score')))
+except Exception:
+    bail('model load failed'); raise SystemExit(0)""",
+        r"""# STRESS repeats the public studies to imitate the hidden set's size. 0 = a normal run.
+STRESS = 0
+
+todo = sub[['StudyInstanceUID']]
+if STRESS:
+    reps = -(-STRESS // len(todo))
+    todo = pd.concat([todo] * reps, ignore_index=True).head(STRESS)
+    print('STRESS MODE:', len(todo), 'studies')
+
+# ONE decode pass shared by every member. Decoding is ~9s/study against <1s of GPU,
+# so looping predict_dicom per member would be ~4x9s = over the 9h cap; this is
+# ~9s + N x <1s. Averaging happens in logit space, as measured offline.
+try:
+    pred = sc.predict_dicom_ensemble(CFGS, MODELS, todo, plan, idx, files_by_series,
+                                     batch_size=1)
+    if not STRESS:
+        out = sub[['StudyInstanceUID']].merge(pred, on='StudyInstanceUID', how='left')
+        out[TASKS] = out[TASKS].astype(float).fillna(0.5).clip(0, 1)
+        assert len(out) == len(sub), '%d rows for %d studies' % (len(out), len(sub))
+        out.to_csv('submission.csv', index=False)
+        print(out[TASKS].describe().T[['mean', 'min', 'max']])
+except Exception:
+    bail('inference failed')
+pd.read_csv('submission.csv').head()""",
+    ]
+    nb = {"cells": [{"cell_type": "code", "metadata": {}, "source": c.splitlines(True),
+                     "outputs": [], "execution_count": None} for c in cells],
+          "metadata": {"kernelspec": {"name": "python3", "language": "python",
+                                      "display_name": "Python 3"}},
+          "nbformat": 4, "nbformat_minor": 5}
+    (out / "notebook" / "submit.ipynb").write_text(json.dumps(nb, indent=1), encoding="utf-8")
+    size = sum(f.stat().st_size for f in w.iterdir()) / 1e9
+    print(f"  \U0001F4E6 weights   -> {w}  ({size:.2f} GB)")
+    print(f"  \U0001F4D3 notebook  -> {out / 'notebook'}")
+    _kv("kaggle commands", [
+        ("1 dataset", f"kaggle datasets create -p {w}"),
+        ("2 notebook", f"kaggle kernels push -p {out / 'notebook'}"),
+        ("3 status", f"kaggle kernels status {kaggle_user}/{notebook_slug}"),
+    ], "\U0001F680")
+    return out
+
+
 def build_kaggle_assets(cfg: dict, exp_dir, out_dir, checkpoint_path,
                         kaggle_user: str, dataset_slug: str = "", notebook_slug: str = ""):
     """Write everything `kaggle kernels push` needs: weights, config, notebook, metadata.
@@ -3462,7 +3637,13 @@ def build_kaggle_assets(cfg: dict, exp_dir, out_dir, checkpoint_path,
     torch.save({"model": ck["model"], "cfg": ck.get("cfg", cfg),
                 "epoch": ck.get("epoch"), "step": ck.get("step"),
                 "score": ck.get("score")}, out / "weights" / "model.pt")
-    (out / "weights" / "config.json").write_text(json.dumps(cfg, indent=2, default=str))
+    # the trunk arrives inside model.pt, so an external `weights` path (MRI-CORE,
+    # RadImageNet) must NOT survive into the kernel - build_model would go looking for
+    # a 435 MB file that never travelled and die before scoring a single study
+    _kcfg = json.loads(json.dumps(cfg, default=str))
+    _kcfg["model"]["pretrained"] = False
+    _kcfg["model"].pop("weights", None)
+    (out / "weights" / "config.json").write_text(json.dumps(_kcfg, indent=2))
     (out / "weights" / "dataset-metadata.json").write_text(json.dumps(
         {"title": f"knee {exp} weights", "id": f"{kaggle_user}/{dataset_slug}",
          "licenses": [{"name": "CC0-1.0"}]}, indent=2))
@@ -3620,6 +3801,86 @@ pd.read_csv('submission.csv').head()''',
                      f"-f submission.csv -k {kaggle_user}/{notebook_slug} -v <VERSION> -m \"{exp}\""),
     ], "\U0001F680")
     return out
+
+
+@torch.no_grad()
+def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, plan: dict,
+                           index: pd.DataFrame, files_by_series: dict, device=None,
+                           batch_size: int | None = None, num_workers: int | None = None,
+                           report_every: int = 50) -> pd.DataFrame:
+    """Score several models in ONE pass over the DICOMs and average their logits.
+
+    Decoding a study costs ~9s against <1s of GPU, so looping predict_dicom once per
+    member would re-decode everything N times: four members is ~13h against the
+    competition's 9h cap. Decoding once and running every model on the same uint8
+    batch is ~9s + N x <1s, which fits.
+
+    The members must agree on the LOADER geometry (slots, n_slices, size, mm_per_px,
+    windowing) because they share the batch. They may still differ in normalisation -
+    that is applied per model in prepare_batch, on GPU, from the same uint8 tensor
+    (MRI-CORE wants [0,1], the ImageNet backbones want their own mean/std).
+
+    Averaging is in LOGIT space, matching how the offline ensemble was measured.
+    """
+    device = device or torch.device("cuda" if usable_cuda() else "cpu")
+    nw = num_workers if num_workers is not None else min(4, (os.cpu_count() or 2))
+    cfg0, tasks = cfgs[0], cfgs[0]["tasks"]
+    n = len(studies_df)
+
+    geo = ("slots", "n_slices", "size", "mm_per_px", "window", "window_pct", "channels")
+    for i, c in enumerate(cfgs[1:], 1):
+        bad = [k for k in geo if c["input"].get(k) != cfg0["input"].get(k)]
+        if bad:                                    # loud: a silent mismatch would score
+            raise ValueError(                      # every member on the wrong pixels
+                f"member {i} disagrees on loader geometry {bad} - it cannot share a "
+                f"decode pass with member 0")
+
+    ds = KneeShardDataset(studies_df.assign(**{t: 0.0 for t in tasks}),
+                          cfg0, plan, train=False, dicom=(index, files_by_series))
+    bs = int(batch_size or val_loader_settings(cfg0)[0])
+    loader = DataLoader(ds, batch_size=bs, shuffle=False, num_workers=nw,
+                        pin_memory=device.type == "cuda", persistent_workers=False)
+    for m in models:
+        m.eval().to(device)
+
+    out, done, t0, failed = [], 0, time.time(), 0
+    it = iter(loader)
+    while True:
+        try:
+            x, _ = next(it)
+        except StopIteration:
+            break
+        except Exception as e:
+            left = n - done
+            print(f"  ❌ loader died at study {done} ({type(e).__name__}: {e}); "
+                  f"remaining {left} score 0.5")
+            out.append(np.full((left, len(tasks)), 0.5, np.float32))
+            failed += left
+            break
+        k = x.shape[0]
+        try:
+            lg = []
+            for c, m in zip(cfgs, models):
+                amp = c["training"]["amp"] and device.type == "cuda"
+                with torch.autocast("cuda", enabled=amp):
+                    lg.append(m(prepare_batch(x, c, device)).float())
+            avg = torch.stack(lg).mean(dim=0)      # logit space, as measured offline
+            out.append(torch.sigmoid(avg).cpu().numpy())
+        except Exception as e:                     # a dead batch scores 0.5, run goes on
+            failed += k
+            print(f"  ⚠️  batch at study {done} failed ({type(e).__name__}: {e}) -> 0.5")
+            out.append(np.full((k, len(tasks)), 0.5, np.float32))
+        done += k
+        if report_every and done % report_every < k:
+            el = time.time() - t0
+            print(f"  … {done}/{n} studies  {el / max(done, 1):.1f}s each  "
+                  f"eta {fmt(el / max(done, 1) * (n - done))}", flush=True)
+    probs = np.concatenate(out) if out else np.zeros((0, len(tasks)))
+    print(f"  ✅ scored {len(probs)} studies with {len(models)} members in "
+          f"{fmt(time.time() - t0)}" + (f" ({failed} fell back to 0.5)" if failed else ""))
+    res = pd.DataFrame(probs, columns=tasks)
+    res.insert(0, "StudyInstanceUID", studies_df["StudyInstanceUID"].values)
+    return res
 
 
 def usable_cuda() -> bool:

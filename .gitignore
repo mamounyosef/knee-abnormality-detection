@@ -248,3 +248,7 @@ data/pretrained/
 
 # checkpoints stay on the Modal volume - hundreds of MB each
 runs/*/results/checkpoints/
+
+# built Kaggle bundles - weights are rebuilt from checkpoints on demand
+runs/others/ensembling/kaggle/
+runs/*/kaggle/
