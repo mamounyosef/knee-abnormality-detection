@@ -1,0 +1,58 @@
+==============================================================================
+LLM REPORT LABELING (stage 2)
+==============================================================================
+source text      : english
+studies labeled  : 23 of 29
+unique texts     : 29   API calls: 29
+retries/failures : 0 / 0
+tokens in/out    : 38,091 / 81,822
+wall clock       : 17.1 min
+unusable reports : 0
+
+mean predicted probability per finding (%):
+Medial Meniscus     52.5
+Effusion            52.3
+ACL                 49.7
+Contusion           49.0
+Synovitis           45.7
+Fracture            41.3
+Baker's             36.5
+Lateral Meniscus    35.0
+MCL                 32.6
+Medial OA           31.1
+PF OA               29.3
+Lateral OA          26.5
+
+fraction above 0.5 (%):
+Medial Meniscus     52.2
+ACL                 47.8
+Effusion            47.8
+Contusion           43.5
+Synovitis           34.8
+Fracture            34.8
+Lateral Meniscus    30.4
+MCL                 30.4
+Baker's             26.1
+Medial OA           21.7
+PF OA               17.4
+Lateral OA          13.0
+
+=== scored against the 23 official studies ===
+                  positives  mean_p_pos  mean_p_neg  auroc
+ACL                      11       0.938       0.092  1.000
+MCL                       3       0.913       0.238  0.967
+Medial Meniscus          11       0.853       0.225  0.894
+Lateral Meniscus          8       0.712       0.157  0.808
+Medial OA                 3       0.667       0.258  0.875
+Lateral OA                3       0.417       0.243  0.642
+PF OA                     8       0.569       0.147  0.900
+Effusion                 16       0.615       0.314  0.813
+Synovitis                12       0.567       0.336  0.780
+Baker's                   5       0.780       0.250  0.867
+Contusion                 7       0.800       0.354  0.835
+Fracture                 10       0.696       0.196  0.850
+
+MACRO AUROC = 0.8525
+keyword-matcher floor = 0.7003
+caveats: 58 studies carries roughly +/-0.05 of noise, and the labels are
+         image-derived, so perfect agreement is not attainable.

@@ -199,6 +199,7 @@ def main():
                          "Without it a second labeler would resume from, and append "
                          "to, the first one's checkpoint.")
     args = ap.parse_args()
+    global SYSTEM
 
     if args.tag:
         global OUT_CSV, OUT_JSONL, LOG_TXT
@@ -207,7 +208,23 @@ def main():
         LOG_TXT = LOG_TXT.with_name(f"03_labeling_log_{args.tag}.txt")
         print(f"[tag] outputs isolated as *_{args.tag}")
 
-    global SYSTEM
+    # Only Modal constrains decoding to SCHEMA. Ollama treats it as a hint, so models
+    # answer in whatever shape they like - gpt-oss:120b returns a markdown TABLE, and
+    # gemma4:31b changes between {probability, sentence} and [0.05, "sentence"] call to
+    # call. Spelling the contract out in the prompt is the only lever left there.
+    from llm_client import load_env as _le
+    if not _le().get("modal"):
+        SYSTEM = SYSTEM + (
+            "\n\nOUTPUT FORMAT - follow exactly, no exceptions:\n"
+            "Reply with ONE raw JSON object and nothing else. No prose, no explanation,\n"
+            "no markdown, no ``` fences, no table. The object must be:\n\n"
+            '{"unusable": false, "findings": {"ACL": {"p": 0.05, "evidence": "..."}, ...}}'+"\n\n"
+            "One entry per finding, using EXACTLY these 12 keys and no others:\n"
+            + ", ".join(LABELS)
+            + ("\nEach entry has exactly two fields: \"p\" (a number 0.0-1.0) and "
+               "\"evidence\" (the exact sentence you relied on, or an empty string).")
+        )
+
     if args.fewshot:
         blk = ROOT / "data_code" / "label_v2" / "fewshot_block.txt"
         if not blk.exists():
