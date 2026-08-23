@@ -1,0 +1,81 @@
+# Decorrelated ensemble member: RadImageNet ResNet-50 instead of ImageNet ConvNeXt.
+#
+# This is NOT expected to win standalone. ResNet-50 is an architecture generation
+# below ConvNeXt-Small and RadImageNet trained it at 224px; our baseline runs at 512.
+# It is here because ENSEMBLING is what pays next, and ensembling only pays when the
+# members make DIFFERENT mistakes. Checkpoint-averaging one run gave -0.0002 because
+# those errors were correlated; a different architecture with different pretraining
+# is the opposite case. The chest-xray-bench blend is the precedent: 0.9100 / 0.9067
+# / 0.9037 individually, 0.9174 blended.
+#
+# RadImageNet is also the only checkpoint anywhere with direct knee-MRI transfer
+# numbers - +4.8% AUC on ACL tear and +4.5% on meniscal tear over ImageNet (MRNet,
+# Radiology:AI 2022), two of our twelve findings.
+#
+# 1.35M CT/MRI/ultrasound images, 11 anatomies including musculoskeletal, 165
+# pathology labels, supervised. The 165-way head is dropped on load.
+
+experiment:
+  name: "radimagenet_resnet50"
+
+model:
+  name: "resnet50"                  # timm id. Fully convolutional, so 512px input needs
+                                    # no surgery even though pretraining was at 224.
+  pretrained: false                 # never fetch ImageNet weights - RadImageNet replaces them
+  weights: "RadImageNet_resnet50.pth"   # runs volume first, then data/pretrained/
+  pool: "mean"                      # unchanged from the baseline, so pooling is not a variable
+  drop_rate: 0.1
+  grad_checkpointing: false         # measured: 0.23 GB/image, so 384 images is ~87 GB
+
+training:
+  epochs: 10
+  grad_clip: 3.0
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-5                      # BACKBONE lr - same as convnext_small_4slot. RadImageNet
+                                    # is closer to knee MRI than ImageNet is, but it is also
+                                    # a weaker trunk, so it needs the full adaptation budget.
+    backbone_lr_mult: 0.5           # head = 1.0e-4
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05
+    min_lr_mult: 0.01
+  loss:
+    name: "bce"
+    pos_weight: null                # plain BCE, same as the baseline
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 4                     # VALIDATIONS without improvement, not epochs
+  extend:
+    enable: false                   # only if it ends still climbing, as mricore_vitb did
+
+dataloader:
+  # NOTE: ResNet-50 uses BATCH NORM, unlike every other run here (ConvNeXt and ViT are
+  # LayerNorm). So batch_size is NOT a free knob for this run - the normalisation
+  # statistics are computed across the images in each forward pass, so re-splitting
+  # the same effective batch DOES change the numbers. Resume it as it was launched.
+  batch_size: 4                     # 4 studies x 4 slots x 24 slices = 384 images @512.
+                                    # Measured 0.23 GB/image, so ~87 GB of the H200's 141.
+  accum_steps: 2                    # effective 8 studies per update - IDENTICAL to every
+                                    # other run, which is what keeps the comparison honest
+  val_batch_size: 8
+  num_workers: 24
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+modal:
+  gpu: "H200"
+  cpu: 16.0
+  memory_gb: 56
+
+# fresh run - inherits resume: "last" from shared_config
