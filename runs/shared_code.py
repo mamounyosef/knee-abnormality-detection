@@ -3492,7 +3492,9 @@ def build_kaggle_ensemble_assets(members: list, out_dir, kaggle_user: str,
 
     (out / "notebook" / "kernel-metadata.json").write_text(json.dumps({
         "id": f"{kaggle_user}/{notebook_slug}",
-        "title": title or f"knee ensemble submit ({len(members)})",
+        # kaggle slugifies the TITLE and 409s if it does not match the id, so derive
+        # the title from the slug rather than writing a prettier one
+        "title": notebook_slug.replace("-", " "),
         "code_file": "submit.ipynb", "language": "python", "kernel_type": "notebook",
         "is_private": True, "enable_gpu": True, "enable_internet": False,
         "machine_shape": "NvidiaTeslaT4",
