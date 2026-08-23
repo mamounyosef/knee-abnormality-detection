@@ -26,17 +26,19 @@ from pathlib import Path
 # MEMBER 0 OWNS THE LOADER: every member shares one DICOM decode pass, so they must
 # agree on slots / n_slices / size / mm_per_px / windowing. They may differ in
 # normalisation (MRI-CORE wants [0,1]) - that is applied per member, on GPU.
+# posweight is deliberately NOT here. Added to these three it moves val by 0.0000:
+# it is another ConvNeXt-Small on the same data as 4slot, so it makes the same
+# mistakes. mricore_vitb earns its slot by being the only different architecture.
 MEMBERS = [
     ("convnext_small_4slot", "best"),
     ("convnext_base_4slot", "best"),
-    ("convnext_small_posweight", "best"),
     ("mricore_vitb", "best"),
 ]
-PUBLISH      = False           # dry run first: build the bundle, upload nothing
+PUBLISH      = True            # push the dataset + notebook and submit
 WAIT_FOR_RUN = True            # poll until the notebook finishes, then submit
 KAGGLE_USER  = "mamounhussam"
-SLUG         = "knee-ensemble-4"      # dataset slug; notebook is <SLUG>-submit
-NOTE         = "4-member ensemble | val 0.8983 | audit58 0.8934"
+SLUG         = "knee-ensemble-3"      # dataset slug; notebook is <SLUG>-submit
+NOTE         = "3-model ensemble (small_4slot + base_4slot + mricore_vitb) | val 0.8983 | audit58 0.8923"
 # ===========================================================================
 
 PKG_ROOT = Path(__file__).resolve().parent.parent.parent      # <repo>/runs
