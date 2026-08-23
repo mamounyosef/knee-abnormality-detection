@@ -25,9 +25,10 @@ model:
   pool: "mean"                      # unchanged from the baseline, so pooling is not a variable
   drop_rate: 0.1
   drop_path_rate: 0.1               # stochastic depth - ViTs overfit small data without it
-  grad_checkpointing: true          # recompute activations in the backward pass. ViT-B at 512
-                                    # is 1024 tokens x 96 images per study; without this the
-                                    # activations do not fit even on a 141GB H200.
+  grad_checkpointing: false         # measured, not guessed: ViT-B at 512px costs 0.36 GB of
+                                    # activations per image, so a 96-image study is ~35 GB and
+                                    # two are ~71 GB of the H200's 141 GB. Checkpointing would
+                                    # buy headroom we do not need and cost ~30% of the speed.
 
 input:
   # MRI-CORE was trained on slices min-max normalized to [0,1], NOT ImageNet statistics.
@@ -64,12 +65,11 @@ training:
     patience: 4                     # VALIDATIONS without improvement, not epochs
 
 dataloader:
-  batch_size: 1                     # 1 study x 4 slots x 24 slices = 96 images @512 = 1024
-                                    # tokens each. ViT-B here is ~2.5x the FLOPs of
-                                    # ConvNeXt-Small, so halve the studies per forward pass.
-  accum_steps: 8                    # effective 8 studies per update - IDENTICAL to every
+  batch_size: 2                     # 2 studies x 4 slots x 24 slices = 192 images @512 = 1024
+                                    # tokens each, ~71 GB. Same split as convnext_small_posweight.
+  accum_steps: 4                    # effective 8 studies per update - IDENTICAL to every
                                     # ConvNeXt run, which keeps the comparison honest
-  val_batch_size: 2
+  val_batch_size: 4
   num_workers: 24
   val_num_workers: null
   prefetch_factor: 4
