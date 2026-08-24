@@ -23,7 +23,6 @@ Outputs, written to /data/stats/ on the volume AND downloaded to ./data/stats/:
     scan_summary.txt     human-readable summary of the whole scan
 
 Usage (pick the workspace FIRST — see modal_setup_commands.txt):
-    $env:MODAL_CONFIG_PATH = "$HOME\\.modal.toml"
     modal run modal_scripts/modal_scan_dicoms.py                    # everything
     modal run modal_scripts/modal_scan_dicoms.py --limit-studies 40 # smoke test
     modal run modal_scripts/modal_scan_dicoms.py::fetch_outputs     # re-download only
@@ -500,7 +499,7 @@ def main(limit_studies: int = 0, local_dir: str = "data/stats"):
     from pathlib import Path
 
     t0 = time.time()
-    print(f"[launch] workspace: {os.environ.get('MODAL_CONFIG_PATH', '<default>')}")
+    print("[launch] modal")
     index = build_index.remote(limit_studies)
     shards = [index[i:i + SHARD_SIZE] for i in range(0, len(index), SHARD_SIZE)]
     n_slices = sum(len(m) for _, ms in index for m in [ms])

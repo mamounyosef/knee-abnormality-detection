@@ -56,7 +56,7 @@ LABELS = ["ACL", "MCL", "Medial Meniscus", "Lateral Meniscus", "Medial OA",
           "Lateral OA", "PF OA", "Effusion", "Synovitis", "Baker's",
           "Contusion", "Fracture"]
 
-SYSTEM = """You are a musculoskeletal radiologist labeling knee MRI reports for a research dataset.
+SYSTEM_SOFT = """You are a musculoskeletal radiologist labeling knee MRI reports for a research dataset.
 
 You are given the full text of a knee MRI report. Output a probability (0.0-1.0) that each of
 12 findings is present in that knee, plus the exact sentence you relied on.
@@ -106,30 +106,142 @@ A report stating that everything is normal IS usable - it is informative and neg
 
 Probabilities must be genuine confidences, not only 0.0 or 1.0."""
 
-SCHEMA = {
-    "type": "object",
-    "properties": {
-        "unusable": {"type": "boolean"},
-        "findings": {
-            "type": "object",
-            "properties": {
-                k: {"type": "object",
-                    "properties": {"p": {"type": "number"},
-                                   "evidence": {"type": "string"}},
-                    "required": ["p", "evidence"], "additionalProperties": False}
-                for k in LABELS},
-            "required": LABELS, "additionalProperties": False,
-        },
-    },
-    "required": ["unusable", "findings"], "additionalProperties": False,
-}
+# ---------------------------------------------------------------------------
+# v2 of the soft prompt: Synovitis is the worst-scoring finding (0.832 at medium)
+# AND the one the labeler disagrees with itself on most (spread 0.059). It is also
+# the only finding whose rule carries no numbers - every other one has anchors.
+# This gives it the same wording ladder Effusion has.
+SYSTEM_SOFT_V2 = SYSTEM_SOFT.replace('''Synovitis - synovial thickening or enhancement, "reactive synovitis", hoffitis, bursitis with
+       synovial involvement. Chronic degenerative joints often have it even when unmentioned,
+       so a knee with advanced OA and an effusion should not score very low.''',
+'''Synovitis - synovial thickening or enhancement, "reactive synovitis", hoffitis, bursitis with
+       synovial involvement. This is the finding reports mention LEAST relative to how often
+       the panel sees it, so silence here is weak evidence of absence. Calibrate:
+         explicit "synovitis" / "synovial thickening" / "synovial
+             enhancement" / "synovial proliferation"                 -> 0.90
+         "hoffitis" / Hoffa's fat pad oedema / infrapatellar fat
+             pad inflammation                                        -> 0.80
+         bursitis described with a thickened or enhancing wall       -> 0.70
+         NOT mentioned, but advanced OA (grade 3-4 cartilage loss)
+             AND a moderate or large effusion                        -> 0.65
+         NOT mentioned, but a moderate or large effusion alone       -> 0.55
+         NOT mentioned, but advanced OA alone                        -> 0.50
+         NOT mentioned, and the knee is otherwise unremarkable
+             (no effusion, no substantial cartilage loss)            -> 0.30
+         explicitly "no synovitis" / "no synovial thickening"        -> 0.10''')
 
+# ---------------------------------------------------------------------------
+# HARD mode: the same task, but the model must COMMIT to 0 or 1 per finding.
+#
+# The panel's own 58 rows are hard 0/1, so this matches their format exactly. It is
+# NOT a strictly single-variable change against SYSTEM_SOFT, and the difference is
+# forced rather than chosen: a soft labeler can answer "0.4" on a report that never
+# mentions the finding, and a hard one cannot. It needs a tie-break rule, so the
+# prompt has to say which findings are common and which are rare. Read any hard-vs-soft
+# comparison with that in mind - two things move at once.
+#
+# The frequency buckets below are coarse on purpose. Exact per-finding rates would be
+# read off the 58 panel studies, which are also the evaluation set, and quoting them
+# would leak the answer sheet into the prompt.
+SYSTEM_HARD = """You are a musculoskeletal radiologist labeling knee MRI reports for a research dataset.
+
+You are given the full text of a knee MRI report. For each of 12 findings, output 1 if the
+finding is PRESENT in that knee and 0 if it is ABSENT, plus the exact sentence you relied on.
+
+CRITICAL CONTEXT: the reference labels were assigned by an expert panel who re-read the IMAGES,
+not the report. So judge what the knee most likely shows, given what the report describes.
+A report that is silent about a finding does NOT mean it is absent - it means unknown. You must
+still commit to 0 or 1. When the report gives you nothing either way, answer with whichever is
+more likely in a knee like this one, using the frequency guide at the bottom and any indirect
+evidence (a severely degenerative knee, a trauma history, the patient's age).
+
+DEFINITIONS AND DECISION RULES (recovered from the reference panel's own labeling):
+
+ACL  - anterior cruciate ligament tear/rupture, any grade including partial and interstitial.
+       Mucoid degeneration alone is NOT a tear -> 0. "Intact"/"normal" -> 0.
+MCL  - medial collateral ligament injury, including grade 1-2 sprain -> 1. Not the LCL.
+Medial Meniscus / Lateral Meniscus - a TEAR specifically -> 1. Degenerative signal that does
+       NOT reach the articular surface -> 0. Post-surgical resection or "marginal amputation"
+       without a new tear -> 0. Extrusion alone -> 0.
+Medial OA / Lateral OA / PF OA - osteoarthritis of that compartment, meaning substantial
+       CARTILAGE LOSS (grade 3-4 chondropathy, full-thickness defect, chondral ulcer,
+       bone-on-bone) -> 1. Marginal osteophytes alone, or mild fissuring/heterogeneity -> 0.
+       IMPORTANT: "tricompartmental osteoarthritis/chondrosis" without named compartments
+       -> 1 for ALL THREE. "Bicompartmental" -> infer which two from context. PF OA covers
+       the patella, patellar facets, trochlea and retropatellar cartilage.
+Effusion  - the panel counts an effusion only when there is a MODERATE or LARGE amount of
+       fluid, or haemarthrosis. Be strict: nearly every knee report mentions some fluid.
+         "trace" / "minimal" / "physiologic" / "small amount"        -> 0
+         "mild" / "small effusion"                                    -> 0
+         "moderate" / "distended suprapatellar bursa" / unqualified
+             "joint effusion"                                         -> 1
+         "large" / "massive" / "tense" / haemarthrosis                -> 1
+         explicitly "no effusion"                                     -> 0
+Synovitis - synovial thickening or enhancement, "reactive synovitis", hoffitis, bursitis with
+       synovial involvement -> 1. Chronic degenerative joints often have it even when it is
+       never mentioned, so a knee with advanced OA and a real effusion -> 1.
+Baker's   - popliteal / Baker's cyst -> 1. "No popliteal cyst" -> 0.
+Contusion - bone bruise / bone marrow oedema of TRAUMATIC origin, or muscle contusion -> 1.
+       Subchondral marrow oedema next to a degenerative cartilage defect -> 0. Subchondral
+       cystic change -> 0.
+Fracture  - a true fracture of bone, including insufficiency and avulsion fractures -> 1.
+       An osteochondral defect or OCD lesion alone -> 0.
+
+Set "unusable": true only if the report contains NO findings at all (an empty template).
+A report stating that everything is normal IS usable - it is informative and negative.
+
+WHEN THE REPORT IS SILENT, fall back on how common each finding is in this population:
+  common, present in roughly half of these knees   - Effusion, Synovitis
+  moderately common, roughly a third               - ACL, Medial Meniscus, Lateral Meniscus,
+                                                     PF OA, Contusion, Fracture
+  uncommon, well under a third                     - MCL, Medial OA, Lateral OA, Baker's
+This is a tie-break for genuine silence only. Never let it override what the report states.
+
+Every value must be exactly 0 or 1. Do not output any other number."""
+
+# the active prompt; main() swaps it for SYSTEM_HARD under --mode hard, and appends the
+# output contract / few-shot block on top. Kept under the old name so smoke.py and
+# anything else importing `SYSTEM` still resolves to the soft default.
+SYSTEM = SYSTEM_SOFT
+
+
+def _schema(hard: bool = False) -> dict:
+    """The JSON schema for one report's answer.
+
+    Modal constrains decoding to this, so in hard mode the enum is what actually stops
+    the model emitting 0.35 - the prompt alone would only be a suggestion.
+    """
+    p = ({"type": "integer", "enum": [0, 1]} if hard else {"type": "number"})
+    return {
+        "type": "object",
+        "properties": {
+            "unusable": {"type": "boolean"},
+            "findings": {
+                "type": "object",
+                "properties": {
+                    k: {"type": "object",
+                        "properties": {"p": p, "evidence": {"type": "string"}},
+                        "required": ["p", "evidence"], "additionalProperties": False}
+                    for k in LABELS},
+                "required": LABELS, "additionalProperties": False,
+            },
+        },
+        "required": ["unusable", "findings"], "additionalProperties": False,
+    }
+
+
+SCHEMA = _schema(False)
+SCHEMA_HARD = _schema(True)
+MODE = "soft"                      # set by main(); label() reads it
+
+
+_SNAPPED = [0]                     # hard-mode values the model returned off 0/1
 
 P_KEYS = ("p", "probability", "prob", "score", "value", "confidence")
 E_KEYS = ("evidence", "sentence", "quote", "text", "snippet")
 
 
-def _coerce(obj: dict) -> dict:
+def _coerce(obj: dict, hard: bool | None = None) -> dict:
     """Force any model's answer into {"unusable": bool, "findings": {label: {p, evidence}}}.
 
     Only Modal enforces the schema. Ollama treats it as a hint, so models invent their
@@ -154,11 +266,33 @@ def _coerce(obj: dict) -> dict:
             raise ValueError(f"{k!r} has no probability; got {sorted(v)}")
         ev = next((v[a] for a in E_KEYS if a in v and v[a]), "")
         out[k] = {"p": min(1.0, max(0.0, float(p))), "evidence": str(ev)}
+    # hard mode: only Modal's constrained decoding actually enforces the 0/1 enum. An
+    # unconstrained endpoint will still hand back 0.35 sometimes, so snap - but count
+    # it, because a run full of snapped values is a soft run wearing a hard label.
+    if (MODE == "hard") if hard is None else hard:
+        for v in out.values():
+            if v["p"] not in (0.0, 1.0):
+                _SNAPPED[0] += 1
+                v["p"] = float(v["p"] >= 0.5)
     return {"unusable": bool(obj.get("unusable", False)), "findings": out}
 
 
-def label(text: str, effort: str = "low", timeout: int = 180) -> dict:
-    """One report -> 12 probabilities.
+def _one(text: str, effort: str, timeout: int, temperature: float,
+         max_tokens: int = 4000, thinking: bool = False) -> dict:
+    """A single pass over one report -> 12 probabilities."""
+    return _coerce(_extract_json(chat(
+        [{"role": "system", "content": SYSTEM},
+         {"role": "user", "content": f"KNEE MRI REPORT:\n\n{text}"}],
+        schema=(SCHEMA_HARD if MODE == "hard" else SCHEMA),
+        schema_name="knee_labels", effort=effort,
+        max_tokens=max_tokens, timeout=timeout, temperature=temperature,
+        chat_template_kwargs={"enable_thinking": True} if thinking else None)))
+
+
+def label(text: str, effort: str = "low", timeout: int = 180,
+          samples: int = 1, temperature: float = 0.0,
+          max_tokens: int = 4000, thinking: bool = False) -> dict:
+    """One report -> 12 probabilities, optionally averaged over `samples` passes.
 
     effort='low' by default: a successful call returns a complete 1,244-token
     labeled output in ~6s and spends ZERO reasoning tokens, so 'medium' bought
@@ -167,12 +301,42 @@ def label(text: str, effort: str = "low", timeout: int = 180) -> dict:
     The timeout is deliberately short. A request that hangs is occupying a
     container slot; failing fast and retrying is cheaper than waiting 10 minutes,
     and the checkpoint means a retry costs nothing already paid for.
+
+    SELF-CONSISTENCY (samples > 1): the same model on the same text disagrees with
+    itself on 3.3% of decisions - measured, not assumed, by relabeling 28 studies
+    whose text had not changed. That is pure generation variance, and it is larger
+    than every bias we went looking for and failed to find. Averaging N passes
+    shrinks it by about sqrt(N).
+
+    The SPREAD is kept too, and is arguably the more useful half: passes that
+    agree mark a finding the report genuinely determines, passes that scatter mark
+    one it does not. 51% of the residual error sits on findings the report never
+    mentions, and a single pass states those with false conviction.
     """
-    return _coerce(_extract_json(chat(
-        [{"role": "system", "content": SYSTEM},
-         {"role": "user", "content": f"KNEE MRI REPORT:\n\n{text}"}],
-        schema=SCHEMA, schema_name="knee_labels", effort=effort,
-        max_tokens=4000, timeout=timeout)))
+    if samples <= 1:
+        return _one(text, effort, timeout, temperature, max_tokens, thinking)
+
+    runs, errs = [], []
+    for _ in range(samples):
+        try:
+            runs.append(_one(text, effort, timeout, temperature, max_tokens, thinking))
+        except Exception as exc:                             # noqa: BLE001
+            errs.append(exc)
+    if not runs:                        # every pass failed - let the caller record it
+        raise errs[0]
+
+    out = {}
+    for k in LABELS:
+        ps = [r["findings"][k]["p"] for r in runs]
+        out[k] = {"p": float(sum(ps) / len(ps)),
+                  # widest disagreement between any two passes, per finding
+                  "spread": float(max(ps) - min(ps)),
+                  "samples": ps,
+                  # the evidence sentence from the first pass that actually cited one
+                  "evidence": next((r["findings"][k]["evidence"] for r in runs
+                                    if r["findings"][k]["evidence"]), "")}
+    return {"unusable": sum(r["unusable"] for r in runs) > len(runs) / 2,
+            "findings": out, "n_samples": len(runs)}
 
 
 def main():
@@ -193,13 +357,52 @@ def main():
                     help="with --validate, score ONLY the panel studies that are NOT "
                          "few-shot examples. Without it, --fewshot --validate scores "
                          "the model on its own prompt and means nothing.")
+    ap.add_argument("--thinking", action="store_true",
+                    help="send chat_template_kwargs={enable_thinking: true}. Gemma "
+                         "IGNORES the OpenAI-style `reasoning` field - its thinking "
+                         "lives in the chat template, so --effort alone does nothing "
+                         "for it (measured: identical output at medium and xhigh). "
+                         "Qwen is the opposite and uses --effort.")
+    ap.add_argument("--prompt", choices=["v1", "v2"], default="v1",
+                    help="v1 = the prompt that measured 0.9114 at effort=medium. "
+                         "v2 = v1 with numeric anchors added to the Synovitis rule.")
+    ap.add_argument("--max-tokens", dest="max_tokens", type=int, default=4000,
+                    help="completion budget per call. 4000 is ample at effort=low "
+                         "(measured 1,435 tokens), but reasoning tokens come out of "
+                         "the SAME budget: at effort=medium the model spent all 4000 "
+                         "reasoning and returned an empty reply, failing 48 of 58. "
+                         "Raise it to ~16000 for medium/xhigh. Truncated generations "
+                         "are still billed.")
+    ap.add_argument("--samples", type=int, default=1,
+                    help="self-consistency: label each report N times and average. "
+                         "The labeler disagrees with itself on 3.3%% of decisions, so "
+                         "N passes cut that by about sqrt(N). Costs N x the calls.")
+    ap.add_argument("--temperature", type=float, default=0.0,
+                    help="sampling temperature. Only meaningful with --samples > 1, "
+                         "where it is what makes the passes differ; 0.0 still varies a "
+                         "little but explores far less.")
+    ap.add_argument("--translations", default="",
+                    help="an alternative 02_reports_en_*.csv, layered OVER the default "
+                         "one. A study it does not cover keeps its original English "
+                         "text, so re-translating a subset changes only that subset.")
+    ap.add_argument("--mode", choices=["soft", "hard"], default="soft",
+                    help="soft = a probability per finding (the default, and what the "
+                         "corpus was labeled with). hard = commit to 0 or 1, matching the "
+                         "panel's own format. NOTE: hard labels cannot win an AUROC "
+                         "comparison - with two values almost every pair is a tie, worth "
+                         "0.5 each - so score them on balanced accuracy and F1 instead.")
     ap.add_argument("--tag", default="",
                     help="isolate this run's outputs, e.g. --tag gemma4-31b writes "
                          "03_report_labels_gemma4-31b.csv / _raw_gemma4-31b.jsonl. "
                          "Without it a second labeler would resume from, and append "
                          "to, the first one's checkpoint.")
     args = ap.parse_args()
-    global SYSTEM
+    global SYSTEM, MODE
+
+    MODE = args.mode
+    SYSTEM = (SYSTEM_HARD if MODE == "hard" else
+              (SYSTEM_SOFT_V2 if args.prompt == "v2" else SYSTEM_SOFT))
+    print(f"[mode] {MODE} labels | prompt {args.prompt}")
 
     if args.tag:
         global OUT_CSV, OUT_JSONL, LOG_TXT
@@ -214,15 +417,19 @@ def main():
     # call. Spelling the contract out in the prompt is the only lever left there.
     from llm_client import load_env as _le
     if not _le().get("modal"):
+        ex = ('{"unusable": false, "findings": {"ACL": {"p": 0, "evidence": "..."}, ...}}'
+              if MODE == "hard" else
+              '{"unusable": false, "findings": {"ACL": {"p": 0.05, "evidence": "..."}, ...}}')
+        val = ("the integer 0 or the integer 1, nothing else" if MODE == "hard"
+               else "a number 0.0-1.0")
         SYSTEM = SYSTEM + (
             "\n\nOUTPUT FORMAT - follow exactly, no exceptions:\n"
             "Reply with ONE raw JSON object and nothing else. No prose, no explanation,\n"
             "no markdown, no ``` fences, no table. The object must be:\n\n"
-            '{"unusable": false, "findings": {"ACL": {"p": 0.05, "evidence": "..."}, ...}}'+"\n\n"
-            "One entry per finding, using EXACTLY these 12 keys and no others:\n"
-            + ", ".join(LABELS)
-            + ("\nEach entry has exactly two fields: \"p\" (a number 0.0-1.0) and "
-               "\"evidence\" (the exact sentence you relied on, or an empty string).")
+            + ex + "\n\nOne entry per finding, using EXACTLY these 12 keys and no "
+            "others:\n" + ", ".join(LABELS) +
+            "\nEach entry has exactly two fields: 'p' (" + val + ") and 'evidence' "
+            "(the exact sentence you relied on, or an empty string)."
         )
 
     if args.fewshot:
@@ -242,6 +449,16 @@ def main():
             raise SystemExit(f"{EN_CSV} not found — run 02_translate_reports.py first")
         en = pd.read_csv(EN_CSV)[["StudyInstanceUID", "Report_en"]]
         train = train.merge(en, on="StudyInstanceUID", how="left")
+        if args.translations:
+            # layered, not swapped: the override file covers a subset, and every study
+            # outside it must keep the exact text the baseline run saw, or the
+            # comparison would move two things at once
+            alt = (pd.read_csv(args.translations)[["StudyInstanceUID", "Report_en"]]
+                   .dropna(subset=["Report_en"]).set_index("StudyInstanceUID")["Report_en"])
+            hit = train.StudyInstanceUID.map(alt)
+            print(f"[translations] {hit.notna().sum()} of {len(train)} studies overridden "
+                  f"from {Path(args.translations).name}")
+            train["Report_en"] = hit.fillna(train["Report_en"])
         train["text"] = train["Report_en"].fillna(train["Report"])
         n_fallback = int(train["Report_en"].isna().sum())
         if n_fallback:
@@ -287,7 +504,9 @@ def main():
     fh = OUT_JSONL.open("a", encoding="utf-8")
     consecutive_fails = 0
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        futs = {pool.submit(label, t, args.effort, args.timeout): t for t in uniq}
+        futs = {pool.submit(label, t, args.effort, args.timeout,
+                            args.samples, args.temperature, args.max_tokens,
+                            args.thinking): t for t in uniq}
         for i, fut in enumerate(as_completed(futs), 1):
             text = futs[fut]
             try:
@@ -346,24 +565,67 @@ def main():
     w(f"unusable reports : {int(out['unusable'].sum())}")
     w("\nmean predicted probability per finding (%):")
     w((out[LABELS].mean() * 100).round(1).sort_values(ascending=False).to_string())
+    if args.samples > 1:
+        # the spread is as much the point of self-consistency as the mean: findings the
+        # passes agree on are ones the report genuinely determines, findings they
+        # scatter on are the silent cells a single pass states with false conviction
+        sp = pd.DataFrame([{k: v.get("spread", 0.0) for k, v in res["findings"].items()}
+                           for res in results.values()
+                           if "spread" in next(iter(res["findings"].values()), {})])
+        if len(sp):
+            w(f"\ndisagreement across the {args.samples} passes (mean max-min):")
+            w(sp.mean().round(3).sort_values(ascending=False).to_string())
+            w(f"  overall mean spread {sp.values.mean():.3f} | "
+              f"cells that moved at all {(sp.values > 0).mean():.1%} | "
+              f"cells that moved more than 0.2 {(sp.values > 0.2).mean():.1%}")
+
     w("\nfraction above 0.5 (%):")
     w(((out[LABELS] > 0.5).mean() * 100).round(1).sort_values(ascending=False).to_string())
 
     if args.validate:
-        from sklearn.metrics import roc_auc_score
+        from sklearn.metrics import f1_score, roc_auc_score
         truth = df.set_index("StudyInstanceUID")[LABELS].astype(int)
         pred = out.set_index("StudyInstanceUID")[LABELS]
         common = truth.index.intersection(pred.index)
         truth, pred = truth.loc[common], pred.loc[common]
         aur = {c: (roc_auc_score(truth[c].values, pred[c].values)
                    if truth[c].nunique() > 1 else float("nan")) for c in LABELS}
+        # AUROC only ranks, so it is not comparable across modes: two distinct values
+        # makes almost every pair a tie, and a tie scores 0.5. Binarising the existing
+        # soft qwen24t labels at 0.5 costs 0.058 AUROC while leaving every DECISION
+        # identical. Balanced accuracy and F1 read the decisions instead, so they are
+        # what a hard run should be judged on - and they apply to a soft run too, at
+        # the same 0.5 cut.
+        hard = (pred.values >= 0.5).astype(float)
+        Y = truth.values.astype(float)
+        sens = (hard * Y).sum() / max(Y.sum(), 1)
+        spec = ((1 - hard) * (1 - Y)).sum() / max((1 - Y).sum(), 1)
+        bacc = {c: ((pred[c].values >= 0.5).astype(float) * truth[c].values).sum()
+                   / max(truth[c].sum(), 1) for c in LABELS}
+        f1 = {c: f1_score(truth[c].values, (pred[c].values >= 0.5).astype(int),
+                          zero_division=0) for c in LABELS}
+        brier = {c: float(((pred[c].values - truth[c].values) ** 2).mean()) for c in LABELS}
         w(f"\n=== scored against the {len(common)} official studies ===")
         w(pd.DataFrame({"positives": truth.sum(),
                         "mean_p_pos": [pred.loc[truth[c] == 1, c].mean() for c in LABELS],
                         "mean_p_neg": [pred.loc[truth[c] == 0, c].mean() for c in LABELS],
-                        "auroc": pd.Series(aur)}).round(3).to_string())
-        w(f"\nMACRO AUROC = {pd.Series(aur).mean():.4f}")
-        w("keyword-matcher floor = 0.7003")
+                        "auroc": pd.Series(aur),
+                        "recall": pd.Series(bacc),
+                        "f1": pd.Series(f1),
+                        "brier": pd.Series(brier)}).round(3).to_string())
+        w(f"\nMODE            = {MODE}")
+        w(f"MACRO AUROC     = {pd.Series(aur).mean():.4f}"
+          + ("   <- NOT comparable to a soft run; see below" if MODE == "hard" else ""))
+        w(f"MACRO F1        = {pd.Series(f1).mean():.4f}")
+        w(f"BALANCED ACC    = {(sens + spec) / 2:.4f}   (sens {sens:.3f} / spec {spec:.3f})")
+        w(f"BRIER           = {pd.Series(brier).mean():.4f}   (lower is better)")
+        if MODE == "hard":
+            w(f"snapped off 0/1 = {_SNAPPED[0]}   "
+              + ("(clean - the endpoint enforced the enum)" if not _SNAPPED[0]
+                 else "(endpoint did NOT enforce the enum; these were rounded, so this "
+                      "is partly a soft run in disguise)"))
+            w("compare a hard run on BALANCED ACC / F1, never on AUROC.")
+        w("keyword-matcher floor = 0.7003 AUROC")
         w("caveats: 58 studies carries roughly +/-0.05 of noise, and the labels are")
         w("         image-derived, so perfect agreement is not attainable.")
 

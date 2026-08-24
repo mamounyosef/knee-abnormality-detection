@@ -1,0 +1,102 @@
+# The relabel run: convnext_small_4slot, unchanged, trained on BETTER LABELS.
+#
+# convnext_small_4slot scored 0.8940 val / 0.8901 audit / 0.908 public LB on labels from
+# Qwen3.8-27B at the old prompt, which score 0.8952 against the 58-study expert panel.
+# This trains the identical model on labels from Qwen3.8-2.4T at reasoning effort=medium,
+# which score 0.9114 against the same panel - +0.0162, the only labeling change out of ten
+# tested that cleared the measured +/-0.008 noise floor (see other_md/outline.md).
+#
+# So the ONLY intended variable is the training target. Two things do move alongside it,
+# both deliberate and neither expected to matter:
+#   * 12 epochs instead of 10. The baseline ended still climbing, and mricore_vitb gained
+#     +0.0036 from exactly this.
+#   * H200 instead of A100-80GB, with batch 2 x accum 4 instead of 1 x 8. The EFFECTIVE
+#     batch is 8 either way, and ConvNeXt is LayerNorm, so unlike the BatchNorm ResNet in
+#     radimagenet_resnet50 this genuinely is a free speedup, not a change to the maths.
+#
+# READ THE VAL NUMBER WITH CARE: val holds the same 704 studies as the baseline, but their
+# LABELS were regenerated, so val here is scored against different targets than the
+# baseline's 0.8940. Only audit-58 (the panel's fixed 0/1 labels) and the public
+# leaderboard compare honestly.
+
+experiment:
+  name: "convnext_small_relabel"
+
+paths:
+  # Built with 05_make_splits.py --like="", which REUSES the baseline's train/val
+  # assignment. That flag exists because of this run: the splitter stratifies by label
+  # pattern, so relabeling on its own reshuffled 567 studies out of val and 546 back in,
+  # about 80% of the set. The run would then have differed in its targets AND in which
+  # studies it validates on. With --like it is 3,638 of the baseline's 3,639 training
+  # studies and all 704 val studies, byte-identical membership; the one missing study is
+  # a report the new labeler flagged unusable (an empty template).
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+  # Mean training target moved -0.045 per cell on average, almost all of it Effusion
+  # (0.586 -> 0.369): the tightened severity ladder reaching the corpus for the first
+  # time. Next largest are Synovitis -0.034, Medial OA -0.020, Lateral OA -0.019.
+  # audit_csv stays 05_audit58.csv: the panel's labels never change, which is what makes
+  # it the one honest comparison against the baseline (0.8901), alongside the 0.908 LB
+
+model:
+  name: "convnext_small.fb_in22k_ft_in1k"  # timm id: ConvNeXt-Small pretrained on ImageNet-22k
+  pretrained: true
+  pool: "mean"                      # how the 96 slice features collapse per study: mean | max | attn
+  drop_rate: 0.1                    # dropout in the head, mild regularization
+
+training:
+  epochs: 12                        # 10 in the baseline, which finished still improving
+  grad_clip: 1.0                    # cap gradient size so one bad batch can't blow up training
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-5                      # BACKBONE lr — the trunk is 99.9% of the weights
+    backbone_lr_mult: 0.5           # head = lr / 0.5 = 1.0e-4, twice the trunk. Knee MRI
+                                    # is far from ImageNet, so the trunk needs real adaptation
+    layer_decay: null               # layer-wise lr decay, e.g. 0.75: each layer down gets 75%
+                                    # of the one above. Replaces backbone_lr_mult when set.
+  scheduler:
+    name: "cosine"                  # learning rate warms up, then decays along a cosine curve
+    warmup_frac: 0.05
+    min_lr_mult: 0.01               # floor: ends at 1% of the base learning rate
+  loss:
+    name: "bce"                     # bce = binary cross-entropy | focal = focuses on hard cases
+                                    # aucm = pairwise surrogate for AUROC, the actual metric
+    pos_weight: null                # "auto" up-weights rare labels
+    focal_gamma: 2.0
+    aucm_margin: 1.0                # how far apart aucm pushes a positive from a negative
+    aucm_bce_mix: 0.1               # bit of bce mixed in, keeps the probabilities sane
+  early_stopping:                   # stop once val stops improving, saves GPU hours
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 4                     # VALIDATIONS without improvement, not epochs.
+                                    # With eval_every_steps that is several per
+                                    # epoch; the counter is only CHECKED at an
+                                    # epoch boundary.
+
+# CPU-side loading; decoding shards is the bottleneck, so keep workers busy
+dataloader:
+  batch_size: 2                     # 2 studies x 4 slots x 24 slices = 192 images @512.
+                                    # The baseline noted 2 studies "would sit on the edge"
+                                    # of an 80 GB A100; the H200's 141 GB has the room.
+  accum_steps: 4                    # effective 8 studies per update - IDENTICAL to the
+                                    # baseline's 1 x 8, so the optimizer sees the same
+                                    # thing and the step counts still line up
+  val_batch_size: 4                 # no backward pass, so inference holds ~7x less
+
+  num_workers: 24
+  val_num_workers: null             # null = same as num_workers
+
+  prefetch_factor: 4                # batches queued per worker
+  pin_memory: true                  # page-locked memory, faster CPU -> GPU copies
+  persistent_workers: true          # don't respawn workers every epoch
+  drop_last: false                  # keep the ragged final batch
+
+modal:
+  gpu: "H200"                       # 141 GB, and roughly 2x an A100 on this workload
+  cpu: 16.0                         # decoding npz is CPU-bound, so keep 24 workers fed
+  memory_gb: 56                     # 24 workers x prefetch 4 holding uint8 volumes
+
+# fresh run; "last" so a Modal preemption resumes instead of replaying from zero
+resume: "last"

@@ -21,7 +21,6 @@ Also collected, because they answer related questions cheaply:
   * StudyDescription            - free sanity check on protocol
 
 Usage (pick the workspace FIRST — see modal_setup_commands.txt):
-    $env:MODAL_CONFIG_PATH = "$HOME\\.modal.toml"
     modal run modal_scripts/modal_scan_patient_ids.py
 
 Outputs (downloaded automatically to ./data/stats/):

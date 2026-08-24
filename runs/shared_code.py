@@ -304,9 +304,9 @@ def allocate_run_id(results_dir, known=()) -> str:
     """Reserve the next free runNNN for this experiment.
 
     Called on THIS PC at launch, never inside the container: the number is then
-    passed into the run. `known` carries ids seen on the Modal volume so two
-    workspaces can't land on the same one. The reservation itself is an
-    exclusive-create, so two concurrent launches here can't collide either.
+    passed into the run. `known` carries ids already seen on the Modal volume, so a
+    relaunch can't reuse one. The reservation itself is an exclusive-create, so two
+    concurrent launches here can't collide either.
     """
     results_dir = Path(results_dir)
     lock_dir = results_dir / ".run_ids"            # markers only, never synced
@@ -329,7 +329,7 @@ def hardware_info(cfg: dict) -> dict:
 
     The config records what we REQUESTED; a run that silently landed on a different
     card, or fell back to CPU, would otherwise look identical in the summary. That
-    matters here because runs get handed across workspaces mid-flight.
+    matters here because runs get resumed on fresh hardware mid-flight.
     """
     m = cfg.get("modal", {}) or {}
     dl = cfg.get("dataloader", {}) or {}
@@ -355,28 +355,19 @@ def hardware_info(cfg: dict) -> dict:
 
 
 def workspace_name() -> str:
-    """Which Modal workspace this is, from MODAL_CONFIG_PATH + modal_setup_commands.txt."""
+    """Where this process is running: the Modal container, or the launching PC.
+
+    Deliberately NOT the account name. This value is written into results/.run_ids/*
+    and into training_summary.json, both of which are committed, and the account a job
+    happened to run under is nobody's business and tells you nothing about the run.
+    MODAL_WORKSPACE / MODAL_PROFILE still win if you have set one on purpose.
+    """
     ws = os.environ.get("MODAL_WORKSPACE") or os.environ.get("MODAL_PROFILE")
     if ws:
         return ws
-    m = re.search(r"modal_session(\d+)", os.environ.get("MODAL_CONFIG_PATH", ""))
-    if not m:
-        # MODAL_CONFIG_PATH only exists on the launching PC. Inside the container it
-        # is gone, so "local" would be exactly backwards - say so honestly instead.
-        return "modal-container" if os.environ.get("MODAL_TASK_ID") else "local"
-    try:
-        txt = (Path(__file__).resolve().parent.parent
-               / "modal_setup_commands.txt").read_text(encoding="utf-8-sig")
-        name = None
-        for line in txt.splitlines():
-            line = line.strip()
-            if line.startswith("#"):
-                name = line.lstrip("# ").rstrip(":").strip()
-            elif f".modal_session{m.group(1)}.toml" in line and name:
-                return name
-    except Exception:
-        pass
-    return f"session{m.group(1)}"
+    # MODAL_TASK_ID exists only inside a container, so "local" would be exactly
+    # backwards there - say which side of the wire we are on instead.
+    return "modal-container" if os.environ.get("MODAL_TASK_ID") else "local"
 
 
 def num_output_logits(cfg: dict) -> int:
@@ -2448,8 +2439,8 @@ def _sync_module():
 def launch_run_id(cfg: dict, exp_dir) -> str:
     """Allocate this launch's runNNN, here on the launching PC.
 
-    The volume is consulted too (a `modal volume ls`, no container), so two
-    workspaces can never hand out the same number.
+    The volume is consulted too (a `modal volume ls`, no container), so a number
+    already used remotely is never handed out again.
     """
     known = set()
     try:
@@ -2483,7 +2474,7 @@ def sync_back(cfg: dict, status: str = "", once: bool = True) -> None:
         sr = _sync_module()
         s = sr.session_from_env()
         if s is None:
-            print("  ⚠️  no MODAL_CONFIG_PATH - skipping the artifact sync")
+            print("  ⚠️  no modal profile selected - skipping the artifact sync")
             return
         print(f"\n  \U0001F504 syncing artifacts back ({status}) ...")
         sr.sync_session(s, cfg["experiment"]["name"])
@@ -2495,10 +2486,10 @@ def sync_back(cfg: dict, status: str = "", once: bool = True) -> None:
 def plot_after_run(cfg: dict, status: str = "") -> None:
     """Draw the training curves here on this PC, once the run has actually finished.
 
-    make_plots is off on Modal because the container only holds its own workspace's
-    CSV rows - a run handed across four workspaces would produce four partial curves.
-    By the time this runs the sync has merged every workspace's rows into the local
-    CSVs, so this is the only place the whole run can be drawn at all.
+    make_plots is off on Modal because a container only holds the CSV rows it wrote
+    itself - a run resumed several times would produce several partial curves. By the
+    time this runs the sync has merged them all into the local CSVs, so this is the
+    only place the whole run can be drawn at all.
 
     Only on "finished": a crashed or interrupted run gets picked up again later, and
     redrawing a half-run on every hand-off is noise.
@@ -3589,9 +3580,17 @@ if STRESS:
 # ONE decode pass shared by every member. Decoding is ~9s/study against <1s of GPU,
 # so looping predict_dicom per member would be ~4x9s = over the 9h cap; this is
 # ~9s + N x <1s. Averaging happens in logit space, as measured offline.
+import time as _time
+_t0 = _time.time()
 try:
     pred = sc.predict_dicom_ensemble(CFGS, MODELS, todo, plan, idx, files_by_series,
                                      batch_size=1)
+    # the 9h cap is enforced on the HIDDEN test set, which is larger than what runs
+    # here, so the number that has to be extrapolated is s/study, not the total
+    _el = _time.time() - _t0
+    _rate = _el / max(len(todo), 1)
+    print('INFERENCE  %.1f s for %d studies  =  %.2f s/study  |  9h cap fits ~%d studies'
+          % (_el, len(todo), _rate, int(9 * 3600 / max(_rate, 1e-9))))
     if not STRESS:
         out = sub[['StudyInstanceUID']].merge(pred, on='StudyInstanceUID', how='left')
         out[TASKS] = out[TASKS].astype(float).fillna(0.5).clip(0, 1)
@@ -3829,7 +3828,11 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
     cfg0, tasks = cfgs[0], cfgs[0]["tasks"]
     n = len(studies_df)
 
-    geo = ("slots", "n_slices", "size", "mm_per_px", "window", "window_pct", "channels")
+    # slice_context is a LOADER setting (KneeShardDataset._load fills the RGB channels
+    # with neighbours), not a prepare_batch one, so a 2.5D member cannot ride along on a
+    # duplicate-channel decode pass - it would silently score the wrong pixels.
+    geo = ("slots", "n_slices", "size", "mm_per_px", "window", "window_pct", "channels",
+           "slice_context", "slice_context_stride")
     for i, c in enumerate(cfgs[1:], 1):
         bad = [k for k in geo if c["input"].get(k) != cfg0["input"].get(k)]
         if bad:                                    # loud: a silent mismatch would score
@@ -4013,7 +4016,7 @@ def submission_message(cfg: dict, exp_dir) -> str:
     Both numbers come from val_log.csv, deliberately. training_summary.json used to
     supply the val score, and it is a per-side "latest" file that the sync would leave
     stale - which is how convnext_small_4slot went to Kaggle labelled val 0.8491 when
-    it had actually scored 0.8940. The CSV is merged across every workspace, so it is
+    it had actually scored 0.8940. The CSV is merged across every resumption, so it is
     the one source that is always complete.
 
     audit58 is the panel score AT the best-val checkpoint, not the audit's own best,
@@ -4075,11 +4078,17 @@ def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
     if not wait:
         return version
     print("\n  3/4 waiting for the kernel to finish")
+    # wall clock from "pushed" to "complete". Not the same as the kernel's own runtime
+    # (kaggle queues before it starts), but it is the only figure visible from here, and
+    # it upper-bounds the 9h cap. The notebook prints the real s/study inside its log.
+    wait_t0 = time.time()
     while True:
         st = _kaggle("kernels", "status", f"{user}/{notebook_slug}", quiet=True)
         low = st.lower()
         if "complete" in low:
-            print("      ✅ complete"); break
+            el = time.time() - wait_t0
+            print(f"      ✅ complete in {el / 60:.1f} min "
+                  f"({el / 3600:.2f} h of the 9 h cap, queue included)"); break
         if "error" in low or "cancel" in low:
             print(f"      ❌ {st.strip()}")
             print("      fetch the log with: kaggle kernels output "

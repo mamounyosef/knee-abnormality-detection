@@ -13,7 +13,6 @@ and injected as an ephemeral secret, so nothing needs pre-creating in each of
 the Modal workspace.
 
 Usage (pick the workspace FIRST — see modal_setup_commands.txt):
-    $env:MODAL_CONFIG_PATH = "$HOME\\.modal.toml"
     modal run --detach modal_scripts/modal_download.py               # csvs + full zip
     modal run modal_scripts/modal_download.py --csvs-only            # quick smoke test
     modal run modal_scripts/modal_download.py::verify                # inspect the volume
@@ -171,7 +170,7 @@ def verify():
 
 @app.local_entrypoint()
 def main(csvs_only: bool = False, skip_csvs: bool = False):
-    print(f"[launch] workspace config: {os.environ.get('MODAL_CONFIG_PATH', '<default>')}")
+    print("[launch] modal")
     if not skip_csvs:
         download_csvs.remote()
     if not csvs_only:

@@ -33,7 +33,6 @@ the slice normal), not by InstanceNumber or filename, so the stack is
 geometrically correct.
 
 Usage (pick the workspace holding the zip — see modal_setup_commands.txt):
-    $env:MODAL_CONFIG_PATH = "$HOME\\.modal.toml"
     modal run modal_scripts/modal_preprocess.py --limit-studies 20   # smoke test
     modal run --detach modal_scripts/modal_preprocess.py             # everything
     modal run modal_scripts/modal_preprocess.py::verify

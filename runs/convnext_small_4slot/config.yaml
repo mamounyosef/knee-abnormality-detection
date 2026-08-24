@@ -66,11 +66,8 @@ modal:
   cpu: 10.0                         # one core per dataloader worker; decoding npz is CPU-bound
   memory_gb: 32                     # 16 workers x prefetch 4 holding uint8 volumes
 
-# credits/preemption keep cutting this run short: session 3 stopped at 2900, session 4
-# reached 3900 before Modal preempted it, session 6 is now at 4300 of 4540. Checkpoints
-# were copied by hand onto each new workspace's knee-runs volume; this last stretch stays
-# on session 6, so there is nothing to move.
-# "last" rather than a step number: session 4 was preempted, restarted on the same input,
-# re-read the number here and replayed 1000 steps it had already done. Right now it
-# resolves to step4300.pt - 240 steps, ~20 min from the end.
+# Preemption kept cutting this run short, so it was resumed several times from the
+# checkpoints on the knee-runs volume.
+# "last" rather than a step number: a preempted restart re-read a hardcoded number here
+# and replayed 1000 steps it had already done. "last" resolves to whatever is newest.
 resume: "last"

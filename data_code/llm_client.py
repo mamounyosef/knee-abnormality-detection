@@ -82,19 +82,27 @@ def _session_id() -> str:
 
 
 def chat(messages, *, schema=None, schema_name="response", effort="medium",
-         max_tokens=4000, retries=8, timeout=900):
+         max_tokens=4000, retries=8, timeout=900, temperature=0.0,
+         chat_template_kwargs=None):
     """One chat completion. With `schema`, forces strict JSON-schema output.
 
     Retries on rate limits and 5xx with exponential backoff; raises on the last
     attempt so the caller can record the failure and continue.
     """
     cfg = load_env()
-    payload = {"model": cfg["model"], "messages": messages, "temperature": 0.0,
-               "max_tokens": max_tokens}
+    payload = {"model": cfg["model"], "messages": messages,
+               "temperature": float(temperature), "max_tokens": max_tokens}
     if not cfg.get("local"):
         # Modal-only knob. Ollama rejects unknown top-level fields, and a local
         # endpoint has no reasoning-effort setting to give it anyway.
         payload["reasoning"] = {"effort": effort}
+    if chat_template_kwargs:
+        # Gemma ignores `reasoning` entirely - its thinking is switched on inside the
+        # CHAT TEMPLATE, via enable_thinking. Measured: gemma-4-31B returned byte-identical
+        # output at effort=medium and effort=xhigh (21,089 vs 21,127 tokens) because the
+        # field was being dropped. vLLM also wants --reasoning-parser gemma4 on the server
+        # side to split the reasoning out of content.
+        payload["chat_template_kwargs"] = dict(chat_template_kwargs)
     if schema:
         payload["response_format"] = {
             "type": "json_schema",

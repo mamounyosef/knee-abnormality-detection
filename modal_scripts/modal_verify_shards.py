@@ -12,7 +12,6 @@ Before freeing the ~247 GiB archive we check EVERY shard, not a sample:
   * slice counts agree with the earlier full DICOM scan
 
 Usage:
-    $env:MODAL_CONFIG_PATH = "$HOME\\.modal.toml"
     modal run modal_scripts/modal_verify_shards.py
 """
 

@@ -1,7 +1,7 @@
 """
 plot_results.py — redraw this run's plots from the CSVs, no retraining.
 
-Handy after a sync pulls in rows from another workspace, or after tweaking a
+Handy after a sync pulls in new rows, or after tweaking a
 plot in shared_code.py.
 
     python runs/convnext_small_4slot/plot_results.py

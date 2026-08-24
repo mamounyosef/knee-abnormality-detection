@@ -9,6 +9,8 @@
 #       -Model "Qwen/Qwen3.8-27B" -Tag qwen27b-newprompt
 #
 # Add -FewShot to prepend the calibration block. Add -Workers N (default 4).
+# Add -Mode hard for 0/1 labels instead of probabilities - note that a hard run
+# cannot be compared to a soft one on AUROC, only on balanced accuracy / F1.
 
 param(
   [Parameter(Mandatory=$true)][string]$Url,
@@ -18,7 +20,8 @@ param(
   [string]$Tag     = "modal-run",
   [int]$Workers    = 4,
   [int]$TimeoutSec = 600,
-  [switch]$FewShot
+  [switch]$FewShot,
+  [ValidateSet("soft","hard")][string]$Mode = "soft"
 )
 
 $ErrorActionPreference = "Stop"
@@ -49,7 +52,7 @@ Write-Host "  $base"
 Write-Host "  $Model`n"
 
 Write-Host "=== smoke test (1 call) ===" -ForegroundColor Cyan
-python -u data_code/label_v2/smoke.py
+python -u data_code/label_v2/smoke.py --mode $Mode
 if ($LASTEXITCODE -ne 0) {
   Write-Host "`nSMOKE TEST FAILED - not spending the batch." -ForegroundColor Red
   exit 1
@@ -58,7 +61,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "`n=== held-out 29 ===" -ForegroundColor Cyan
 $fs = @()
 if ($FewShot) { $fs = @("--fewshot") }
-python data_code/03_label_reports.py --validate --holdout @fs --tag $Tag --workers $Workers --timeout $TimeoutSec
+python data_code/03_label_reports.py --validate --holdout @fs --mode $Mode --tag $Tag --workers $Workers --timeout $TimeoutSec
 
 Write-Host "`n=== comparison ===" -ForegroundColor Cyan
 python data_code/label_v2/compare_labelers.py

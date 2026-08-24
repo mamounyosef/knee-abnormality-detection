@@ -60,13 +60,28 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--val-frac", type=float, default=0.15)
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--labels", default="03_report_labels.csv",
+                    help="which LLM label file to split, relative to data/. The "
+                         "relabelled corpus lives in 03_report_labels_qwen24t-med.csv.")
+    ap.add_argument("--like", default=None,
+                    help="reuse the train/val assignment from an existing split, given as "
+                         "its tag suffix ('' for the untagged 05_train.csv). Without it, "
+                         "new labels reshuffle the split and the run changes two things "
+                         "at once.")
+    ap.add_argument("--tag", default="",
+                    help="isolate the outputs as 05_train_<tag>.csv etc, so a new label "
+                         "set never silently overwrites the splits a finished run trained "
+                         "on. The SPLIT ITSELF is unchanged - same seed, same grouping - "
+                         "only the label columns differ.")
     args = ap.parse_args()
+    suf = f"_{args.tag}" if args.tag else ""
     rng = np.random.default_rng(args.seed)
 
     train = pd.read_csv(RAW / "train.csv")
     en = pd.read_csv(ROOT / "data" / "02_reports_en.csv")[
         ["StudyInstanceUID", "Report_en", "lang"]]
-    lab = pd.read_csv(ROOT / "data" / "03_report_labels.csv")
+    lab = pd.read_csv(ROOT / "data" / args.labels)
+    print(f"[labels] {args.labels}  ({len(lab)} studies)")
 
     df = (train[["StudyInstanceUID", "Report"] + LABELS]
           .rename(columns={c: f"official_{c}" for c in LABELS})
@@ -144,6 +159,25 @@ def main():
             taken += int(g.loc[i, "size"])
 
     pool["split"] = np.where(pool["group"].isin(val_groups), "val", "train")
+    if args.like is not None:
+        # Reuse an EXISTING split's train/val assignment instead of recomputing it.
+        #
+        # The split is stratified by label pattern, so changing the labels reshuffles it:
+        # relabeling with qwen2.4T moved 567 studies out of val and 546 into it, about 80%
+        # of the set. A run trained on that would differ from the baseline in both its
+        # targets AND which studies it validates on, which is two variables, not one.
+        # With --like, the only thing that changes is the label columns.
+        prev_tr = pd.read_csv(ROOT / "data" / f"05_train{args.like}.csv")
+        prev_va = pd.read_csv(ROOT / "data" / f"05_val{args.like}.csv")
+        assign = ({s: "train" for s in prev_tr.StudyInstanceUID}
+                  | {s: "val" for s in prev_va.StudyInstanceUID})
+        pool["split"] = pool.StudyInstanceUID.map(assign)
+        missing = int(pool["split"].isna().sum())
+        if missing:                       # a study the old split never saw: send it to train
+            pool["split"] = pool["split"].fillna("train")
+        w(f"[like] reused the split from 05_train{args.like}.csv / 05_val{args.like}.csv"
+          f"  ({missing} study(s) not in it -> train)")
+
     tr_df = pool[pool.split == "train"].copy()
     va_df = pool[pool.split == "val"].copy()
 
@@ -179,10 +213,12 @@ def main():
 
     # --- write ----------------------------------------------------------------
     keep = ["StudyInstanceUID", "lang", "group"] + LABELS
-    tr_df[keep].to_csv(ROOT / "data" / "05_train.csv", index=False)
-    va_df[keep].to_csv(ROOT / "data" / "05_val.csv", index=False)
+    tr_df[keep].to_csv(ROOT / "data" / f"05_train{suf}.csv", index=False)
+    va_df[keep].to_csv(ROOT / "data" / f"05_val{suf}.csv", index=False)
     audit_keep = (["StudyInstanceUID", "lang"] + [f"official_{c}" for c in LABELS]
                   + [c for c in LABELS if c in audit.columns])
+    # the audit is the PANEL's 0/1 labels, so it never changes with the LLM run -
+    # written untagged on purpose, so every run is scored against the same 58
     audit[audit_keep].to_csv(ROOT / "data" / "05_audit58.csv", index=False)
 
     w("\nwritten: data/05_train.csv  data/05_val.csv  data/05_audit58.csv")

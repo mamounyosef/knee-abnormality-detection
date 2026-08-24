@@ -12,7 +12,6 @@ member under its own module name.
 Runs entirely on THIS PC: it needs each member's best.pt synced locally, because a
 single Modal workspace does not hold every run. Pull any that are missing with
 
-    $env:MODAL_CONFIG_PATH = "$HOME\\.modal_session<N>.toml"
     python -m modal volume get knee-runs <run>/results/checkpoints/best.pt \\
         runs/<run>/results/checkpoints/best.pt
 
@@ -28,17 +27,25 @@ from pathlib import Path
 # normalisation (MRI-CORE wants [0,1]) - that is applied per member, on GPU.
 # posweight is deliberately NOT here. Added to these three it moves val by 0.0000:
 # it is another ConvNeXt-Small on the same data as 4slot, so it makes the same
-# mistakes. mricore_vitb earns its slot by being the only different architecture.
+# mistakes. mricore_vitb and radimagenet_resnet50 earn their slots by being the only
+# non-ConvNeXt architectures - radimagenet scores lowest solo (0.8799) and still adds
+# +0.0018 to the blend.
+#
+# convnext_small_25d is NOT here either, and not for a scoring reason: 2.5D is a
+# LOADER setting (neighbouring slices in the RGB channels), so it cannot share member
+# 0's decode pass. It would need a second pass over every DICOM to buy +0.0004 on val,
+# which is inside the noise. predict_dicom_ensemble now rejects it explicitly.
 MEMBERS = [
     ("convnext_small_4slot", "best"),
     ("convnext_base_4slot", "best"),
     ("mricore_vitb", "best"),
+    ("radimagenet_resnet50", "best"),
 ]
 PUBLISH      = True            # push the dataset + notebook and submit
 WAIT_FOR_RUN = True            # poll until the notebook finishes, then submit
 KAGGLE_USER  = "mamounhussam"
-SLUG         = "knee-ensemble-3"      # dataset slug; notebook is <SLUG>-submit
-NOTE         = "3-model ensemble (small_4slot + base_4slot + mricore_vitb) | val 0.8983 | audit58 0.8923"
+SLUG         = "knee-ensemble-4"      # dataset slug; notebook is <SLUG>-submit
+NOTE         = "4-model ensemble (small_4slot + base_4slot + mricore_vitb + radimagenet_resnet50) | val 0.9001 | audit58 0.8928"
 # ===========================================================================
 
 PKG_ROOT = Path(__file__).resolve().parent.parent.parent      # <repo>/runs

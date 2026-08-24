@@ -8,7 +8,7 @@
   "monitor": "val_macro_auroc",
   "hardware": {
     "gpu_requested": "H200",
-    "workspace": "modal-container",
+    "workspace": "modal",
     "cpu_requested": 16.0,
     "memory_gb_requested": 56,
     "num_workers": 24,

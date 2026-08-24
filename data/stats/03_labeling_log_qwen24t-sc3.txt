@@ -1,0 +1,77 @@
+==============================================================================
+LLM REPORT LABELING (stage 2)
+==============================================================================
+source text      : english
+studies labeled  : 33 of 58
+unique texts     : 58   API calls: 93
+retries/failures : 648 / 81
+tokens in/out    : 119,872 / 141,255
+wall clock       : 59.9 min
+unusable reports : 0
+
+mean predicted probability per finding (%):
+Effusion            52.9
+Contusion           51.5
+Lateral Meniscus    48.8
+ACL                 48.5
+Synovitis           48.1
+Medial Meniscus     40.9
+Fracture            36.9
+Baker's             35.7
+PF OA               31.0
+MCL                 29.9
+Medial OA           29.4
+Lateral OA          28.0
+
+disagreement across the 3 passes (mean max-min):
+Synovitis           0.050
+Lateral OA          0.045
+PF OA               0.043
+Contusion           0.043
+Medial OA           0.042
+Baker's             0.037
+Fracture            0.028
+ACL                 0.027
+Medial Meniscus     0.024
+Lateral Meniscus    0.024
+Effusion            0.024
+MCL                 0.015
+  overall mean spread 0.034 | cells that moved at all 44.7% | cells that moved more than 0.2 2.3%
+
+fraction above 0.5 (%):
+Effusion            48.5
+ACL                 45.5
+Contusion           45.5
+Lateral Meniscus    45.5
+Fracture            36.4
+Medial Meniscus     36.4
+Synovitis           33.3
+PF OA               30.3
+MCL                 27.3
+Lateral OA          24.2
+Medial OA           24.2
+Baker's             24.2
+
+=== scored against the 33 official studies ===
+                  positives  mean_p_pos  mean_p_neg  auroc  recall     f1  brier
+ACL                      13       0.912       0.208  0.975   0.923  0.857  0.093
+MCL                       4       0.932       0.211  0.931   1.000  0.615  0.129
+Medial Meniscus          13       0.775       0.171  0.946   0.769  0.800  0.116
+Lateral Meniscus         17       0.763       0.196  0.901   0.765  0.812  0.127
+Medial OA                 9       0.707       0.140  0.894   0.778  0.824  0.076
+Lateral OA                7       0.734       0.157  0.973   0.857  0.800  0.067
+PF OA                    12       0.656       0.112  0.988   0.917  0.957  0.073
+Effusion                 17       0.694       0.355  0.879   0.765  0.788  0.149
+Synovitis                15       0.660       0.332  0.889   0.667  0.741  0.158
+Baker's                   6       0.954       0.225  0.975   1.000  0.857  0.078
+Contusion                11       0.869       0.338  0.888   0.909  0.769  0.174
+Fracture                 12       0.657       0.204  0.883   0.667  0.667  0.175
+
+MODE            = soft
+MACRO AUROC     = 0.9268
+MACRO F1        = 0.7906
+BALANCED ACC    = 0.8448   (sens 0.809 / spec 0.881)
+BRIER           = 0.1178   (lower is better)
+keyword-matcher floor = 0.7003 AUROC
+caveats: 58 studies carries roughly +/-0.05 of noise, and the labels are
+         image-derived, so perfect agreement is not attainable.

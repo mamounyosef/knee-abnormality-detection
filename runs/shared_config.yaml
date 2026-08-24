@@ -160,7 +160,7 @@ output:
                                     # validation costs under a megabyte a run - and
                                     # makes checkpoint ensembling a local, GPU-free job
   make_plots: false                 # NOT on Modal: the container only has its own
-                                    # workspace's CSV rows, so it draws a partial curve.
+                                    # rows it produced itself, so it draws a partial curve.
                                     # Run plot_results.py locally instead - the local CSVs
                                     # are the merged history across every hand-off.
   plots_dir: "plots"

@@ -70,7 +70,7 @@ modal:
   cpu: 10.0                         # one core per dataloader worker; decoding npz is CPU-bound
   memory_gb: 32                     # 16 workers x prefetch 4 holding uint8 volumes
 
-# session 5 ran out of credits at step 3200 of 4540 (epoch 8, val 0.8927). step3200.pt,
-# best.pt and the top-4 weights were copied onto session 7's knee-runs volume by hand.
+# Interrupted at step 3200 of 4540 (epoch 8, val 0.8927); step3200.pt, best.pt and the
+# top-4 weights were carried over to finish it.
 # "last" rather than a step number so a Modal preemption resumes instead of replaying.
 resume: "last"

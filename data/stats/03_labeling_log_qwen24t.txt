@@ -2,57 +2,57 @@
 LLM REPORT LABELING (stage 2)
 ==============================================================================
 source text      : english
-studies labeled  : 29 of 29
+studies labeled  : 58 of 58
 unique texts     : 29   API calls: 29
 retries/failures : 0 / 0
-tokens in/out    : 35,240 / 42,186
-wall clock       : 1.0 min
+tokens in/out    : 39,519 / 44,045
+wall clock       : 0.9 min
 unusable reports : 0
 
 mean predicted probability per finding (%):
-Medial Meniscus     56.6
-Effusion            54.9
-Synovitis           50.2
-ACL                 48.4
-Contusion           43.8
-Baker's             40.3
-Medial OA           38.1
-Lateral Meniscus    38.1
-Fracture            34.7
-MCL                 32.4
-PF OA               30.3
-Lateral OA          28.0
+Effusion            53.6
+ACL                 50.9
+Medial Meniscus     49.7
+Contusion           49.6
+Synovitis           49.4
+Lateral Meniscus    41.6
+Fracture            36.7
+Baker's             36.5
+Medial OA           31.9
+MCL                 31.2
+PF OA               31.1
+Lateral OA          27.6
 
 fraction above 0.5 (%):
-Medial Meniscus     55.2
-Effusion            51.7
-ACL                 44.8
-Lateral Meniscus    37.9
-Contusion           34.5
-Medial OA           34.5
-Baker's             34.5
-Synovitis           34.5
-Fracture            31.0
+Effusion            50.0
+ACL                 48.3
+Medial Meniscus     46.6
+Contusion           43.1
+Lateral Meniscus    39.7
+Fracture            34.5
+Synovitis           31.0
 MCL                 27.6
-PF OA               24.1
+Baker's             27.6
+Medial OA           24.1
+PF OA               22.4
 Lateral OA          20.7
 
-=== scored against the 29 official studies ===
+=== scored against the 58 official studies ===
                   positives  mean_p_pos  mean_p_neg  auroc
-ACL                      14       0.914       0.083  0.995
-MCL                       4       0.960       0.222  0.985
-Medial Meniscus          16       0.848       0.219  0.909
-Lateral Meniscus         11       0.732       0.167  0.854
-Medial OA                 8       0.846       0.204  0.952
-Lateral OA                7       0.590       0.182  0.766
-PF OA                    12       0.588       0.103  0.953
-Effusion                 22       0.635       0.279  0.857
-Synovitis                18       0.639       0.277  0.894
-Baker's                   9       0.844       0.205  0.914
-Contusion                 7       0.883       0.297  0.912
-Fracture                 11       0.712       0.124  0.919
+ACL                      24       0.936       0.207  0.974
+MCL                       9       0.949       0.195  0.973
+Medial Meniscus          26       0.865       0.198  0.942
+Lateral Meniscus         23       0.775       0.180  0.898
+Medial OA                15       0.757       0.167  0.919
+Lateral OA               11       0.633       0.193  0.830
+PF OA                    21       0.633       0.128  0.923
+Effusion                 35       0.667       0.337  0.857
+Synovitis                27       0.635       0.371  0.824
+Baker's                  12       0.873       0.232  0.924
+Contusion                19       0.873       0.313  0.894
+Fracture                 18       0.742       0.198  0.899
 
-MACRO AUROC = 0.9092
+MACRO AUROC = 0.9047
 keyword-matcher floor = 0.7003
 caveats: 58 studies carries roughly +/-0.05 of noise, and the labels are
          image-derived, so perfect agreement is not attainable.

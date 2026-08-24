@@ -1,0 +1,24 @@
+==============================================================================
+REPORT TRANSLATION (stage 1 of labeling)
+==============================================================================
+studies              : 30
+unique reports       : 30
+translated this run  : 30
+missing translations : 0
+API calls            : 30   retries 0   failures 0
+tokens in/out        : 17,494 / 28,429
+wall clock           : 0.8 min
+
+detected source language (per study):
+lang
+es    10
+tr     6
+hr     4
+el     3
+bg     3
+nl     2
+de     2
+
+length change, original -> English (characters):
+  original median 1174, English median 1176
+  suspiciously short translations (<50% of original): 0

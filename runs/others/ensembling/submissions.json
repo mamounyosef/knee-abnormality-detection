@@ -1,0 +1,41 @@
+{
+  "_note": "Ensembles have no training_summary.json of their own (they are not a run), so every ensemble submission is recorded here instead. Same fields as a run's `submission` block.",
+  "submissions": [
+    {
+      "members": [
+        "convnext_small_4slot",
+        "convnext_base_4slot",
+        "mricore_vitb"
+      ],
+      "submitted": "2026-08-23 16:37 UTC",
+      "public_score": 0.912,
+      "private_score": null,
+      "val": 0.8983,
+      "audit58": 0.8923,
+      "kernel": "mamounhussam/knee-ensemble-3-submit",
+      "kernel_version": 1,
+      "submission_ref": 55719956,
+      "runtime_seconds": null,
+      "notes": "First ensemble submission. +0.004 over the 0.908 convnext_small_4slot baseline; the val gain (+0.0043) carried to the leaderboard almost exactly."
+    },
+    {
+      "members": [
+        "convnext_small_4slot",
+        "convnext_base_4slot",
+        "mricore_vitb",
+        "radimagenet_resnet50"
+      ],
+      "submitted": "2026-08-23 21:53 UTC",
+      "public_score": 0.913,
+      "private_score": null,
+      "val": 0.9001,
+      "audit58": 0.8928,
+      "kernel": "mamounhussam/knee-ensemble-4-submit",
+      "kernel_version": 1,
+      "submission_ref": 55726041,
+      "runtime_seconds": 36.5,
+      "runtime": "36.5 s for the 3 public studies = 12.17 s/study. Heavily inflated: model load and CUDA init are amortized over only 3 studies. Even taken at face value the 9h cap fits ~2662 studies against the ~1300 in the real test set, so the rerun has ~2x headroom.",
+      "notes": "convnext_small_25d is deliberately absent. 2.5D is a LOADER setting (slice_context: neighbours), so it cannot share member 0's single DICOM decode pass - it would need a second pass to buy +0.0004 on val. predict_dicom_ensemble now rejects it explicitly instead of silently scoring the wrong pixels. Scored 0.913, the best leaderboard result so far: +0.001 over the 3-model. val moved +0.0018 for +0.001 LB, so the gain is real but small and well inside what one more member can be expected to give."
+    }
+  ]
+}

@@ -8,7 +8,7 @@
   "monitor": "val_macro_auroc",
   "hardware": {
     "gpu_requested": "H200",
-    "workspace": "modal-container",
+    "workspace": "modal",
     "cpu_requested": 16.0,
     "memory_gb_requested": 56,
     "num_workers": 24,
@@ -85,6 +85,6 @@
     "kernel_version": 1,
     "submission_ref": 55699834,
     "checkpoint": "best.pt (epoch 8, step 3200, val 0.892322)",
-    "notes": "0.909 vs convnext_small_4slot's 0.908 - inside noise. Flips sign against val, which had it 0.8923 vs 0.8940 (-0.0017). Two samples disagreeing on the direction says the true effect of pos_weight: auto_clamped is ~0, so it is neutral rather than a dead end - not carried into later runs, but a valid ensemble member as a genuinely different loss. Run crashed at epoch 9/10 when session 8 ran out of credit, at 3/4 patience with val and audit both falling; not resumed. Built and submitted locally from a best.pt pulled off the volume."
+    "notes": "0.909 vs convnext_small_4slot's 0.908 - inside noise. Flips sign against val, which had it 0.8923 vs 0.8940 (-0.0017). Two samples disagreeing on the direction says the true effect of pos_weight: auto_clamped is ~0, so it is neutral rather than a dead end - not carried into later runs, but a valid ensemble member as a genuinely different loss. Run crashed at epoch 9/10, at 3/4 patience with val and audit both falling; not resumed. Built and submitted locally from a best.pt pulled off the volume."
   }
 }

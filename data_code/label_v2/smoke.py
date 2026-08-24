@@ -11,6 +11,7 @@ Exit code 0 only if the reply parsed AND coerced into the 12-finding shape.
     python data_code/label_v2/smoke.py
 """
 
+import argparse
 import importlib.util
 import sys
 from pathlib import Path
@@ -30,25 +31,37 @@ REPORT = ("Mild joint effusion in the suprapatellar recess. The anterior cruciat
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--mode", choices=["soft", "hard"], default="soft",
+                    help="which of the labeler's two system prompts to test")
+    a = ap.parse_args()
+    lab.MODE = a.mode                    # label()/_coerce read this module global
+
     cfg = load_env()
     print(f"  endpoint : {cfg['base']}")
     print(f"  model    : {cfg['model']}")
     print(f"  auth     : {', '.join(cfg['headers'])}")
+    print(f"  mode     : {a.mode}")
 
-    system = lab.SYSTEM
+    system = lab.SYSTEM_HARD if a.mode == "hard" else lab.SYSTEM_SOFT
+    schema = lab.SCHEMA_HARD if a.mode == "hard" else lab.SCHEMA
     if not cfg.get("modal"):
         # same contract main() applies when the endpoint cannot enforce the schema
+        ex = ('{"unusable": false, "findings": {"ACL": {"p": 0, "evidence": "..."}, ...}}'
+              if a.mode == "hard" else
+              '{"unusable": false, "findings": {"ACL": {"p": 0.05, "evidence": "..."}, ...}}')
+        val = ("the integer 0 or the integer 1, nothing else" if a.mode == "hard"
+               else "a number 0.0-1.0")
         system += ("\n\nOUTPUT FORMAT - follow exactly, no exceptions:\n"
                    "Reply with ONE raw JSON object and nothing else. No prose, no "
-                   "markdown, no fences, no table.\n"
-                   '{"unusable": false, "findings": {"ACL": {"p": 0.05, "evidence": "..."}, ...}}\n'
-                   "Use EXACTLY these 12 keys: " + ", ".join(lab.LABELS) +
-                   '\nEach entry has exactly two fields: "p" (number 0.0-1.0) and "evidence".')
+                   "markdown, no fences, no table.\n" + ex +
+                   "\nUse EXACTLY these 12 keys: " + ", ".join(lab.LABELS) +
+                   "\nEach entry has exactly two fields: 'p' (" + val + ") and 'evidence'.")
 
     try:
         raw = chat([{"role": "system", "content": system},
                     {"role": "user", "content": f"KNEE MRI REPORT:\n\n{REPORT}"}],
-                   schema=lab.SCHEMA, schema_name="knee_labels", effort="low",
+                   schema=schema, schema_name="knee_labels", effort="low",
                    max_tokens=4000, timeout=300)
     except Exception as e:                                   # noqa: BLE001
         print(f"  REQUEST FAILED: {type(e).__name__}: {str(e)[:300]}")
@@ -58,7 +71,7 @@ def main() -> int:
     print(f"    {raw[:200]!r}")
 
     try:
-        out = lab._coerce(_extract_json(raw))
+        out = lab._coerce(_extract_json(raw), hard=(a.mode == "hard"))
     except Exception as e:                                   # noqa: BLE001
         print(f"\n  PARSE FAILED: {type(e).__name__}: {str(e)[:300]}")
         return 1
@@ -68,12 +81,17 @@ def main() -> int:
         print(f"    {k:18s} p={v['p']:.2f}  {v['evidence'][:52]}")
     # the two the report qualifies - a labeler that reads wording rather than keywords
     # puts Effusion low (the panel does not count "mild") and PF OA high
-    print(f"\n  sanity: Effusion={out['findings']['Effusion']['p']:.2f} (want <0.5, "
-          f"report says 'mild'), PF OA={out['findings']['PF OA']['p']:.2f} "
-          f"(want >0.6, full-thickness loss)")
+    eff, pf = out["findings"]["Effusion"]["p"], out["findings"]["PF OA"]["p"]
+    print(f"\n  sanity: Effusion={eff:.2f} (want <0.5, report says 'mild'), "
+          f"PF OA={pf:.2f} (want >0.6, full-thickness loss)")
+    if a.mode == "hard":
+        # a hard run whose values are not already 0/1 is a soft run being rounded, which
+        # would make the whole comparison meaningless - say so before spending the batch
+        print(f"  snapped off 0/1: {lab._SNAPPED[0]} of 12 "
+              + ("(endpoint IS enforcing the enum)" if not lab._SNAPPED[0]
+                 else "<- endpoint is NOT enforcing the enum"))
     print("  SMOKE OK")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

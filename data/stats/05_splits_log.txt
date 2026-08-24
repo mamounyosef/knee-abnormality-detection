@@ -5,11 +5,12 @@ studies loaded            : 4407
 with LLM labels           : 4407
 held out as audit set     : 58
 dropped unlabeled         : 0
-dropped unusable reports  : 6
-pool for train/val        : 4343
-distinct report texts     : 4213  (45 shared by >1 study)
+dropped unusable reports  : 7
+pool for train/val        : 4342
+distinct report texts     : 4212  (45 shared by >1 study)
+[like] reused the split from 05_train.csv / 05_val.csv  (0 study(s) not in it -> train)
 
-train studies             : 3639
+train studies             : 3638
 val studies               : 704  (16.2%)
 group overlap train/val   : 0   (must be 0)
 
@@ -23,41 +24,41 @@ en        39.7   36.8  -2.9
 es        15.5   15.1  -0.4
 fr         1.9    2.0   0.1
 hr         9.3    9.1  -0.2
-nl         3.4    3.6   0.2
+nl         3.3    3.6   0.3
 other      0.0    0.3   0.3
 tr        11.9   15.1   3.2
 
 --- label prevalence, fraction above 0.5 (%) ---
                   train_%  val_%  audit58_%  diff
-ACL                  17.7   16.2       41.4  -1.5
-MCL                  14.4   13.4       15.5  -1.0
+ACL                  17.0   15.6       41.4  -1.4
+MCL                  13.6   13.2       15.5  -0.4
 Medial Meniscus      40.0   37.4       44.8  -2.6
-Lateral Meniscus     14.6   14.2       39.7  -0.4
-Medial OA            21.9   20.6       25.9  -1.3
-Lateral OA           12.8   12.6       19.0  -0.2
-PF OA                26.3   27.0       36.2   0.7
-Effusion             59.7   59.5       60.3  -0.2
-Synovitis            22.0   20.2       46.6  -1.8
-Baker's              25.2   24.1       20.7  -1.1
-Contusion            15.5   13.8       32.8  -1.7
-Fracture              6.9    5.7       31.0  -1.2
+Lateral Meniscus     14.6   14.3       39.7  -0.3
+Medial OA            21.2   20.0       25.9  -1.2
+Lateral OA           11.9   12.6       19.0   0.7
+PF OA                26.4   27.7       36.2   1.3
+Effusion             27.5   26.1       60.3  -1.4
+Synovitis            17.6   17.5       46.6  -0.1
+Baker's              24.2   23.3       20.7  -0.9
+Contusion            14.4   11.5       32.8  -2.9
+Fracture              6.5    5.8       31.0  -0.7
 
-largest prevalence gap between train and val: 2.6 percentage points
+largest prevalence gap between train and val: 2.9 percentage points
 
 --- mean soft label (the actual training target) ---
                   train    val
-ACL               0.230  0.218
-MCL               0.182  0.175
+ACL               0.224  0.211
+MCL               0.177  0.172
 Medial Meniscus   0.431  0.398
-Lateral Meniscus  0.202  0.198
-Medial OA         0.301  0.286
-Lateral OA        0.225  0.217
-PF OA             0.332  0.327
-Effusion          0.586  0.575
-Synovitis         0.365  0.357
-Baker's           0.315  0.306
-Contusion         0.224  0.207
-Fracture          0.117  0.111
+Lateral Meniscus  0.201  0.198
+Medial OA         0.280  0.266
+Lateral OA        0.205  0.205
+PF OA             0.326  0.321
+Effusion          0.369  0.351
+Synovitis         0.331  0.326
+Baker's           0.312  0.305
+Contusion         0.219  0.201
+Fracture          0.119  0.114
 
 written: data/05_train.csv  data/05_val.csv  data/05_audit58.csv
 

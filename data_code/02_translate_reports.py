@@ -97,7 +97,22 @@ def main():
     ap.add_argument("--workers", type=int, default=16)
     ap.add_argument("--resume", action="store_true",
                     help="reuse translations already present in the output CSV")
+    ap.add_argument("--studies", default="",
+                    help="CSV with a StudyInstanceUID column; translate ONLY those. "
+                         "Used to re-translate a subset with a different model without "
+                         "paying for the other 4,200 reports.")
+    ap.add_argument("--tag", default="",
+                    help="isolate this run's outputs as 02_reports_en_<tag>.csv / "
+                         ".jsonl. Without it a second translator would resume from, "
+                         "and overwrite, the first one's work.")
     args = ap.parse_args()
+
+    global OUT_CSV, CKPT, LOG_TXT
+    if args.tag:
+        OUT_CSV = OUT_CSV.with_name(f"02_reports_en_{args.tag}.csv")
+        CKPT = CKPT.with_name(f"02_reports_en_{args.tag}.jsonl")
+        LOG_TXT = LOG_TXT.with_name(f"02_translation_log_{args.tag}.txt")
+        print(f"[tag] outputs isolated as *_{args.tag}")
 
     load_env()
     train = pd.read_csv(RAW / "train.csv")
@@ -122,6 +137,12 @@ def main():
             done.setdefault(r["Report"], {"translation": r["Report_en"],
                                           "language": r["lang"]})
         print(f"[resume] {len(done)} total after merging {OUT_CSV.name}")
+
+    if args.studies:
+        keep = set(pd.read_csv(args.studies)["StudyInstanceUID"])
+        before = len(train)
+        train = train[train.StudyInstanceUID.isin(keep)].reset_index(drop=True)
+        print(f"[studies] {before} -> {len(train)} studies from {args.studies}")
 
     uniq = [t for t in train["Report"].drop_duplicates().tolist() if t not in done]
     if args.limit:
