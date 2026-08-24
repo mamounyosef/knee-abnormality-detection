@@ -333,7 +333,9 @@ def hardware_info(cfg: dict) -> dict:
     """
     m = cfg.get("modal", {}) or {}
     dl = cfg.get("dataloader", {}) or {}
-    hw = {"gpu_requested": m.get("gpu"), "workspace": workspace_name(),
+    # runtime_side(), not workspace_name(): this dict is written into the COMMITTED
+    # training_summary.json, and which account a job landed on is nobody's business
+    hw = {"gpu_requested": m.get("gpu"), "workspace": runtime_side(),
           "cpu_requested": m.get("cpu"), "memory_gb_requested": m.get("memory_gb"),
           "num_workers": dl.get("num_workers"),
           "batch_size": dl.get("batch_size"), "accum_steps": dl.get("accum_steps")}
@@ -355,18 +357,40 @@ def hardware_info(cfg: dict) -> dict:
 
 
 def workspace_name() -> str:
-    """Where this process is running: the Modal container, or the launching PC.
+    """Which Modal workspace this is, from MODAL_CONFIG_PATH + modal_setup_commands.txt.
 
-    Deliberately NOT the account name. This value is written into results/.run_ids/*
-    and into training_summary.json, both of which are committed, and the account a job
-    happened to run under is nobody's business and tells you nothing about the run.
-    MODAL_WORKSPACE / MODAL_PROFILE still win if you have set one on purpose.
+    For the CONSOLE and for results/.run_ids/*, both of which stay on this PC - the
+    launch log lands in results/train_config/, and that plus .run_ids are git-ignored.
+    Never put this in a committed artifact: use runtime_side() for those.
     """
     ws = os.environ.get("MODAL_WORKSPACE") or os.environ.get("MODAL_PROFILE")
     if ws:
         return ws
-    # MODAL_TASK_ID exists only inside a container, so "local" would be exactly
-    # backwards there - say which side of the wire we are on instead.
+    m = re.search(r"modal_session(\d+)", os.environ.get("MODAL_CONFIG_PATH", ""))
+    if not m:
+        return runtime_side()
+    try:
+        txt = (Path(__file__).resolve().parent.parent
+               / "modal_setup_commands.txt").read_text(encoding="utf-8-sig")
+        name = None
+        for line in txt.splitlines():
+            line = line.strip()
+            if line.startswith("#"):
+                name = line.lstrip("# ").rstrip(":").strip()
+            elif f".modal_session{m.group(1)}.toml" in line and name:
+                return name
+    except Exception:
+        pass
+    return f"session{m.group(1)}"
+
+
+def runtime_side() -> str:
+    """Which side of the wire this is, with no account name in it.
+
+    training_summary.json is committed, so it gets this rather than workspace_name().
+    MODAL_TASK_ID exists only inside a container, so "local" would be exactly backwards
+    there - say which side we are on instead.
+    """
     return "modal-container" if os.environ.get("MODAL_TASK_ID") else "local"
 
 
