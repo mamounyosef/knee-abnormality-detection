@@ -265,13 +265,16 @@ data_code/label_v2/_cells.csv
 # every .env backup holds live Modal / Ollama credentials - never commit one
 .env*.bak
 
-# multi-workspace provisioning notes: local only
+# local provisioning and operator notes - never artifacts
 other_md/provisioning_agent_prompt.md
 modal_setup_commands.txt
 current_modal_commands.txt
 modal_scripts/pipeline.py
-modal_scripts/setup_workspace.ps1
+modal_scripts/setup_*.ps1
 modal_scripts/sync_runs.py
 
 # run-number reservation markers: local bookkeeping, never artifacts
 runs/*/results/.run_ids/
+
+# prediction dumps from cross-run analysis - regenerable, and large
+runs/others/**/*.npz

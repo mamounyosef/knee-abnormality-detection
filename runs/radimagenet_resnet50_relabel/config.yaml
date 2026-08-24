@@ -1,0 +1,98 @@
+# radimagenet_resnet50 retrained on the qwen-2.4T medium-effort labels. Nothing else changes:
+# same architecture, same hyper-parameters, same split membership.
+#
+# The precedent is convnext_small_relabel - the same swap on ConvNeXt-Small, worth
+# +0.004 on the leaderboard (0.908 -> 0.912) and +0.0134 on audit-58 (0.8901 -> 0.9035).
+# Beat: radimagenet_resnet50 scored val 0.8799 / audit 0.8690 on the old labels.
+#
+# The original peaked at epoch 11 of 12, also reached via a 6-epoch `extend`. 12 epochs
+# in one cosine covers that, and `extend` is disabled below.
+#
+# Ensembling the relabelled Small with the three OLD members gained nothing locally: the
+# old members aim at a different target distribution, so their errors do not complement.
+# The ensemble only pays again once every member shares a label set.
+
+experiment:
+  name: "radimagenet_resnet50_relabel"
+
+paths:
+  # Same --like split as convnext_small_relabel: byte-identical train/val MEMBERSHIP to
+  # the baseline, only the target values differ. audit_csv stays 05_audit58.csv - the
+  # panel labels never change, so it is the one honest cross-label-set comparison.
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+
+model:
+  name: "resnet50"                  # timm id. Fully convolutional, so 512px input needs
+                                    # no surgery even though pretraining was at 224.
+  pretrained: false                 # never fetch ImageNet weights - RadImageNet replaces them
+  weights: "RadImageNet_resnet50.pth"   # runs volume first, then data/pretrained/
+  pool: "mean"                      # unchanged from the baseline, so pooling is not a variable
+  drop_rate: 0.1
+  grad_checkpointing: false         # measured: 0.23 GB/image, so 384 images is ~87 GB
+
+training:
+  epochs: 12
+  grad_clip: 3.0
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-5                      # BACKBONE lr - same as convnext_small_4slot. RadImageNet
+                                    # is closer to knee MRI than ImageNet is, but it is also
+                                    # a weaker trunk, so it needs the full adaptation budget.
+    backbone_lr_mult: 0.5           # head = 1.0e-4
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05
+    min_lr_mult: 0.01
+  loss:
+    name: "bce"
+    pos_weight: null                # plain BCE, same as the baseline
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 4                     # VALIDATIONS without improvement, not epochs
+  # It ended still climbing: best score on the very LAST step of epoch 10/10, early
+  # stopping never fired. Same signature mricore_vitb had, where 6 more epochs on a
+  # fresh cosine bought +0.0036 and turned it into the best ensemble member.
+  extend:
+    enable: false
+    epochs: 6                       # epochs 11-16
+    lr: 7.0e-6                      # new PEAK. The old cosine ended at 1% of 5e-5 = 5e-7,
+                                    # so a plain resume would train on nothing. Well under
+                                    # the original peak: this is a nudge, not a restart.
+    warmup_frac: 0.03               # ~82 steps of re-warm after sitting at 5e-7
+    reset_optimizer: false          # keep the AdamW moments
+    reset_patience: true            # the extension gets its own 4 validations
+
+dataloader:
+  # NOTE: ResNet-50 uses BATCH NORM, unlike every other run here (ConvNeXt and ViT are
+  # LayerNorm). So batch_size is NOT a free knob for this run - the normalisation
+  # statistics are computed across the images in each forward pass, so re-splitting
+  # the same effective batch DOES change the numbers. Resume it as it was launched.
+  batch_size: 4                     # 4 studies x 4 slots x 24 slices = 384 images @512.
+                                    # Measured 0.23 GB/image, so ~87 GB of the H200's 141.
+  accum_steps: 2                    # effective 8 studies per update - IDENTICAL to every
+                                    # other run, which is what keeps the comparison honest
+  val_batch_size: 16                # measured 0.030 GB/image at inference (7.5x cheaper
+                                    # than training, nothing is stored for backward), so
+                                    # 1,536 images is ~47 GB - and it fits inside blocks the
+                                    # allocator already holds from the training step
+  num_workers: 24
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+modal:
+  gpu: "H200"
+  cpu: 16.0
+  memory_gb: 56
+
+# fresh run - inherits resume: "last" from shared_config

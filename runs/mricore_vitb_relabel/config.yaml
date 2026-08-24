@@ -1,0 +1,112 @@
+# mricore_vitb retrained on the qwen-2.4T medium-effort labels. Nothing else changes:
+# same architecture, same hyper-parameters, same split membership.
+#
+# The precedent is convnext_small_relabel - the same swap on ConvNeXt-Small, worth
+# +0.004 on the leaderboard (0.908 -> 0.912) and +0.0134 on audit-58 (0.8901 -> 0.9035).
+# Beat: mricore_vitb scored val 0.8850 / audit 0.8775 on the old labels.
+#
+# The original reached its best at epoch 16 and was STILL climbing, but it got there in
+# two stages: 10 epochs, then a 6-epoch `extend` on a second cosine. A fresh run has no
+# reason to repeat that - 16 epochs in ONE cosine anneals properly instead of restarting
+# mid-way, so `extend` is disabled below.
+#
+# Ensembling the relabelled Small with the three OLD members gained nothing locally: the
+# old members aim at a different target distribution, so their errors do not complement.
+# The ensemble only pays again once every member shares a label set.
+
+experiment:
+  name: "mricore_vitb_relabel"
+
+paths:
+  # Same --like split as convnext_small_relabel: byte-identical train/val MEMBERSHIP to
+  # the baseline, only the target values differ. audit_csv stays 05_audit58.csv - the
+  # panel labels never change, so it is the one honest cross-label-set comparison.
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+
+model:
+  name: "vit_base_patch16_224"      # timm skeleton; the weights below overwrite it entirely
+  pretrained: false                 # never fetch ImageNet weights - we load MRI-CORE instead
+  weights: "MRI_CORE_vitb.pth"      # looked up on the runs volume first, then data/pretrained/
+  pool: "mean"                      # unchanged from the baseline, so pooling is not a variable
+  drop_rate: 0.1
+  drop_path_rate: 0.1               # stochastic depth - ViTs overfit small data without it
+  grad_checkpointing: false         # measured, not guessed: ViT-B at 512px costs 0.36 GB of
+                                    # activations per image, so a 96-image study is ~35 GB and
+                                    # two are ~71 GB of the H200's 141 GB. Checkpointing would
+                                    # buy headroom we do not need and cost ~30% of the speed.
+
+input:
+  # MRI-CORE was trained on slices min-max normalized to [0,1], NOT ImageNet statistics.
+  # Feeding it ImageNet-standardised input would shift every activation off distribution.
+  norm_mean: [0.0, 0.0, 0.0]
+  norm_std:  [1.0, 1.0, 1.0]
+
+training:
+  epochs: 16
+  grad_clip: 3.0
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 3.0e-5                      # BACKBONE lr. Lower than the ConvNeXt runs' 5e-5: ViTs are
+                                    # less stable early, and this trunk is already in-domain,
+                                    # so it needs less moving than an ImageNet one did.
+    backbone_lr_mult: 0.5           # head = 6e-5
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.10               # doubled from 0.05 - ViT training is famously fragile in
+                                    # the first few hundred steps
+    min_lr_mult: 0.01
+  loss:
+    name: "bce"
+    pos_weight: "auto_clamped"      # carried over from convnext_small_posweight
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  # The 10-epoch run ended at 0.8814 with its BEST score on the very last step and
+  # early stopping never firing - it was still climbing, and its gap to the ConvNeXt
+  # baseline had closed monotonically from -0.0185 to -0.0126. So this continues it
+  # rather than retraining: same folder, same logs, weights and AdamW moments kept,
+  # a fresh cosine over 6 more epochs. Set enable: false to leave the run as it was.
+  extend:
+    enable: false
+    epochs: 6                       # epochs 11-16, ~2730 more steps
+    lr: 9.0e-6                      # new PEAK. The old cosine ended at 1% of 3e-5 = 3e-7,
+                                    # which is why a plain resume would do nothing. Slightly
+                                    # above the original peak because the run was clearly
+                                    # undertrained, not because it was diverging.
+    warmup_frac: 0.03               # ~55 steps of re-warm, so the jump back up to 4e-5
+                                    # does not shock weights that have been at 3e-7
+    reset_optimizer: false          # keep the moments - they are well-conditioned by now
+    reset_patience: true            # the extension gets its own 4 validations of rope
+
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 4                     # VALIDATIONS without improvement, not epochs
+
+dataloader:
+  batch_size: 4                     # 4 studies x 4 slots x 24 slices = 384 images @512 = 1024
+                                    # tokens each. Batch 2 measured 64 GB, so this lands near
+                                    # 128 GB of the H200's 141 GB - deliberately close to the
+                                    # edge to keep the GPU busy.
+  accum_steps: 2                    # effective 8 studies per update - IDENTICAL to every
+                                    # ConvNeXt run, which keeps the comparison honest
+  val_batch_size: 8                 # no backward pass: ~0.034 GB/image vs 0.36 training
+  num_workers: 24
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+modal:
+  gpu: "H200"
+  cpu: 16.0
+  memory_gb: 56
+  timeout_hours: 10                 # ViT-B at 512 is slower per step than ConvNeXt-Small;
+                                    # 8h was already close for the baseline
+
+# fresh run - inherits resume: "last" from shared_config
