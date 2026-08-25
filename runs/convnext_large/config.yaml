@@ -1,0 +1,96 @@
+# ConvNeXt-Large. Capacity, third attempt - and the first on labels good enough to
+# measure it.
+#
+# Base beat Small by +0.0008 on the OLD labels, which is why capacity was written off.
+# On the relabelled corpus that same gap is +0.0096 on audit-58 (0.9130 vs 0.9034) and
+# Base scored 0.918 on the leaderboard. Cleaner targets let the extra parameters do
+# something, so the earlier conclusion was an artifact of noisy labels. 88M -> 196M.
+#
+# The other reason to spend the run here rather than on more ensemble members:
+# convnext_base_relabel ALONE scores 0.918 against the 4-model ensemble's 0.919. Better
+# labels made the members more correlated, so the ensemble now adds +0.001 where it used
+# to add +0.005. A stronger single model is the lever that still moves.
+#
+# Note the name: no _relabel suffix. The qwen-2.4T labels are the default now.
+
+experiment:
+  name: "convnext_large"
+
+paths:
+  # Same --like split as convnext_small_relabel: byte-identical train/val MEMBERSHIP to the
+  # baseline, only the target values differ. Keeps this comparable to convnext_base_4slot
+  # (val 0.8944 / audit 0.8900) on everything except the labels.
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+  # audit_csv stays 05_audit58.csv - the panel labels never change, so it is the one
+  # honest cross-label-set comparison.
+
+model:
+  name: "convnext_large.fb_in22k_ft_in1k"  # timm id: ConvNeXt-Large pretrained on ImageNet-22k
+  pretrained: true
+  pool: "mean"                      # how the 96 slice features collapse per study: mean | max | attn
+  drop_rate: 0.1                    # dropout in the head, mild regularization
+
+training:
+  epochs: 12
+  grad_clip: 1.0                    # cap gradient size so one bad batch can't blow up training
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-5                      # BACKBONE lr — the trunk is 99.9% of the weights
+    backbone_lr_mult: 0.5           # head = lr / 0.5 = 1.0e-4, twice the trunk. Knee MRI
+                                    # is far from ImageNet, so the trunk needs real adaptation
+    layer_decay: null               # layer-wise lr decay, e.g. 0.75: each layer down gets 75%
+                                    # of the one above. Replaces backbone_lr_mult when set.
+  scheduler:
+    name: "cosine"                  # learning rate warms up, then decays along a cosine curve
+    warmup_frac: 0.05
+    min_lr_mult: 0.01               # floor: ends at 1% of the base learning rate
+  loss:
+    name: "bce"                     # bce = binary cross-entropy | focal = focuses on hard cases
+                                    # aucm = pairwise surrogate for AUROC, the actual metric
+    pos_weight: null                # "auto" up-weights rare labels
+    focal_gamma: 2.0
+    aucm_margin: 1.0                # how far apart aucm pushes a positive from a negative
+    aucm_bce_mix: 0.1               # bit of bce mixed in, keeps the probabilities sane
+  early_stopping:                   # stop once val stops improving, saves GPU hours
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 4                     # VALIDATIONS without improvement, not epochs.
+                                    # With eval_every_steps that is several per
+                                    # epoch; the counter is only CHECKED at an
+                                    # epoch boundary.
+
+# CPU-side loading; decoding shards is the bottleneck, so keep workers busy
+dataloader:
+  batch_size: 1                     # 1 study x 4 slots x 24 slices = 96 images @512.
+                                    # MEASURED: Small peaked at 92.6 GB and Base at 123.4
+                                    # of the H200's 141, both at batch 2. Large is 2.2x
+                                    # Base's parameters, so batch 2 would not fit - this
+                                    # is the first run here that has to drop to 1.
+  accum_steps: 8                    # effective 8 studies per update - IDENTICAL to every
+                                    # run before it, so the optimizer sees the same thing
+                                    # and the 454 steps/epoch still line up
+  val_batch_size: 2                 # no backward pass, but the forward activations still
+                                    # scale with the wider stages
+
+  num_workers: 26                   # batch 1 halves the per-step image demand, so the
+                                    # loader has more slack here than it did at Base -
+                                    # but the step count doubles, so keep the workers
+  val_num_workers: null             # null = same as num_workers
+
+  prefetch_factor: 4                # batches queued per worker
+  pin_memory: true                  # page-locked memory, faster CPU -> GPU copies
+  persistent_workers: true          # don't respawn workers every epoch
+  drop_last: false                  # keep the ragged final batch
+
+modal:
+  gpu: "H200"                       # 141GB, and ~1.7x the A100's throughput
+  cpu: 16.0                         # one core per dataloader worker, decoding npz is
+                                    # CPU-bound and the GPU is now fast enough to notice
+  memory_gb: 64                     # 24 workers x prefetch 4, and batch 2 doubles the
+                                    # bytes each queued batch holds
+
+# inherits resume: "last" from shared_config - the preemption-safe setting. On a fresh
+# volume there is nothing to resume, so this starts from scratch.

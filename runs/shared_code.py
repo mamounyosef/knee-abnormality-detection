@@ -613,7 +613,13 @@ class KneeShardDataset(Dataset):
         # random slice picks while training, fixed even spacing while evaluating
         self.mode = i["train_slice_sampling"] if train else i["slice_sampling"]
         self.margin = i.get("slice_margin", 0.0)
-        self.aug = cfg["augmentation"] if train and cfg["augmentation"]["enable"] else None
+        # augmentation is a TRAIN thing by default. eval_enable turns it on for the eval
+        # split too, which is only useful for test-time augmentation: score the same
+        # checkpoint several times under mild transforms and average. The eval rng below
+        # keys off self.seed, so a TTA pass just varies reproducibility.seed.
+        _aug_on = cfg["augmentation"]["enable"] and (
+            train or cfg["augmentation"].get("eval_enable", False))
+        self.aug = cfg["augmentation"] if _aug_on else None
         self.seed = int(cfg["reproducibility"]["seed"])
         # 2.5D: instead of copying one slice into 3 identical channels, fill them with
         # neighbouring slices of the SAME series, so the backbone sees through-plane

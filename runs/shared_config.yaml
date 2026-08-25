@@ -53,6 +53,9 @@ input:
 # train split only — random distortions so the model generalizes; p = chance per study
 augmentation:
   enable: true
+  eval_enable: false                # also augment the EVAL split. Only for test-time
+                                    # augmentation - leave false for any real run, or
+                                    # validation stops being reproducible.
   rotation:   {p: 0.3, deg: 10}
   translate:  {p: 0.3, frac: 0.05}
   scale:      {p: 0.3, range: [0.90, 1.10]}
