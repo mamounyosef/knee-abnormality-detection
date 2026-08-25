@@ -36,6 +36,25 @@
       "runtime_seconds": 36.5,
       "runtime": "36.5 s for the 3 public studies = 12.17 s/study. Heavily inflated: model load and CUDA init are amortized over only 3 studies. Even taken at face value the 9h cap fits ~2662 studies against the ~1300 in the real test set, so the rerun has ~2x headroom.",
       "notes": "convnext_small_25d is deliberately absent. 2.5D is a LOADER setting (slice_context: neighbours), so it cannot share member 0's single DICOM decode pass - it would need a second pass to buy +0.0004 on val. predict_dicom_ensemble now rejects it explicitly instead of silently scoring the wrong pixels. Scored 0.913, the best leaderboard result so far: +0.001 over the 3-model. val moved +0.0018 for +0.001 LB, so the gain is real but small and well inside what one more member can be expected to give."
+    },
+    {
+      "members": [
+        "convnext_small_relabel",
+        "convnext_base_relabel",
+        "mricore_vitb_relabel",
+        "radimagenet_resnet50_relabel"
+      ],
+      "submitted": "2026-08-25 12:27 UTC",
+      "public_score": 0.919,
+      "private_score": null,
+      "val": 0.911,
+      "audit58": 0.9125,
+      "kernel": "mamounhussam/knee-ensemble-4-relabel-submit",
+      "kernel_version": 1,
+      "submission_ref": 55770195,
+      "runtime_seconds": 486,
+      "runtime": "8.1 min push->kernel complete (0.14 h of the 9 h cap). FASTER than the single convnext_small_relabel submission (14.2 min) because all four members share one DICOM decode pass - only the forward passes multiply.",
+      "notes": "Same four architectures as the 0.913 ensemble, every member retrained on the qwen-2.4T medium-effort labels. +0.006 LB (0.913 -> 0.919), +0.0105 val, +0.0197 audit-58. The per-member gains were additive rather than redundant. Note convnext_base_relabel ALONE scored 0.918, so the ensemble now adds only +0.001 over its best member - the members have become more correlated as the labels improved."
     }
   ]
 }

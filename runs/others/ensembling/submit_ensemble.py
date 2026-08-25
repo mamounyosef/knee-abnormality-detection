@@ -36,16 +36,16 @@ from pathlib import Path
 # 0's decode pass. It would need a second pass over every DICOM to buy +0.0004 on val,
 # which is inside the noise. predict_dicom_ensemble now rejects it explicitly.
 MEMBERS = [
-    ("convnext_small_4slot", "best"),
-    ("convnext_base_4slot", "best"),
-    ("mricore_vitb", "best"),
-    ("radimagenet_resnet50", "best"),
+    ("convnext_small_relabel", "best"),
+    ("convnext_base_relabel", "best"),
+    ("mricore_vitb_relabel", "best"),
+    ("radimagenet_resnet50_relabel", "best"),
 ]
 PUBLISH      = True            # push the dataset + notebook and submit
 WAIT_FOR_RUN = True            # poll until the notebook finishes, then submit
 KAGGLE_USER  = "mamounhussam"
-SLUG         = "knee-ensemble-4"      # dataset slug; notebook is <SLUG>-submit
-NOTE         = "4-model ensemble (small_4slot + base_4slot + mricore_vitb + radimagenet_resnet50) | val 0.9001 | audit58 0.8928"
+SLUG         = "knee-ensemble-4-relabel"      # dataset slug; notebook is <SLUG>-submit
+NOTE         = "4-model RELABEL ensemble (small + base + mricore + radimagenet, all on qwen-2.4T labels) | val 0.9110 | audit58 0.9125"
 # ===========================================================================
 
 PKG_ROOT = Path(__file__).resolve().parent.parent.parent      # <repo>/runs

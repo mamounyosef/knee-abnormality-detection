@@ -1,0 +1,26 @@
+==============================================================================
+ENSEMBLE (prob-average, logit-space)  —  set=audit  images=58
+generated: 2026-08-25T15:15:46
+thresholds (F1/P/R/Spec): convnext_small_relabel/results/thresholds.json (MISSING)
+==============================================================================
+  ENSEMBLE mean AUROC=0.9125  AUPRC=0.8390  F1=0.7631  P=0.7679  R=0.7583  Spec=0.8794
+  per-class:
+    ACL                AUROC=0.9547  AUPRC=0.9349  F1=0.8980  P=0.8800  R=0.9167  Spec=0.9118  (thr=0.5000)
+    MCL                AUROC=0.8844  AUPRC=0.5117  F1=0.5600  P=0.4375  R=0.7778  Spec=0.8163  (thr=0.5000)
+    Medial Meniscus    AUROC=0.9603  AUPRC=0.9490  F1=0.8364  P=0.7931  R=0.8846  Spec=0.8125  (thr=0.5000)
+    Lateral Meniscus   AUROC=0.8621  AUPRC=0.8425  F1=0.6486  P=0.8571  R=0.5217  Spec=0.9429  (thr=0.5000)
+    Medial OA          AUROC=0.9783  AUPRC=0.9554  F1=0.8966  P=0.9286  R=0.8667  Spec=0.9767  (thr=0.5000)
+    Lateral OA         AUROC=0.8298  AUPRC=0.6322  F1=0.5455  P=0.5455  R=0.5455  Spec=0.8936  (thr=0.5000)
+    PF OA              AUROC=0.8584  AUPRC=0.8506  F1=0.7222  P=0.8667  R=0.6190  Spec=0.9459  (thr=0.5000)
+    Effusion           AUROC=0.9714  AUPRC=0.9810  F1=0.9041  P=0.8684  R=0.9429  Spec=0.7826  (thr=0.5000)
+    Synovitis          AUROC=0.8423  AUPRC=0.8363  F1=0.7037  P=0.7037  R=0.7037  Spec=0.7419  (thr=0.5000)
+    Baker's            AUROC=0.9728  AUPRC=0.9143  F1=0.7857  P=0.6875  R=0.9167  Spec=0.8913  (thr=0.5000)
+    Contusion          AUROC=0.9420  AUPRC=0.8838  F1=0.7727  P=0.6800  R=0.8947  Spec=0.7949  (thr=0.5000)
+    Fracture           AUROC=0.8931  AUPRC=0.7767  F1=0.4800  P=0.8571  R=0.3333  Spec=0.9750  (thr=0.5000)
+  --------------------------------------------------------------------------
+  members (own mean AUROC):
+    0.9034   convnext_small_relabel
+    0.9130   convnext_base_relabel
+    0.8889   mricore_vitb_relabel
+    0.8853   radimagenet_resnet50_relabel
+==============================================================================
