@@ -113,9 +113,13 @@ training:
     aucm_bce_mix: 0.1               # unused by aucm_official, kept for the other losses
   early_stopping:                   # stop once val stops improving, saves GPU hours
     enable: true
+    # 7, not 4. The head is reinitialized, so epoch 9 starts from a random classifier and
+    # needs room to climb back. The inherited best/bad from stage 1 are also reset when
+    # reinit_head fires - see shared_code - or stage 2 would start at bad=4 against a
+    # converged model's 0.9050 bar and die immediately.
     monitor: "val_macro_auroc"
     mode: "max"
-    patience: 4                     # VALIDATIONS without improvement, not epochs.
+    patience: 7                     # VALIDATIONS without improvement, not epochs.
                                     # With eval_every_steps that is several per
                                     # epoch; the counter is only CHECKED at an
                                     # epoch boundary.
