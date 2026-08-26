@@ -67,11 +67,20 @@ training:
     aucm_margin: 1.0                # how far apart aucm pushes a positive from a negative
     aucm_bce_mix: 0.1               # bit of bce mixed in, keeps the probabilities sane
   # keeps the weights AND the AdamW moments, hands the optimizer a fresh cosine at a
-  # much lower peak. 5e-5 -> 1e-5 is the same 5x cut the synthetic sweep used.
+  # much lower peak. The ratio was swept, not guessed - 5 aucm epochs from a converged
+  # bce model, 3 seeds, against the bce baseline:
+  #     1.00x +0.0014 | 0.50x +0.0133 | 0.20x +0.0222
+  #     0.10x +0.0253 | 0.05x +0.0266 | 0.02x +0.0257
+  # Flat from 0.02x to 0.10x, so 0.05x sits in the middle of the basin rather than on
+  # an edge. A 5x cut (0.20x) was the first guess and gives up a third of the gain.
+  #
+  # Duration barely matters: at a fixed 40-epoch budget, 2 aucm epochs already bought
+  # +0.0239 of the +0.0246 that 30 bought. 5 is chosen for margin, and early stopping
+  # will cut it short if it plateaus.
   extend:
     enable: true
     epochs: 5                       # epochs 9-13, ~2270 steps under the new loss
-    lr: 1.0e-5                      # NEW peak, a fifth of stage 1's 5e-5
+    lr: 2.5e-6                      # NEW peak = 0.05x stage 1's 5e-5
     warmup_frac: 0.03               # ~68 steps of re-warm so the loss swap is not a shock
     reset_optimizer: false          # the moments are well-conditioned by now
     reset_patience: true            # stage 2 gets its own 4 validations
