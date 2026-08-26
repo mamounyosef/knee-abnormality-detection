@@ -1047,6 +1047,42 @@ class AUCMarginLoss(nn.Module):
         return loss
 
 
+class AUCMOfficial(nn.Module):
+    """LibAUC's MultiLabelAUCMLoss, wired to this engine's conventions.
+
+    Faithful to the published setup, which our earlier `aucm` was NOT:
+      * the loss is libauc's own, min-max with learnable per-task a, b and dual alpha
+      * it is driven by PESG, not AdamW - see build_optimizer
+      * PESG finds the duals by attribute, so a/b/alpha/margin are re-exported here
+      * libauc takes PROBABILITIES, so sigmoid is applied before the call
+      * libauc masks with `1 == y_true`, so targets MUST be binary. Our soft LLM
+        targets would make every pos_mask all-zero and the loss silently meaningless,
+        so they are thresholded here. That is a real change to the objective and the
+        run config says so.
+    """
+
+    def __init__(self, n_tasks: int, margin: float = 1.0, thr: float = 0.5,
+                 imratio=None, version: str = "v1", device=None):
+        super().__init__()
+        from libauc.losses import MultiLabelAUCMLoss
+        self.inner = MultiLabelAUCMLoss(margin=margin, version=version,
+                                        imratio=imratio, num_labels=n_tasks,
+                                        device=device)
+        self.thr = float(thr)
+        self.margin = margin
+
+    # PESG does `self.a = loss_fn.a` etc, so they have to be reachable from the wrapper
+    @property
+    def a(self): return self.inner.a
+    @property
+    def b(self): return self.inner.b
+    @property
+    def alpha(self): return self.inner.alpha
+
+    def forward(self, logits, target):
+        return self.inner(torch.sigmoid(logits), (target > self.thr).float())
+
+
 def build_loss(cfg: dict, train_df: pd.DataFrame | None, device) -> nn.Module:
     """Plain or focal binary cross-entropy, optionally re-weighted for rare labels."""
     lc = cfg["training"]["loss"]
@@ -1065,6 +1101,11 @@ def build_loss(cfg: dict, train_df: pd.DataFrame | None, device) -> nn.Module:
         pw = torch.tensor(w, dtype=torch.float32, device=device)
     if lc["name"] == "focal":
         return FocalBCE(lc.get("focal_gamma", 2.0), pw).to(device)
+    if lc["name"] == "aucm_official":
+        return AUCMOfficial(len(cfg["tasks"]), lc.get("aucm_margin", 1.0),
+                            float(cfg.get("target", {}).get("hard_threshold", 0.5)),
+                            lc.get("aucm_imratio"), lc.get("aucm_version", "v1"),
+                            device).to(device)
     if lc["name"] == "aucm":
         return AUCMarginLoss(lc.get("aucm_margin", 1.0), lc.get("aucm_bce_mix", 0.1), pw).to(device)
     return nn.BCEWithLogitsLoss(pos_weight=pw)
@@ -1154,7 +1195,7 @@ def _print_llrd(groups: list, base_lr: float, layer_decay: float, top: int):
            ["depth", "what", "lr"], rows, "\U0001FA9C")
 
 
-def build_optimizer(model: nn.Module, cfg: dict):
+def build_optimizer(model: nn.Module, cfg: dict, loss_fn: nn.Module | None = None):
     """AdamW with two learning rates.
 
     `optimizer.lr` is the BACKBONE rate — the pretrained trunk is ~99.9% of the
@@ -1162,6 +1203,27 @@ def build_optimizer(model: nn.Module, cfg: dict):
     derived: head_lr = lr / backbone_lr_mult (mult 0.5 -> head runs 2x faster).
     """
     o = cfg["training"]["optimizer"]
+    # AUC-M is a min-max objective and libauc ships PESG for it: a proximal epoch
+    # stochastic gradient method that pulls the weights toward a periodically-reset
+    # reference point (epoch_decay), ascends the dual alpha with projection to
+    # non-negative, and drops the lr stagewise via update_regularizer. AdamW is not
+    # built for that saddle point - running the surrogate under AdamW is what the
+    # earlier convnext_base_aucm did, and it is NOT the published method.
+    # PESG reads a/b/alpha off loss_fn by attribute, so it has to be handed the loss.
+    if isinstance(loss_fn, AUCMOfficial):
+        from libauc.optimizers import PESG
+        pe = o.get("pesg", {}) or {}
+        opt = PESG(model.parameters(), loss_fn=loss_fn, lr=o["lr"],
+                   mode=pe.get("mode", "sgd"),          # 'sgd' as published, 'adam' also supported
+                   momentum=pe.get("momentum", 0.9),
+                   clip_value=pe.get("clip_value", 1.0),
+                   epoch_decay=pe.get("epoch_decay", 2e-3),   # = 1/gamma
+                   weight_decay=o.get("weight_decay", 1e-5),
+                   verbose=True, device=None)
+        print(f"  🔁 PESG  lr={o['lr']:.2e}  mode={pe.get('mode','sgd')}  "
+              f"epoch_decay={pe.get('epoch_decay', 2e-3)}  margin={loss_fn.margin}  "
+              f"weight_decay={o.get('weight_decay', 1e-5)}")
+        return opt
     lr = o["lr"]                                      # backbone
     mult = o.get("backbone_lr_mult", 1.0) or 1.0      # 0 would divide by zero
     head_lr = lr / mult
@@ -1834,12 +1896,23 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     ], "\U0001F9F1")
 
     loss_fn = build_loss(cfg, train_df, device)
-    opt = build_optimizer(model, cfg)
+    opt = build_optimizer(model, cfg, loss_fn)
     accum = accum_steps(cfg)
     steps_per_epoch = max(1, len(loaders["train"]) // accum)
     total = steps_per_epoch * epochs
-    sched = build_scheduler(opt, cfg, total)
-    warm = warmup_steps(cfg, total)
+    _pesg = isinstance(loss_fn, AUCMOfficial)
+    if _pesg:
+        # PESG decays the lr ITSELF, stagewise, inside update_regularizer(decay_factor).
+        # A cosine on top would fight it, so the schedule is a no-op here and the drops
+        # come from training.optimizer.pesg.decay_epochs instead - the way libauc's own
+        # CheXpert example runs it.
+        sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda _: 1.0)
+        warm = 0
+        print("  scheduler disabled: PESG owns the lr, dropping it at epochs "
+              f"{cfg['training']['optimizer'].get('pesg', {}).get('decay_epochs', [])}")
+    else:
+        sched = build_scheduler(opt, cfg, total)
+        warm = warmup_steps(cfg, total)
     perf = cfg["training"].get("perf", {})
     if device.type == "cuda" and perf.get("tf32", True):
         torch.backends.cuda.matmul.allow_tf32 = True
@@ -2163,6 +2236,12 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         print("\n" + "=" * 70)
         print(f"\U0001F4DA EPOCH {epoch}/{epochs}")
         print("=" * 70)
+        if _pesg:
+            _pe = cfg["training"]["optimizer"].get("pesg", {}) or {}
+            if epoch in set(_pe.get("decay_epochs", []) or []):
+                # averages the accumulated weights into the reference point AND divides
+                # the lr - both halves of libauc's stagewise step, not just an lr drop
+                opt.update_regularizer(decay_factor=float(_pe.get("decay_factor", 10)))
         _EPOCH.value = epoch          # workers seed their augmentation off this
         skip = resume_skip if epoch == start_epoch else 0
         smp = getattr(loaders["train"], "sampler", None)
@@ -2440,6 +2519,8 @@ def modal_image():
             .apt_install("libgl1", "libglib2.0-0")     # OpenCV needs these system libs
             .pip_install("torch", "torchvision", "timm", "numpy", "pandas",
                          "opencv-python-headless", "scikit-learn", "pyyaml", "wandb",
+                         "libauc",   # official AUCMLoss + PESG, training only
+
                          "matplotlib", "psutil", "pydicom")
             .add_local_dir(str(Path(__file__).parent), "/root/runs")
             # only the small split CSVs travel in the image; stats/ alone is 824 MB of
