@@ -1195,6 +1195,35 @@ def _print_llrd(groups: list, base_lr: float, layer_decay: float, top: int):
            ["depth", "what", "lr"], rows, "\U0001FA9C")
 
 
+class _NullScheduler:
+    """A scheduler that truly does nothing - PESG owns the learning rate.
+
+    LambdaLR(lambda: 1.0) is NOT a no-op: it recomputes lr = base_lr * 1.0 on every
+    step, so it silently reverts PESG's stagewise drop the instant it happens. Measured:
+    update_regularizer(3) took 0.01 -> 0.00333, and the next sched.step() put it back to
+    0.01. Both decays would have been dead and the run would have trained at a constant
+    lr while printing the drops.
+
+    Only three methods are ever called on a scheduler here: step, get_last_lr and
+    state_dict.
+    """
+
+    def __init__(self, opt):
+        self.opt = opt
+
+    def step(self, *a, **k):
+        return None
+
+    def get_last_lr(self):
+        return [g["lr"] for g in self.opt.param_groups]
+
+    def state_dict(self):
+        return {}
+
+    def load_state_dict(self, sd):
+        return None
+
+
 def build_optimizer(model: nn.Module, cfg: dict, loss_fn: nn.Module | None = None):
     """AdamW with two learning rates.
 
@@ -1906,7 +1935,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         # A cosine on top would fight it, so the schedule is a no-op here and the drops
         # come from training.optimizer.pesg.decay_epochs instead - the way libauc's own
         # CheXpert example runs it.
-        sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda _: 1.0)
+        sched = _NullScheduler(opt)
         warm = 0
         print("  scheduler disabled: PESG owns the lr, dropping it at epochs "
               f"{cfg['training']['optimizer'].get('pesg', {}).get('decay_epochs', [])}")
@@ -1926,8 +1955,8 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     scaler = torch.amp.GradScaler("cuda", enabled=cfg["training"]["amp"] and device.type == "cuda")
     imgs_per_batch = (train_batch_size(cfg) * len(cfg["input"]["slots"])
                       * cfg["input"]["n_slices"])
-    print(f"[setup] optimizer={cfg['training']['optimizer']['name']}  "
-          f"scheduler={cfg['training']['scheduler']['name']}  amp={scaler.is_enabled()}")
+    print(f"[setup] optimizer={'PESG' if _pesg else cfg['training']['optimizer']['name']}  "
+          f"scheduler={'none (PESG stagewise)' if _pesg else cfg['training']['scheduler']['name']}  amp={scaler.is_enabled()}")
     print(f"[setup] steps/epoch={steps_per_epoch}  total_steps={total}  accum={accum}  "
           f"images/optimizer-step={imgs_per_batch * accum}")
     _vbs, _vnw = val_loader_settings(cfg)
@@ -1944,8 +1973,18 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     prev_eval = {}                # each set's last metrics, for the printed deltas
     ext_state = {}                # the extension in progress, so a CRASH mid-extension
                                   # resumes the SAME one instead of starting another
-    ck = load_checkpoint(cfg.get("resume"), model, ckpt_dir, opt, sched, scaler,
-                         device, cfg_now=cfg)
+    # Under PESG neither the optimizer nor the scheduler state may be restored. Stage 1
+    # was AdamW + cosine over TWO param groups (backbone/head); PESG has one, and its
+    # no-op LambdaLR has one base_lr. Loading the old scheduler state makes base_lrs
+    # length 2 against one lambda, and get_lr() dies with "zip() argument 2 is longer
+    # than argument 1" on the first optimizer step. The weights are what we want from
+    # this checkpoint; the optimizer state belongs to a different algorithm.
+    ck = load_checkpoint(cfg.get("resume"), model, ckpt_dir,
+                         None if _pesg else opt, None if _pesg else sched,
+                         scaler, device, cfg_now=cfg)
+    if _pesg and ck:
+        print("  ↩️  weights only: PESG and its schedule start fresh, the "
+              "AdamW/cosine state is not portable")
     # The DAM paper's two-stage framework (sec 3.4) is explicit: the AUC stage starts
     # "for learning all layers with the last classifier layer RANDOMLY INITIALIZED", and
     # CheXpert sec 4.2.1 repeats it - "we replace the last classifier layer trained in
@@ -1963,15 +2002,6 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                         _sub.reset_parameters()
                         _done.append(f"{_n}.{type(_sub).__name__}")
         print(f"  🔄 head re-initialized for the AUC stage: {_done or 'NOTHING FOUND'}")
-        # A discarded head makes this a materially different model, so the inherited
-        # early-stopping state is not a fair bar. Stage 1 finished at best=0.9050 with
-        # bad=4; kept, stage 2 would have to beat a converged model's peak using a RANDOM
-        # head, within patience-minus-4 validations, and would be killed inside epoch 1.
-        best, best_epoch, bad = -math.inf, 0, 0
-        audit_best[:] = [-math.inf, 0]
-        audit_bad[0] = 0
-        print("  🔄 early-stopping state reset: the head is new, the old bar does "
-              "not apply")
         # PESG snapshots its proximal reference v_ref at construction. That snapshot was
         # taken before the reinit, so without this the proximal term would pull the fresh
         # head back toward the discarded one - quietly undoing the reinit.
@@ -2014,6 +2044,22 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         print(f"  ↩️  restored: best={best:.4f} @ epoch {best_epoch}  "
               f"patience={bad}/{es['patience']}  top_k={len(top_k_track)}  "
               f"elapsed={fmt(resumed_elapsed)}")
+
+        # AFTER the restore, because the block above reassigns best/bad from the
+        # checkpoint - doing this earlier is silently undone. A discarded head makes
+        # this a materially different model: stage 1's 0.9050 is not a bar a RANDOM
+        # classifier can clear inside `patience` validations, so the run would die in
+        # its first epoch. The stage also starts on a clean epoch rather than finishing
+        # stage 1's - best.pt was written mid-epoch and those 32 leftover steps belong
+        # to the old objective.
+        if cfg["training"].get("reinit_head"):
+            best, best_epoch, bad = -math.inf, 0, 0
+            audit_best[:] = [-math.inf, 0]
+            audit_bad[0] = 0
+            start_epoch, resume_skip = ck_epoch + 1, 0
+            print(f"  🔄 early-stopping state reset and epoch {ck_epoch} dropped: "
+                  f"new head, new objective, so the old bar and the half-finished epoch "
+                  f"do not carry. Starting clean at epoch {start_epoch}")
 
     # ---- extend: carry a FINISHED run on under a fresh lr curve ---------------
     # A plain resume restores the cosine schedule the checkpoint stopped under. Once
@@ -2379,11 +2425,14 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                 if dbg and (gstep % dbg == 0 or gstep == 1):
                     save_debug_batch(prepare_batch(x, cfg, device), cfg, dbg_dir,
                                      epoch, gstep, y, prefix=f"{run_id}_")
-                if gstep == 1:
+                if gstep == 1 and warm:
                     print(f"  🔥 warmup STARTED - lr ramps from 0 to base over "
                           f"{warm} step(s) ({cfg['training']['scheduler']['warmup_frac']:.0%} "
                           f"of {total})")
-                if gstep == warm:            # not elif: warm can be 1 on tiny runs
+                if gstep == 1 and not warm:
+                    print(f"  ▶️  no warmup: PESG holds lr at {lr_hi:.3e} until "
+                          f"update_regularizer drops it")
+                if warm and gstep == warm:   # not elif: warm can be 1 on tiny runs
                     print(f"  ✅ warmup COMPLETE at step {warm} - base lr reached "
                           f"(backbone {lr_lo:.3e}, head {lr_hi:.3e}); cosine decay begins")
                 if gstep % cfg["output"]["console_log_every"] == 0 or gstep == 1:
