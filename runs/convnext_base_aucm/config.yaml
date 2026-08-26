@@ -84,11 +84,25 @@ training:
     warmup_frac: 0.03               # ~68 steps of re-warm so the loss swap is not a shock
     reset_optimizer: false          # the moments are well-conditioned by now
     reset_patience: true            # stage 2 gets its own 4 validations
-  early_stopping:                   # stop once val stops improving, saves GPU hours
+  # OFF for stage 2, deliberately. It fired at epoch 10 of 13 and the stop was an
+  # artifact, not a verdict:
+  #   - stage 2 INHERITS the bar. reset_patience clears the counter but best stays at
+  #     stage 1's 0.9050, so stage 2 had to beat stage 1's peak within 4 validations.
+  #     Stage 1's own tail went 4 validations without managing that (0.9040, 0.9033,
+  #     0.9048, 0.9044), so it was judged by a rule it would have failed itself.
+  #   - the cosine never annealed. It stopped at step 4400 of ~5450, ~40% through,
+  #     where stage 1's best landed at ~80% through its own schedule.
+  #   - every run in this repo has a longest-below-best streak of exactly 4, so
+  #     patience 4 sits right on the noise floor.
+  # Patience raised from 4 to 8 rather than switched off. Note `bad` is restored from
+  # the checkpoint (shared_code ~1883) and the extension-start reset only fires once,
+  # so stage 2 resumes at bad=4 - 8 leaves 4 more validations against the ~5 left to
+  # reach epoch 13. Enough to see the anneal; it may still stop a validation short.
+  early_stopping:
     enable: true
     monitor: "val_macro_auroc"
     mode: "max"
-    patience: 4                     # VALIDATIONS without improvement, not epochs.
+    patience: 8                     # VALIDATIONS without improvement, not epochs.
                                     # With eval_every_steps that is several per
                                     # epoch; the counter is only CHECKED at an
                                     # epoch boundary.

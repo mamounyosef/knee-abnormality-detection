@@ -1948,7 +1948,13 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
 
         base_lr = float(cfg["training"]["optimizer"]["lr"])
         new_lr = ext_state.get("lr") if continuing else ext.get("lr")
-        if new_lr:
+        # `not continuing` matters. The ratio rescales initial_lr IN PLACE, and on a
+        # resume the optimizer state already comes back holding the extension's lr - so
+        # re-applying it multiplies the cut in a second time. A 5e-5 -> 2.5e-6 extension
+        # returned at 1.25e-7 after one hand-off, 20x under its own floor, and the run
+        # went flat while looking like it was training. Silent, and this repo hands off
+        # constantly. On a resume the restored optimizer is already correct.
+        if new_lr and not continuing:
             # scale every group by the same ratio, so whatever split build_optimizer
             # made (backbone_lr_mult, layer_decay) survives untouched
             ratio = float(new_lr) / base_lr
