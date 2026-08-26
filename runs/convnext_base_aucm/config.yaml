@@ -1,23 +1,30 @@
-# convnext_base_relabel with the loss swapped from binary cross-entropy to `aucm`,
-# a pairwise squared-hinge surrogate for AUROC. Nothing else changes.
+# Stage 2 of the protocol LibAUC actually documents: pretrain with a regular loss,
+# then FINETUNE with the AUROC surrogate at a SMALLER learning rate. This continues
+# convnext_base_relabel (val 0.9050 / audit 0.9130 / LB 0.918) rather than retraining.
 #
-# The reason: we train on BCE, which optimises calibrated probabilities, but we are
-# scored on macro AUROC, which is pure ranking and never applies a threshold. Optimising
-# the metric directly is the one untested axis left - capacity, resolution, 2.5D,
-# pooling, pos_weight, a 5th slot and every inference-side idea have all come back flat.
+# The lower lr is not a detail, it is the whole effect. Synthetic 12-task problem matched
+# to ours (weak signal, heavy noise, ~22% prevalence, 3 seeds, micro-batch 2, 40 epochs
+# of budget either way):
+#     bce only            0.9285 +- 0.0007
+#     aucm only           0.9314 +- 0.0017
+#     2-stage, SAME lr    0.9314 +- 0.0017   <- no better than aucm alone
+#     2-stage, LOWER lr   0.9524 +- 0.0006   <- +0.024 over bce
+# Training with aucm from scratch, which is what this run first did, throws away almost
+# all of it.
 #
-# Measured on a synthetic 12-task problem built to match ours (weak signal, heavy noise,
-# ~22% prevalence, 3 seeds), at OUR micro-batch of 2:
-#     bce 0.9285 +- 0.0007  |  aucm 0.9314 +- 0.0017
-# aucm wins at micro-batch 8 (+0.0050) and 32 (+0.0025) too, so the effect is not a
-# small-batch artifact.
+# Why the metric-aligned loss at all: we optimise binary cross-entropy but are scored on
+# macro AUROC, which is pure ranking and never applies a threshold. Every other axis -
+# capacity, resolution, 2.5D, pooling, pos_weight, a 5th slot, all five inference-side
+# ideas - has come back flat.
 #
-# Note the loss is computed per MICRO-batch, not per accumulated batch, so at batch_size
-# 2 it sees a summed pair weight of ~6.8 against ~135 for the effective batch of 8. That
-# is a real handicap and it was worth checking - but the synthetic run says the pairwise
-# gradient still beats BCE there, so it is not a blocker. The published AUC-M (learnable
-# per-task a/b, means instead of pairs) was implemented and tested as the alternative and
-# came out WORSE at batch 2 (0.8992), so it is deliberately not used.
+# The published AUC-M (learnable per-task a/b, class means instead of pairs) was
+# implemented against the LibAUC formulation and measured WORSE at our micro-batch of 2
+# (0.8992): means over two soft-weighted samples are too noisy and a/b chase it. The
+# pairwise hinge already in shared_code is the better fit here.
+#
+# SEEDING: this run has no history of its own. Copy convnext_base_relabel's best.pt to
+# convnext_base_aucm/results/checkpoints/last.pt on the runs volume before launching -
+# extend refuses to start without a checkpoint.
 
 experiment:
   name: "convnext_base_aucm"
@@ -53,12 +60,21 @@ training:
     warmup_frac: 0.05
     min_lr_mult: 0.01               # floor: ends at 1% of the base learning rate
   loss:
-    name: "aucm"                    # bce = binary cross-entropy | focal = focuses on hard cases
-                                    # aucm = pairwise surrogate for AUROC, the actual metric
+    name: "aucm"                    # the surrogate for the metric itself. Stage 2 only -
+                                    # stage 1 was convnext_base_relabel under plain bce
     pos_weight: null                # "auto" up-weights rare labels
     focal_gamma: 2.0
     aucm_margin: 1.0                # how far apart aucm pushes a positive from a negative
     aucm_bce_mix: 0.1               # bit of bce mixed in, keeps the probabilities sane
+  # keeps the weights AND the AdamW moments, hands the optimizer a fresh cosine at a
+  # much lower peak. 5e-5 -> 1e-5 is the same 5x cut the synthetic sweep used.
+  extend:
+    enable: true
+    epochs: 5                       # epochs 9-13, ~2270 steps under the new loss
+    lr: 1.0e-5                      # NEW peak, a fifth of stage 1's 5e-5
+    warmup_frac: 0.03               # ~68 steps of re-warm so the loss swap is not a shock
+    reset_optimizer: false          # the moments are well-conditioned by now
+    reset_patience: true            # stage 2 gets its own 4 validations
   early_stopping:                   # stop once val stops improving, saves GPU hours
     enable: true
     monitor: "val_macro_auroc"
