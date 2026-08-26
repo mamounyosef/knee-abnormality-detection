@@ -28,6 +28,21 @@
 # the labels themselves - so if this run loses, that is a confound to weigh before
 # blaming the loss.
 #
+# CHECKED AGAINST THE PAPER (Yuan et al., ICCV 2021, arXiv 2012.03173), not just the
+# library docs. Their CheXpert setup in sec 4.2.1 is the closest published analogue -
+# multi-label AUROC on medical images - and it differs from libauc's tutorials:
+#   * the last classifier layer is RANDOMLY REINITIALIZED before the AUC stage
+#   * weight decay lambda is set to 0 (PESG's epoch_decay is the regularizer)
+#   * the lr drops by 3x, not the tutorials' 10x (their melanoma study uses 2x)
+#   * gamma tuned over {1/300, 1/500, 1/800}; 1/500 -> epoch_decay 2e-3, used here
+#   * lr 0.1 there, 0.01 in their melanoma study; 0.01 here, on the gentler end
+# STILL NOT MATCHED, both deliberate:
+#   * margin m is TUNED in the paper over {0.1, 0.3, 0.5, 0.7, 1.0}; fixed at 1.0 here
+#     because a sweep is five runs. If this run is close but short, m is the first knob.
+#   * Batch Score Normalization (L2-normalizing the scores within a mini-batch before
+#     the loss) - sec 4.1 reports it helps, and libauc does not apply it for us. At our
+#     micro-batch of 2 a per-batch normalization would be mostly noise, so it is skipped.
+#
 # SEEDING: copy convnext_base_relabel/best.pt to
 # convnext_base_aucm_official/results/checkpoints/last.pt on the runs volume first.
 
@@ -50,6 +65,10 @@ model:
   drop_rate: 0.1                    # dropout in the head, mild regularization
 
 training:
+  reinit_head: true                 # paper sec 3.4 and 4.2.1: the AUC stage starts with
+                                    # the last classifier layer RANDOMLY INITIALIZED. The
+                                    # trunk is what stage 1 bought; the head is rebuilt by
+                                    # the AUC objective. Skipping this is not the method.
   epochs: 14
   grad_clip: 1.0                    # cap gradient size so one bad batch can't blow up training
   optimizer:
@@ -62,8 +81,13 @@ training:
       clip_value: 1.0               # libauc default
       epoch_decay: 2.0e-3           # = 1/gamma; the CheXpert example's gamma 500
       decay_epochs: [11, 13]        # update_regularizer fires here
-      decay_factor: 10              # libauc's recommended stagewise drop
-    weight_decay: 0.05
+      decay_factor: 3               # the PAPER's CheXpert value. libauc's tutorials say
+                                    # 10, but sec 4.2.1 decreases "by 3 times" and the
+                                    # melanoma study by 2 - both far gentler than 10
+    weight_decay: 0.0               # the PAPER sets lambda to 0 for CheXpert's AUC stage
+                                    # (sec 4.2.1). PESG's own epoch_decay proximal term is
+                                    # doing the regularizing here, so stacking L2 on top
+                                    # double-regularizes
     lr: 1.0e-2                      # PESG runs SGD-with-momentum, NOT AdamW, so an
                                     # AdamW-scale 5e-5 is meaningless here. libauc's
                                     # CheXpert example uses 0.1 training a DenseNet

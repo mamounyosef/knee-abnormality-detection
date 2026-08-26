@@ -1900,6 +1900,22 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     accum = accum_steps(cfg)
     steps_per_epoch = max(1, len(loaders["train"]) // accum)
     total = steps_per_epoch * epochs
+    # The DAM paper's two-stage framework (sec 3.4) is explicit: the AUC stage starts
+    # "for learning all layers with the last classifier layer RANDOMLY INITIALIZED", and
+    # CheXpert sec 4.2.1 repeats it - "we replace the last classifier layer trained in
+    # the first step by random weights". The pretrained trunk is what stage 1 is for; the
+    # head is deliberately thrown away so the AUC objective shapes it from scratch.
+    if cfg["training"].get("reinit_head") and ck:
+        _done = []
+        for _n in ("head", "classifier", "fc"):
+            _m = getattr(model, _n, None)
+            if isinstance(_m, nn.Module):
+                for _sub in _m.modules():
+                    if isinstance(_sub, (nn.Linear, nn.Conv2d)):
+                        _sub.reset_parameters()
+                        _done.append(f"{_n}.{type(_sub).__name__}")
+        print(f"  🔄 head re-initialized for the AUC stage: {_done or 'NOTHING FOUND'}")
+
     _pesg = isinstance(loss_fn, AUCMOfficial)
     if _pesg:
         # PESG decays the lr ITSELF, stagewise, inside update_regularizer(decay_factor).
