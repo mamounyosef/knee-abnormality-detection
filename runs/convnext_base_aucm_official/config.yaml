@@ -80,7 +80,8 @@ training:
       momentum: 0.9                 # libauc default
       clip_value: 1.0               # libauc default
       epoch_decay: 2.0e-3           # = 1/gamma; the CheXpert example's gamma 500
-      decay_epochs: [11, 13]        # update_regularizer fires here
+      decay_epochs: [12]            # one drop, late. At 1e-3 the head needs
+                                    # room at full lr before anything decays
       decay_factor: 3               # the PAPER's CheXpert value. libauc's tutorials say
                                     # 10, but sec 4.2.1 decreases "by 3 times" and the
                                     # melanoma study by 2 - both far gentler than 10
@@ -88,13 +89,20 @@ training:
                                     # (sec 4.2.1). PESG's own epoch_decay proximal term is
                                     # doing the regularizing here, so stacking L2 on top
                                     # double-regularizes
-    lr: 1.0e-2                      # PESG runs SGD-with-momentum, NOT AdamW, so an
-                                    # AdamW-scale 5e-5 is meaningless here. libauc's
-                                    # CheXpert example uses 0.1 training a DenseNet
-                                    # from ImageNet weights; this finetunes an already
-                                    # converged model, so 10x lower. THE one uncertain
-                                    # knob: if it diverges in epoch 9 drop to 1e-3, and
-                                    # pesg.mode "adam" restores familiar lr scales.
+    lr: 1.0e-3                      # the BOTTOM of the paper's grid {1e-1, 1e-2, 1e-3}.
+                                    # 1e-2 was tried first and wrecked the trunk: val ran
+                                    # 0.7037 -> 0.7745 -> 0.7975 -> 0.8110 -> 0.8143 ->
+                                    # 0.8149, plateauing ~0.82 against stage 1's 0.9050.
+                                    # A 12,300-param head relearning on intact features
+                                    # would snap back near 0.90 fast; settling 0.09 BELOW
+                                    # means the features themselves degraded.
+                                    #
+                                    # Why the paper's 0.1 does not transfer: their CE
+                                    # pretraining is 2 epochs at lr 1e-5, so the trunk is
+                                    # barely adapted and there is little to destroy. Ours
+                                    # is a converged 10-epoch model. Stage 1 also used
+                                    # AdamW at 5e-5, and PESG runs SGD - raw gradients,
+                                    # not normalized ones, so far larger real steps.
     backbone_lr_mult: 0.5           # head = lr / 0.5 = 1.0e-4, twice the trunk. Knee MRI
                                     # is far from ImageNet, so the trunk needs real adaptation
     layer_decay: null               # layer-wise lr decay, e.g. 0.75: each layer down gets 75%
