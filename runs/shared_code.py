@@ -934,11 +934,24 @@ class CSVLogger:
                         with open(self.path, newline="", encoding="utf-8") as fh:
                             old = next(csv.reader(fh), [])
                         if old and old != fields:
-                            print(f"  [warn] {self.path.name} has a different header, "
-                                  f"appending in its column order")
-                            fields = old
-                    except Exception:
-                        pass
+                            extra = [c for c in fields if c not in old]
+                            if extra:
+                                # The run now logs columns this file predates - a new loss
+                                # reporting its internals, say. Keeping the old header would
+                                # silently DROP them (extrasaction="ignore"), so widen the
+                                # file instead: rewrite it once with the union header and
+                                # blanks for the rows that never had these values.
+                                self._migrate(old, old + extra)
+                                fields = old + extra
+                                print(f"  📝 {self.path.name}: added {len(extra)} new "
+                                      f"column(s), existing rows back-filled blank")
+                            else:
+                                print(f"  [warn] {self.path.name} has a different header, "
+                                      f"appending in its column order")
+                                fields = old
+                    except Exception as e:
+                        print(f"  [warn] header check on {self.path.name} failed: "
+                              f"{type(e).__name__}: {e}")
                 self._f = open(self.path, "a", newline="", encoding="utf-8")
                 self._w = csv.DictWriter(self._f, fieldnames=fields, restval="",
                                          extrasaction="ignore")
@@ -948,6 +961,18 @@ class CSVLogger:
         except Exception as e:                # logging must never crash training
             print(f"  [warn] CSV log failed: {type(e).__name__}: {e}")
             self._f, self._w = None, None
+
+    def _migrate(self, old: list, new: list):
+        """Rewrite the CSV under a wider header, via a temp file so a kill cannot eat it."""
+        tmp = self.path.with_suffix(".migrating")
+        with open(self.path, newline="", encoding="utf-8") as fh, \
+                open(tmp, "w", newline="", encoding="utf-8") as out:
+            r = csv.DictReader(fh)
+            w = csv.DictWriter(out, fieldnames=new, restval="", extrasaction="ignore")
+            w.writeheader()
+            for row in r:
+                w.writerow(row)
+        tmp.replace(self.path)
 
     def close(self):
         try:
@@ -1081,6 +1106,58 @@ class AUCMOfficial(nn.Module):
 
     def forward(self, logits, target):
         return self.inner(torch.sigmoid(logits), (target > self.thr).float())
+
+    # a, b and alpha are LEARNED, and libauc holds them as bare requires_grad tensors
+    # rather than nn.Parameters - so model.state_dict() does not contain them and a
+    # plain resume would silently restart the loss's own state at zero while the
+    # weights carried on. a/b are the per-task positive/negative score means and alpha
+    # is the dual variable; losing them mid-run resets the min-max problem underneath a
+    # model that has already moved. Fetched by attribute so this works whichever type
+    # the installed libauc uses.
+    _STATE = ("a", "b", "alpha")
+
+    def state(self):
+        out = {}
+        for k in self._STATE:
+            t = getattr(self.inner, k, None)
+            if torch.is_tensor(t):
+                out[k] = t.detach().cpu().clone()
+        return out
+
+    def stats(self, tasks):
+        """Flat per-task scalars for the CSV: the objective's own internal state.
+
+        alpha is the dual. Pinned at 0 means the max player never engages and the loss
+        has collapsed to a plain squared error; growing without bound means the min-max
+        is diverging. b - a is the margin the model has actually opened between the
+        negative and positive score means, which is the quantity AUC-M is maximizing.
+        Without these a plateau is indistinguishable from a broken objective.
+        """
+        st = self.state()
+        row = {}
+        for k, v in st.items():
+            f = v.flatten()
+            row[f"aucm_{k}_mean"] = float(f.mean())
+            row[f"aucm_{k}_min"] = float(f.min())
+            row[f"aucm_{k}_max"] = float(f.max())
+            if len(f) == len(tasks):
+                for t, x in zip(tasks, f.tolist()):
+                    row[f"aucm_{k}__{t}"] = float(x)
+        a, b = st.get("a"), st.get("b")
+        if a is not None and b is not None and a.numel() == b.numel():
+            gap = (b - a).flatten()
+            row["aucm_gap_mean"] = float(gap.mean())
+            if len(gap) == len(tasks):
+                for t, x in zip(tasks, gap.tolist()):
+                    row[f"aucm_gap__{t}"] = float(x)
+        return row
+
+    def load_state(self, d):
+        for k, v in (d or {}).items():
+            t = getattr(self.inner, k, None)
+            if torch.is_tensor(t) and torch.is_tensor(v) and t.shape == v.shape:
+                with torch.no_grad():
+                    t.copy_(v.to(t.device))
 
 
 def build_loss(cfg: dict, train_df: pd.DataFrame | None, device) -> nn.Module:
@@ -1252,6 +1329,50 @@ def build_optimizer(model: nn.Module, cfg: dict, loss_fn: nn.Module | None = Non
         print(f"  🔁 PESG  lr={o['lr']:.2e}  mode={pe.get('mode','sgd')}  "
               f"epoch_decay={pe.get('epoch_decay', 2e-3)}  margin={loss_fn.margin}  "
               f"weight_decay={o.get('weight_decay', 1e-5)}")
+
+        # Per-layer rates, via gradients rather than param groups. PESG does not accept
+        # param groups at all - it walks the params expecting tensors and dies on a dict
+        # with "'dict' object has no attribute 'shape'" - so the usual two-lr split is
+        # unavailable. For SGD-with-momentum the update is linear in the gradient, so
+        # scaling a parameter's grad by c is exactly scaling its lr by c.
+        #
+        # Why it is needed: the AUC stage reinitializes the head, which leaves a RANDOM
+        # 1024->12 layer that needs a big lr, bolted onto a CONVERGED trunk that needs a
+        # tiny one. One flat rate cannot serve both, and both failures were measured:
+        #   lr 1e-2  head learns, trunk drifts   -> plateaus ~0.82
+        #   lr 1e-3  neither moves usefully      -> 0.4855 at the first validation
+        # So the head keeps optimizer.lr and everything under .backbone is scaled down.
+        #
+        # Only the gradient term is affected. PESG's proximal pull gamma*(v - v_ref) and
+        # its weight decay still act at full lr on the trunk - with gamma 2e-3 and wd 0
+        # that is a ~2e-5 nudge toward a reference we refresh anyway, not drift.
+        gs = float(pe.get("backbone_grad_scale", 1.0) or 1.0)
+        ld = pe.get("backbone_layer_decay")     # None -> flat scale across the whole trunk
+        bb = getattr(model, "backbone", None)
+        if gs != 1.0 and bb is not None:
+            def _scaler(c):
+                return lambda g: g * c
+            # gs caps the TOP of the trunk, and layer_decay walks it further down from
+            # there, so no backbone layer ever exceeds gs and the early ones get far less.
+            # Strictly more conservative than a flat gs, which is the point: the top of a
+            # converged trunk is the part most able to drift.
+            bd, nl = (_llrd_depths(bb) if ld else ({}, 1))
+            top = nl - 1
+            n, lo, hi = 0, float("inf"), 0.0
+            for q_name, q in bb.named_parameters():
+                if not q.requires_grad:
+                    continue
+                c = gs * (float(ld) ** (top - bd.get(q_name, top))) if ld else gs
+                q.register_hook(_scaler(c))
+                n += 1; lo = min(lo, c); hi = max(hi, c)
+            if ld:
+                print(f"  🔁 backbone grads x{hi:.3g} (top) down to x{lo:.3g} "
+                      f"(first layer), decay {ld} over {nl} depths, {n} tensors")
+                print(f"     effective trunk lr {o['lr'] * hi:.2e} .. {o['lr'] * lo:.2e} "
+                      f"against the head's {o['lr']:.2e}")
+            else:
+                print(f"  🔁 backbone grads x{gs:g} on {n} tensors -> effective "
+                      f"trunk lr {o['lr'] * gs:.2e} against the head's {o['lr']:.2e}")
         return opt
     lr = o["lr"]                                      # backbone
     mult = o.get("backbone_lr_mult", 1.0) or 1.0      # 0 would divide by zero
@@ -1325,10 +1446,112 @@ def _restore_rng(st: dict, device):
         print(f"  [warn] could not restore RNG: {type(e).__name__}: {e}")
 
 
+class UDRatio:
+    """log10 of the update-to-data ratio per weight matrix, the Karpathy diagnostic.
+
+    The usual form is log10(lr * grad.std() / param.std()), which assumes the step IS
+    lr*grad. Under PESG that is false - there is momentum, a proximal term and a
+    weight-decay term - and under AMP the grads are still loss-scaled at that point.
+    So this snapshots the parameter BEFORE the step and diffs it AFTER, which is the
+    real update whatever the optimizer did to produce it.
+
+    Roughly -3 is healthy. Much below and the layer is effectively frozen; much above
+    and the step is large against the weights it is moving, which is how a trunk gets
+    wrecked. Only 2D+ weights are tracked - biases and norms have their own scales and
+    read as noise.
+    """
+
+    def __init__(self, model, every: int = 200, top_n: int = 8):
+        self.every, self.top_n = int(every), int(top_n)
+        self.params = [(n, q) for n, q in model.named_parameters()
+                       if q.requires_grad and q.ndim >= 2]
+        # HEAD and TRUNK are reported apart, because the healthy band differs. A
+        # reinitialized head starts random and SHOULD sit at or above -3; a converged
+        # pretrained trunk should only drift, so -5 or -6 is right for it, not a
+        # problem. Pooling them hides both facts behind one median.
+        self.head = {n for n, _ in self.params
+                     if any(k in n.lower() for k in ("head", "classifier", ".fc."))
+                     and "backbone" not in n.lower()}
+        self.snap, self.rows = None, []
+
+    def active(self, gstep: int) -> bool:
+        return self.every > 0 and gstep % self.every == 0
+
+    def before(self):
+        self.snap = [q.detach().clone() for _, q in self.params]
+
+    def after(self, epoch: int, gstep: int):
+        if self.snap is None:
+            return None
+        out = []
+        for (n, q), old in zip(self.params, self.snap):
+            d = (q.detach() - old).std().item()
+            w = q.detach().std().item()
+            if w > 0 and d > 0:
+                out.append((n, math.log10(d / w)))
+        self.snap = None
+        for n, r in out:
+            self.rows.append({"epoch": epoch, "step": gstep, "param": n, "log10_ud": r})
+        return out
+
+    @staticmethod
+    def _fmt(label, vals, want):
+        v = sorted(vals)
+        return ("     %-7s n=%-3d min %6.2f  mean %6.2f  median %6.2f  max %6.2f   %s"
+                % (label, len(v), v[0], sum(v) / len(v), v[len(v) // 2], v[-1], want))
+
+    def summarize(self, out):
+        if not out:
+            return ""
+        hv = [r for n, r in out if n in self.head]
+        bv = [r for n, r in out if n not in self.head]
+        lines = ["  📏 ud log10 (update / weight)"]
+        if hv:
+            lines.append(self._fmt("head", hv, "(random head: want ~-3 or above)"))
+        if bv:
+            lines.append(self._fmt("trunk", bv, "(pretrained: -5..-6 is drift, not frozen)"))
+        # Only flag what is genuinely wrong for its own role.
+        dead = [n for n, r in out if n not in self.head and r < -7.0]
+        hot = [n for n, r in out if n not in self.head and r > -3.0]
+        cold_head = [n for n, r in out if n in self.head and r < -4.5]
+        if dead:
+            lines.append("     ⚠️  trunk frozen (< -7): %d tensors, e.g. %s"
+                         % (len(dead), dead[0]))
+        if hot:
+            lines.append("     ⚠️  trunk hot (> -3, may damage the pretrained "
+                         "features): %d tensors, e.g. %s" % (len(hot), hot[0]))
+        if cold_head:
+            lines.append("     ⚠️  head barely moving (< -4.5): %s" % cold_head[0])
+        return chr(10).join(lines)
+
+    def dump(self, path):
+        """MERGE with what is already there, never truncate.
+
+        self.rows only holds this process's samples, so a plain to_csv would wipe every
+        earlier epoch on the first save after a workspace hand-off. Dedupes on
+        (step, param) so a replayed mid-epoch resume cannot double-count.
+        """
+        if not self.rows:
+            return
+        try:
+            df = pd.DataFrame(self.rows)
+            if path.exists():
+                try:
+                    df = pd.concat([pd.read_csv(path), df], ignore_index=True)
+                except Exception as e:
+                    print(f"  [warn] {path.name} unreadable, starting fresh: "
+                          f"{type(e).__name__}: {e}")
+            df = (df.drop_duplicates(subset=["step", "param"], keep="last")
+                    .sort_values(["step", "param"]))
+            df.to_csv(path, index=False)
+        except Exception as e:
+            print(f"  [warn] could not write {path.name}: {type(e).__name__}: {e}")
+
+
 def save_checkpoint(path: Path, cfg, model, opt=None, sched=None, scaler=None,
                     epoch=0, step=0, score=None, track=None, device=None,
                     weights_only=False, elapsed_sec=0.0, epoch_complete=True,
-                    saver=None, note=None):
+                    saver=None, note=None, loss_fn=None):
     """Full state by default, so a run can resume exactly where it stopped.
 
     epoch_complete=False marks a checkpoint written part-way through an epoch, so
@@ -1338,6 +1561,8 @@ def save_checkpoint(path: Path, cfg, model, opt=None, sched=None, scaler=None,
                "step": step, "score": score, "track": track,
                "elapsed_sec": elapsed_sec, "epoch_complete": epoch_complete}
     if not weights_only:
+        if loss_fn is not None and hasattr(loss_fn, "state"):
+            payload["loss"] = loss_fn.state()      # AUC-M's learned a / b / alpha
         if opt is not None:
             payload["optimizer"] = opt.state_dict()
         if sched is not None:
@@ -1909,6 +2134,18 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     model = model.to(device)
     if cfg["training"]["channels_last"]:
         model = model.to(memory_format=torch.channels_last)
+    # Trade compute for VRAM: don't keep intermediate activations, recompute them in the
+    # backward pass. Roughly 30-40% slower per step, but activation memory drops by close
+    # to an order of magnitude - which is the only way a 96-image study fits on a small
+    # card. timm exposes this on the backbone; a plain nn.Module may not have it at all.
+    if cfg["training"].get("grad_checkpointing"):
+        _bb = getattr(model, "backbone", model)
+        if hasattr(_bb, "set_grad_checkpointing"):
+            _bb.set_grad_checkpointing(True)
+            print("  🧮 gradient checkpointing ON (slower steps, far less VRAM)")
+        else:
+            print(f"  ⚠️  grad_checkpointing requested but {type(_bb).__name__} "
+                  f"has no set_grad_checkpointing - ignored")
     tot_p = sum(q.numel() for q in model.parameters())
     tr_p = sum(q.numel() for q in model.parameters() if q.requires_grad)
     _banner("MODEL", "\U0001F9E0")
@@ -1955,6 +2192,12 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     scaler = torch.amp.GradScaler("cuda", enabled=cfg["training"]["amp"] and device.type == "cuda")
     imgs_per_batch = (train_batch_size(cfg) * len(cfg["input"]["slots"])
                       * cfg["input"]["n_slices"])
+    _udc = cfg["training"].get("log_ud_ratio") or {}
+    ud = UDRatio(model, _udc.get("every_steps", 200)) if _udc.get("enable") else None
+    if ud:
+        print(f"  📏 update/data ratio logging on: {len(ud.params)} weight tensors, "
+              f"every {ud.every} steps -> ud_ratio.csv")
+
     print(f"[setup] optimizer={'PESG' if _pesg else cfg['training']['optimizer']['name']}  "
           f"scheduler={'none (PESG stagewise)' if _pesg else cfg['training']['scheduler']['name']}  amp={scaler.is_enabled()}")
     print(f"[setup] steps/epoch={steps_per_epoch}  total_steps={total}  accum={accum}  "
@@ -1982,9 +2225,30 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     ck = load_checkpoint(cfg.get("resume"), model, ckpt_dir,
                          None if _pesg else opt, None if _pesg else sched,
                          scaler, device, cfg_now=cfg)
+    # Is this checkpoint one THIS stage wrote, or the stage-1 hand-off? Everything
+    # below turns on the answer, and a workspace hand-off mid-run must land on the
+    # "same stage" side or it would throw the run away and silently restart it.
+    _ck_loss = (((ck.get("cfg") or {}).get("training") or {}).get("loss") or {}).get("name")
+    _same_stage = bool(ck) and _ck_loss == cfg["training"]["loss"]["name"]
+
     if _pesg and ck:
-        print("  ↩️  weights only: PESG and its schedule start fresh, the "
-              "AdamW/cosine state is not portable")
+        if _same_stage:
+            # Our own checkpoint: PESG's momentum buffers AND its proximal reference
+            # v_ref are meaningful and must come back. v_ref especially - it is what
+            # update_regularizer rewrites at the decay epoch, so dropping it would
+            # restart the proximal term against the wrong anchor.
+            if ck.get("optimizer"):
+                try:
+                    opt.load_state_dict(ck["optimizer"])
+                    print("  ↩️  PESG state restored (momentum + proximal reference)")
+                except Exception as e:
+                    print(f"  [warn] could not restore PESG: {type(e).__name__}: {e}")
+            if ck.get("loss") and hasattr(loss_fn, "load_state"):
+                loss_fn.load_state(ck["loss"])
+                print("  ↩️  AUC-M duals restored (a, b, alpha)")
+        else:
+            print(f"  ↩️  weights only: stage-1 checkpoint (loss={_ck_loss!r}), PESG "
+                  f"and its schedule start fresh - the AdamW/cosine state is not portable")
     # The DAM paper's two-stage framework (sec 3.4) is explicit: the AUC stage starts
     # "for learning all layers with the last classifier layer RANDOMLY INITIALIZED", and
     # CheXpert sec 4.2.1 repeats it - "we replace the last classifier layer trained in
@@ -1992,7 +2256,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     # head is deliberately thrown away so the AUC objective shapes it from scratch.
     # Must run AFTER load_checkpoint, or it would reset weights the checkpoint then
     # overwrites - which is the bug this line replaced.
-    if cfg["training"].get("reinit_head") and ck:
+    if cfg["training"].get("reinit_head") and ck and not _same_stage:
         _done = []
         for _n in ("head", "classifier", "fc"):
             _m = getattr(model, _n, None)
@@ -2052,7 +2316,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         # its first epoch. The stage also starts on a clean epoch rather than finishing
         # stage 1's - best.pt was written mid-epoch and those 32 leftover steps belong
         # to the old objective.
-        if cfg["training"].get("reinit_head"):
+        if cfg["training"].get("reinit_head") and not _same_stage:
             best, best_epoch, bad = -math.inf, 0, 0
             audit_best[:] = [-math.inf, 0]
             audit_bad[0] = 0
@@ -2266,11 +2530,13 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         if improved:
             save_checkpoint(ckpt_dir / cfg["output"]["best_name"], cfg, model, opt, sched,
                             scaler, epoch, gstep, score, track=_track(), device=device,
-                            elapsed_sec=el, epoch_complete=done, saver=saver,
+                            elapsed_sec=el, epoch_complete=done, saver=saver, loss_fn=loss_fn,
                             note=f"  \U0001F4BE best.pt written (score {score:.4f})")
 
+        if ud:
+            ud.dump(out / "ud_ratio.csv")     # flushed with last.pt, survives preemption
         save_checkpoint(ckpt_dir / "last.pt", cfg, model, opt, sched, scaler, epoch, gstep,
-                        score, track=_track(), device=device,
+                        score, track=_track(), device=device, loss_fn=loss_fn,
                         elapsed_sec=el, epoch_complete=done, saver=saver,
                         note=("  \U0001F4BE saved last.pt (epoch %d)%s" % (
                             epoch, f"  \U0001F3C6 top-{len(top_k_track)} kept"
@@ -2364,8 +2630,16 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                     scaler.unscale_(opt)
                     gnorm = float(nn.utils.clip_grad_norm_(model.parameters(),
                                                            cfg["training"]["grad_clip"]))
+                _ud_on = ud is not None and ud.active(gstep + 1)
+                if _ud_on:
+                    ud.before()
                 scaler.step(opt); scaler.update(); opt.zero_grad(set_to_none=True); sched.step()
                 gstep += 1
+                if _ud_on:
+                    _uo = ud.after(epoch, gstep)
+                    _um = ud.summarize(_uo)
+                    if _um:
+                        print(_um)
                 lrs = sched.get_last_lr()
                 lr, lr_lo, lr_hi = lrs[-1], min(lrs), max(lrs)
                 l = loss.item() * accum
@@ -2390,7 +2664,11 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                        if device.type == "cuda" else 0.0)
                 el = time.time() - t0
                 eta = el * (total / gstep - 1)
-                train_log.log({"epoch": epoch, "epoch_step": it // accum,
+                _extra = {}
+                if _pesg and hasattr(loss_fn, "stats"):
+                    _extra = loss_fn.stats(cfg["tasks"])   # AUC-M duals a / b / alpha
+                train_log.log({**_extra,
+                               "epoch": epoch, "epoch_step": it // accum,
                                "global_step": gstep, "loss": round(l, 6), "lr": lr,
                                "lr_min": lr_lo, "lr_max": lr_hi,
                                "gnorm": round(gnorm, 4), "img_s": round(ips, 1),
@@ -2412,7 +2690,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                 if every and gstep % every == 0:
                     save_checkpoint(ckpt_dir / f"step{gstep}.pt", cfg, model, opt, sched,
                                     scaler, epoch, gstep,
-                                    track=_track(),
+                                    track=_track(), loss_fn=loss_fn,
                                     device=device, elapsed_sec=el,
                                     epoch_complete=False, saver=saver,
                                     note=(f"  \U0001F4BE periodic checkpoint @ step "
@@ -2995,6 +3273,96 @@ def make_plots(cfg: dict, results_dir, out_subdir: str = "plots",
         axes[0].legend(fontsize=8); axes[-1].set_xlabel("global step")
         _save(fig, "training_diagnostics.png")
 
+    # update-to-weight ratio, if the run logged it. Its own CSV, not train_log, because
+    # it is one row PER TENSOR per step rather than one row per step.
+    def _plot_ud():
+        ud_csv = results_dir / "ud_ratio.csv"
+        if not ud_csv.exists():
+            return
+        d = pd.read_csv(ud_csv)
+        if d.empty:
+            return
+        names = sorted(d["param"].unique(),
+                       key=lambda n: ("head" in n or "fc" in n, n))
+        vc = plt.get_cmap("viridis")
+        fig, (ax, ax2) = plt.subplots(2, 1, figsize=(13, 8),
+                                      gridspec_kw={"height_ratios": [2, 1]})
+        for i, n in enumerate(names):
+            s = d[d["param"] == n].sort_values("step")
+            ax.plot(s["step"], s["log10_ud"], lw=0.7,
+                    color=vc(i / max(len(names) - 1, 1)),
+                    label=n if ("head" in n or "fc" in n) else None)
+        ax.axhline(-3, color="k", ls="--", lw=1.5, label="healthy ~ -3")
+        ax.set_ylabel("log10(update / weight)")
+        ax.set_title(f"{name} - update-to-weight ratio "
+                     f"(dark = shallow trunk, bright = head)")
+        ax.legend(fontsize=8, loc="upper right"); ax.grid(True, alpha=0.3)
+        _vlines(ax, bsteps)
+        last = d[d["step"] == d["step"].max()].set_index("param").reindex(names)
+        ax2.plot(range(len(names)), last["log10_ud"].values, "o-", ms=3, lw=1)
+        ax2.axhline(-3, color="k", ls="--", lw=1.5)
+        ax2.axhspan(-4.5, -1.5, color="green", alpha=0.08, label="workable band")
+        ax2.set_xlabel("tensor, shallow -> deep -> head")
+        ax2.set_ylabel("log10(update / weight)")
+        ax2.set_title(f"profile at step {int(d['step'].max())}")
+        ax2.legend(fontsize=8, loc="upper left"); ax2.grid(True, alpha=0.3)
+        _save(fig, "ud_ratio.png")
+
+    # AUC-M internals, if this run used that loss. alpha pinned at 0 means the dual
+    # never engaged and the min-max collapsed; b - a is the margin actually opened.
+    def _plot_aucm():
+        if tr is None or "aucm_alpha_mean" not in tr.columns:
+            return
+        d = tr.dropna(subset=["aucm_alpha_mean"])
+        if d.empty:
+            return
+        gapc = [c for c in d.columns if c.startswith("aucm_gap__")]
+        alc = [c for c in d.columns if c.startswith("aucm_alpha__")]
+        fig, axes = plt.subplots(4, 1, figsize=(13, 13), sharex=True)
+        for r in runs:
+            t = d[d["run_id"] == r] if "run_id" in d.columns else d
+            if t.empty:
+                continue
+            c = cmap[r]
+            axes[0].plot(t["global_step"], t["aucm_alpha_mean"], color=c, lw=1.4,
+                         label=_lbl(r))
+            if {"aucm_alpha_min", "aucm_alpha_max"} <= set(t.columns):
+                axes[0].fill_between(t["global_step"], t["aucm_alpha_min"],
+                                     t["aucm_alpha_max"], color=c, alpha=0.15)
+            for col, ls in (("aucm_a_mean", "-"), ("aucm_b_mean", "--")):
+                if col in t.columns:
+                    axes[1].plot(t["global_step"], t[col], color=c, ls=ls, lw=1.4,
+                                 label=_lbl(r, f" {col.split('_')[1]}"))
+        axes[0].set_ylabel("alpha (dual)"); axes[0].axhline(0, color="k", lw=1)
+        axes[0].set_title(f"{name} - AUC-M internals  "
+                          f"(alpha stuck at 0 = objective collapsed)")
+        axes[1].set_ylabel("a (pos mean) / b (neg mean)")
+        vc = plt.get_cmap("tab20")
+        for i, col in enumerate(sorted(gapc)):
+            axes[2].plot(d["global_step"], d[col], lw=1.0, color=vc(i % 20),
+                         label=col.replace("aucm_gap__", ""))
+        if "aucm_gap_mean" in d.columns:
+            axes[2].plot(d["global_step"], d["aucm_gap_mean"], color="k", lw=2,
+                         label="mean")
+        axes[2].set_ylabel("b - a  (margin opened)")
+        # per-task alpha: a single finding whose dual is pinned at 0 means AUC-M has
+        # given up on THAT finding, which the mean and the min/max band both hide.
+        dead = []
+        for i, col in enumerate(sorted(alc)):
+            t = col.replace("aucm_alpha__", "")
+            axes[3].plot(d["global_step"], d[col], lw=1.0, color=vc(i % 20), label=t)
+            if float(d[col].abs().max()) < 1e-8:
+                dead.append(t)
+        axes[3].set_ylabel("alpha per finding")
+        axes[3].set_xlabel("global step")
+        if dead:
+            axes[3].set_title("⚠️  dual never left zero for: " + ", ".join(dead))
+        axes[2].set_xlabel("")
+        for ax in axes:
+            ax.grid(True, alpha=0.3); _vlines(ax, bsteps)
+            ax.legend(fontsize=7, ncol=3, loc="best")
+        _save(fig, "aucm_internals.png")
+
     _safe("plot:loss", _plot_loss)
     _safe("plot:macro_auroc", _plot_macro, "val_macro_auroc", "validation macro AUROC",
           "macro_auroc.png", "max", "audit_macro_auroc")
@@ -3007,6 +3375,8 @@ def make_plots(cfg: dict, results_dir, out_subdir: str = "plots",
     _safe("plot:op_point", _plot_op_point)
     _safe("plot:lr", _plot_lr)
     _safe("plot:diagnostics", _plot_diagnostics)
+    _safe("plot:ud_ratio", _plot_ud)
+    _safe("plot:aucm", _plot_aucm)
     print(f"  \U0001F4C8 wrote {len(saved)} plot(s) -> {plots_dir}")
     return saved
 
