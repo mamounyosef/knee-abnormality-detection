@@ -5,10 +5,10 @@ Calibrates the per-task F1 thresholds automatically if results/thresholds.json
 is missing, then reuses that file on later runs (--recalibrate forces a refresh).
 AUROC never depends on a threshold; F1/precision/recall do.
 
-    python runs/convnext_base_aucm_official/evaluate.py
-    python runs/convnext_base_aucm_official/evaluate.py --checkpoint top1 --sets val audit
-    python runs/convnext_base_aucm_official/evaluate.py --sets ../../data/05_val.csv
-    python runs/convnext_base_aucm_official/evaluate.py --recalibrate
+    python runs/convnext_small_aucm_official/evaluate.py
+    python runs/convnext_small_aucm_official/evaluate.py --checkpoint top1 --sets val audit
+    python runs/convnext_small_aucm_official/evaluate.py --sets ../../data/05_val.csv
+    python runs/convnext_small_aucm_official/evaluate.py --recalibrate
 
 Writes into results/: <set>_predictions.csv, <set>_results.json, <set>_results.txt
 """
@@ -19,7 +19,7 @@ from pathlib import Path
 
 import torch
 
-EXP_NAME = "convnext_base_aucm_official"
+EXP_NAME = "convnext_small_aucm_official"
 
 
 def _pkg_root() -> Path:

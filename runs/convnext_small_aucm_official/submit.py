@@ -13,8 +13,8 @@ RUN_LOCAL=False does the work on Modal (the checkpoints and the raw DICOM zip bo
 live there). Set it True to do it on this PC — useful when a workspace is out of
 credit, and it needs the checkpoint already synced locally.
 
-    python -m modal run runs/convnext_base_aucm_official/submit.py       # RUN_LOCAL = False
-    python runs/convnext_base_aucm_official/submit.py                    # RUN_LOCAL = True
+    python -m modal run runs/convnext_small_aucm_official/submit.py       # RUN_LOCAL = False
+    python runs/convnext_small_aucm_official/submit.py                    # RUN_LOCAL = True
 """
 
 import sys
@@ -27,7 +27,7 @@ KAGGLE_USER = "mamounhussam"   # owner slug for the dataset and the notebook
 CHECKPOINT = "best"            # best | last | top1.. | <step> | path
 VERIFY_STUDIES = 3             # DICOM-vs-shard check; 0 skips it
 
-EXP_NAME = "convnext_base_aucm_official"
+EXP_NAME = "convnext_small_aucm_official"
 
 
 def _pkg_root() -> Path:
