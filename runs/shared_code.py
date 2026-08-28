@@ -3282,30 +3282,58 @@ def make_plots(cfg: dict, results_dir, out_subdir: str = "plots",
         d = pd.read_csv(ud_csv)
         if d.empty:
             return
-        names = sorted(d["param"].unique(),
-                       key=lambda n: ("head" in n or "fc" in n, n))
+
+        def _ishead(n):
+            # NOT a substring test on "fc": every ConvNeXt block has mlp.fc1/mlp.fc2,
+            # so that matched 100+ trunk tensors and put them all in the legend.
+            return "backbone" not in n and any(k in n for k in ("head", "classifier", "fc"))
+
+        def _depth(n):
+            # natural sort: plain string order puts blocks.10 before blocks.2, which
+            # scrambled the depth axis into noise.
+            return [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", n)]
+
+        head = sorted([n for n in d["param"].unique() if _ishead(n)], key=_depth)
+        trunk = sorted([n for n in d["param"].unique() if not _ishead(n)], key=_depth)
+        names = trunk + head                       # shallow trunk -> deep trunk -> head
+        steps = sorted(d["step"].unique())
         vc = plt.get_cmap("viridis")
-        fig, (ax, ax2) = plt.subplots(2, 1, figsize=(13, 8),
+        fig, (ax, ax2) = plt.subplots(2, 1, figsize=(13, 9),
                                       gridspec_kw={"height_ratios": [2, 1]})
-        for i, n in enumerate(names):
-            s = d[d["param"] == n].sort_values("step")
-            ax.plot(s["step"], s["log10_ud"], lw=0.7,
-                    color=vc(i / max(len(names) - 1, 1)),
-                    label=n if ("head" in n or "fc" in n) else None)
-        ax.axhline(-3, color="k", ls="--", lw=1.5, label="healthy ~ -3")
+
+        # a single sample draws nothing as a line, so fall back to markers
+        style = dict(marker="o", ms=3, ls="none") if len(steps) < 2 else dict(lw=0.7)
+        for i, n in enumerate(trunk):
+            t = d[d["param"] == n].sort_values("step")
+            ax.plot(t["step"], t["log10_ud"], color=vc(i / max(len(trunk) - 1, 1)),
+                    alpha=0.55, **style)
+        for n in head:
+            t = d[d["param"] == n].sort_values("step")
+            ax.plot(t["step"], t["log10_ud"], color="crimson", zorder=5,
+                    label=f"HEAD  {n}", **dict(style, **({} if len(steps) < 2 else {"lw": 2.2})))
+        # one proxy entry for the 100+ trunk curves, instead of 100+ legend rows
+        ax.plot([], [], color=vc(0.5), lw=2, label=f"trunk ({len(trunk)} tensors)")
+        ax.axhline(-3, color="k", ls="--", lw=1.2, label="-3  (from-scratch target)")
+        ax.axhspan(-6, -5, color="steelblue", alpha=0.10,
+                   label="-5..-6  (pretrained drift)")
         ax.set_ylabel("log10(update / weight)")
-        ax.set_title(f"{name} - update-to-weight ratio "
-                     f"(dark = shallow trunk, bright = head)")
-        ax.legend(fontsize=8, loc="upper right"); ax.grid(True, alpha=0.3)
+        ax.set_title(f"{name} - update-to-weight ratio")
+        ax.legend(fontsize=8, loc="best"); ax.grid(True, alpha=0.3)
         _vlines(ax, bsteps)
+
         last = d[d["step"] == d["step"].max()].set_index("param").reindex(names)
-        ax2.plot(range(len(names)), last["log10_ud"].values, "o-", ms=3, lw=1)
-        ax2.axhline(-3, color="k", ls="--", lw=1.5)
-        ax2.axhspan(-4.5, -1.5, color="green", alpha=0.08, label="workable band")
-        ax2.set_xlabel("tensor, shallow -> deep -> head")
+        xs = range(len(names))
+        ax2.plot(xs, last["log10_ud"].values, "-", lw=0.8, color="0.6", zorder=1)
+        ax2.scatter(list(xs)[:len(trunk)], last["log10_ud"].values[:len(trunk)],
+                    s=12, color="steelblue", label="trunk", zorder=3)
+        ax2.scatter(list(xs)[len(trunk):], last["log10_ud"].values[len(trunk):],
+                    s=45, color="crimson", marker="*", label="head", zorder=4)
+        ax2.axhline(-3, color="k", ls="--", lw=1.2)
+        ax2.axhspan(-6, -5, color="steelblue", alpha=0.10)
+        ax2.set_xlabel("tensor, shallow trunk -> deep trunk -> head")
         ax2.set_ylabel("log10(update / weight)")
         ax2.set_title(f"profile at step {int(d['step'].max())}")
-        ax2.legend(fontsize=8, loc="upper left"); ax2.grid(True, alpha=0.3)
+        ax2.legend(fontsize=8, loc="best"); ax2.grid(True, alpha=0.3)
         _save(fig, "ud_ratio.png")
 
     # AUC-M internals, if this run used that loss. alpha pinned at 0 means the dual
