@@ -1,0 +1,204 @@
+# LibAUC's ACTUAL method this time: MultiLabelAUCMLoss driven by PESG.
+#
+# The earlier convnext_base_aucm was not it. That ran shared_code's own pairwise
+# squared hinge under AdamW - two substitutions from the published setup - and its
+# null result only licenses "a pairwise ranking hinge under AdamW does not help here".
+#
+# What is faithful now, checked against libauc's docs and its CheXpert example (the
+# closest published analogue: multi-label AUROC on medical images):
+#   * loss      libauc MultiLabelAUCMLoss, min-max with learnable per-task a, b and
+#               dual alpha - not a hand-rolled surrogate
+#   * optimizer PESG, which is what makes the min-max converge: a proximal pull toward
+#               a periodically-reset reference point (epoch_decay), dual ascent on
+#               alpha with projection to non-negative, stagewise lr drops
+#   * inputs    sigmoid applied before the loss, as libauc expects probabilities
+#   * schedule  no cosine. PESG owns the lr and drops it inside update_regularizer
+#               (decay_factor=10), fired at decay_epochs
+#   * protocol  stage 2 of pretrain-then-finetune, continuing convnext_small_relabel
+#               (val 0.9049 / audit 0.9034 / LB 0.912) via resume, epochs 9-16
+#
+# No `extend` block: PESG replaces the optimizer outright, so there are no AdamW moments
+# worth carrying and no cosine to restart. resume loads the WEIGHTS, the AdamW state
+# fails to load into PESG and is skipped with a warning - which is the intent.
+#
+# ONE FORCED CHANGE TO THE OBJECTIVE. libauc masks with `1 == y_true`, so targets must
+# be binary. Our soft LLM probabilities would make every pos_mask all-zero and the loss
+# silently meaningless, so they are thresholded at 0.5 inside the wrapper. Soft targets
+# were a deliberate choice here - binarizing them cost 0.058 AUROC when we tested it on
+# the labels themselves - so if this run loses, that is a confound to weigh before
+# blaming the loss.
+#
+# CHECKED AGAINST THE PAPER (Yuan et al., ICCV 2021, arXiv 2012.03173), not just the
+# library docs. Their CheXpert setup in sec 4.2.1 is the closest published analogue -
+# multi-label AUROC on medical images - and it differs from libauc's tutorials:
+#   * the last classifier layer is RANDOMLY REINITIALIZED before the AUC stage
+#   * weight decay lambda is set to 0 (PESG's epoch_decay is the regularizer)
+#   * the lr drops by 3x, not the tutorials' 10x (their melanoma study uses 2x)
+#   * gamma tuned over {1/300, 1/500, 1/800}; 1/500 -> epoch_decay 2e-3, used here
+#   * lr 0.1 there, 0.01 in their melanoma study; 0.1 here, matching CheXpert
+# STILL NOT MATCHED, both deliberate:
+#   * margin m is TUNED in the paper over {0.1, 0.3, 0.5, 0.7, 1.0}; fixed at 1.0 here
+#     because a sweep is five runs. If this run is close but short, m is the first knob.
+#   * Batch Score Normalization (L2-normalizing the scores within a mini-batch before
+#     the loss) - sec 4.1 reports it helps, and libauc does not apply it for us. At our
+#     micro-batch of 2 a per-batch normalization would be mostly noise, so it is skipped.
+#
+# SEEDING: copy convnext_small_relabel/best.pt to
+# convnext_small_aucm_g300/results/checkpoints/last.pt on the runs volume first.
+
+experiment:
+  name: "convnext_small_aucm_g300"
+
+paths:
+  # Same --like split as convnext_small_relabel: byte-identical train/val MEMBERSHIP to the
+  # baseline, only the target values differ. Keeps this comparable to convnext_base_4slot
+  # (val 0.8944 / audit 0.8900) on everything except the labels.
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+  # audit_csv stays 05_audit58.csv - the panel labels never change, so it is the one
+  # honest cross-label-set comparison.
+
+model:
+  name: "convnext_small.fb_in22k_ft_in1k"  # timm id: ConvNeXt-Small pretrained on ImageNet-22k.
+                                    # SMALL, not Base, deliberately: the open question is
+                                    # whether AUC-M helps AT ALL, and Small answers it on
+                                    # the same bar (stage-1 val 0.9049 vs Base 0.9050) for
+                                    # fewer GPU-hours. If it wins, port the settings to Base.
+  pretrained: true
+  pool: "mean"                      # how the 96 slice features collapse per study: mean | max | attn
+  drop_rate: 0.1                    # dropout in the head, mild regularization
+
+training:
+  reinit_head: true                 # paper sec 3.4 and 4.2.1: the AUC stage starts with
+                                    # the last classifier layer RANDOMLY INITIALIZED. The
+                                    # trunk is what stage 1 bought; the head is rebuilt by
+                                    # the AUC objective. Skipping this is not the method.
+                                    # Fires ONCE: shared_code compares the checkpoint's own
+                                    # loss name against this config's, so a workspace
+                                    # hand-off mid-run resumes instead of restarting.
+
+  # log10(update / weight) per weight tensor, so the hand-picked per-layer rates get
+  # measured instead of argued about. ~-3 is healthy, far below = frozen layer.
+  log_ud_ratio:
+    enable: true
+    every_steps: 200                # same cadence as validation, negligible cost
+  epochs: 16
+                                    # last validation (0.9011 / 0.8965), and audit rose
+                                    # fairly steadily after the epoch-15 drop. Val alone
+                                    # was flat inside +/-0.001, so this is a cheap test of
+                                    # whether the climb is real rather than a settled call.
+  grad_clip: 1.0                    # cap gradient size so one bad batch can't blow up training
+  optimizer:
+    name: "adamw"                   # ignored when the loss is aucm_official: PESG
+                                    # replaces the optimizer wholesale
+    pesg:
+      mode: "sgd"                   # libauc's default and what every published example
+                                    # uses. "adam" is also supported if this is unstable
+      momentum: 0.9                 # libauc default
+      clip_value: 1.0               # libauc default
+      backbone_grad_scale: 0.6      # trunk gradients x0.6 -> effective trunk lr 6e-2
+                                    # against the head's 1e-1. At 0.1 the trunk measured
+                                    # -5.43 against the head's -2.6 - nearly 3 orders apart,
+                                    # far more than the 10x lr split implies, because the
+                                    # per-layer gradient/weight ratio widens it. This is the
+                                    # one variable changed from the 0.8986 run. PESG refuses
+                                    # param groups
+                                    # (it expects tensors, not dicts), so this rides on
+                                    # backward hooks: for SGD-with-momentum the update is
+                                    # linear in the gradient, so scaling grad by c IS
+                                    # scaling lr by c.
+      backbone_layer_decay: 0.99    # a TILT, not a ramp. 0.99^36 = 0.70, so the bottom
+                                    # layer moves at 70% of the top instead of 2%.
+                                    # MEASURED, not guessed: at 0.9 the update/weight
+                                    # ratio showed no depth ordering at all - stem sat at
+                                    # -7.87 while the deepest stage-3 block sat at -8.19.
+                                    # The per-layer gradient/weight ratio dominates that
+                                    # schedule completely, so a steep decay only froze
+                                    # things without producing the ramp it promised.
+      epoch_decay: 3.33e-3           # = 1/300. The paper tunes gamma over
+                                    # {1/300, 1/500, 1/800} and we only ever ran
+                                    # 1/500. STRONGER proximal pull than 1/500: the weights are held
+                                    # closer to the epoch reference, i.e. more regularization.
+      decay_epochs: [15]            # one drop, late
+      decay_factor: 3               # the PAPER's CheXpert value. libauc's tutorials say
+                                    # 10, but sec 4.2.1 decreases "by 3 times" and the
+                                    # melanoma study by 2 - both far gentler than 10
+    weight_decay: 0.0               # the PAPER sets lambda to 0 for CheXpert's AUC stage
+                                    # (sec 4.2.1). PESG's own epoch_decay proximal term is
+                                    # doing the regularizing here, so stacking L2 on top
+                                    # double-regularizes
+    lr: 1.0e-1                      # this is now the HEAD rate. Both flat rates were
+                                    # measured and both failed, in opposite directions:
+                                    #   1e-2  0.7037 0.7745 0.7975 0.8110 -> plateau ~0.82
+                                    #         head learns, converged trunk drifts
+                                    #   1e-3  0.4855 0.5244 0.5649 0.5985
+                                    #         below chance at first validation; the random
+                                    #         head cannot move at this rate under plain SGD
+                                    # The head needs 1e-2, the trunk must not have it. See
+                                    # pesg.backbone_grad_scale below.
+    backbone_lr_mult: 0.5           # head = lr / 0.5 = 1.0e-4, twice the trunk. Knee MRI
+                                    # is far from ImageNet, so the trunk needs real adaptation
+    layer_decay: null               # layer-wise lr decay, e.g. 0.75: each layer down gets 75%
+                                    # of the one above. Replaces backbone_lr_mult when set.
+  scheduler:
+    name: "cosine"                  # learning rate warms up, then decays along a cosine curve
+    warmup_frac: 0.05
+    min_lr_mult: 0.01               # floor: ends at 1% of the base learning rate
+  loss:
+    name: "aucm_official"           # libauc MultiLabelAUCMLoss + PESG
+    aucm_margin: 2.0                # ABOVE the paper's grid, on purpose. The sweep came
+                                    # out monotonic - 0.3 -> 0.870, 0.5 -> 0.889,
+                                    # 1.0 -> 0.899 - so more pressure was better, not
+                                    # less. m=1.0 is already unreachable (sigmoid scores
+                                    # cap the a-b gap at 1.0, and it only reached 0.46),
+                                    # so this tests whether the trend continues past the
+                                    # point where alpha can ever be satisfied.
+    aucm_version: "v1"              # v1 includes the class prior in the objective
+    aucm_imratio: null              # null -> libauc estimates it from each mini-batch
+    pos_weight: null                # AUC-M handles imbalance itself, do not double up
+    focal_gamma: 2.0
+    aucm_bce_mix: 0.1               # unused by aucm_official, kept for the other losses
+  early_stopping:                   # stop once val stops improving, saves GPU hours
+    enable: true
+    # 7, not 4. The head is reinitialized, so epoch 9 starts from a random classifier and
+    # needs room to climb back. The inherited best/bad from stage 1 are also reset when
+    # reinit_head fires - see shared_code - or stage 2 would start at bad=4 against a
+    # converged model's 0.9050 bar and die immediately.
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 7                     # VALIDATIONS without improvement, not epochs.
+                                    # With eval_every_steps that is several per
+                                    # epoch; the counter is only CHECKED at an
+                                    # epoch boundary.
+
+# CPU-side loading; decoding shards is the bottleneck, so keep workers busy
+dataloader:
+  batch_size: 2                     # 2 studies x 4 slots x 24 slices = 192 images @512.
+                                    # Small runs ~0.49 GB/img, so ~94GB of the H200's 141GB.
+                                    # 4 studies would be ~188GB - does NOT fit, despite the
+                                    # smaller model. The win here is faster steps, not a
+                                    # bigger batch.
+  accum_steps: 4                    # effective 8 studies per update -> 454 steps/epoch,
+                                    # same as tiny and small, so the curves still compare
+  val_batch_size: 4                 # no backward pass, so no stored activations
+
+  num_workers: 26                   # Small ran data-wait 0% at 190 img/s on an A100. The
+                                    # H200 at batch 2 wants ~380 img/s sustained and
+                                    # retrieval averaged ~185 between bursts, so the loader
+                                    # becomes the bottleneck here unless it scales too
+  val_num_workers: null             # null = same as num_workers
+
+  prefetch_factor: 4                # batches queued per worker
+  pin_memory: true                  # page-locked memory, faster CPU -> GPU copies
+  persistent_workers: true          # don't respawn workers every epoch
+  drop_last: false                  # keep the ragged final batch
+
+modal:
+  gpu: "H200"                       # 141GB, and ~1.7x the A100's throughput
+  cpu: 12.0                         # one core per dataloader worker, decoding npz is
+                                    # CPU-bound and the GPU is now fast enough to notice
+  memory_gb: 64                     # 24 workers x prefetch 4, and batch 2 doubles the
+                                    # bytes each queued batch holds
+
+# inherits resume: "last" from shared_config - the preemption-safe setting. On a fresh
+# volume there is nothing to resume, so this starts from scratch.
