@@ -82,7 +82,11 @@ training:
   log_ud_ratio:
     enable: true
     every_steps: 200                # same cadence as validation, negligible cost
-  epochs: 16
+  epochs: 20                        # 16 -> 20. Both val AND audit peaked at the very
+                                    # last validation (0.9011 / 0.8965), and audit rose
+                                    # fairly steadily after the epoch-15 drop. Val alone
+                                    # was flat inside +/-0.001, so this is a cheap test of
+                                    # whether the climb is real rather than a settled call.
   grad_clip: 1.0                    # cap gradient size so one bad batch can't blow up training
   optimizer:
     name: "adamw"                   # ignored when the loss is aucm_official: PESG
@@ -112,7 +116,10 @@ training:
                                     # schedule completely, so a steep decay only froze
                                     # things without producing the ramp it promised.
       epoch_decay: 2.0e-3           # = 1/gamma; the CheXpert example's gamma 500
-      decay_epochs: [15]            # one drop, late. The head restarts from random,
+      decay_epochs: [15]            # already fired at epoch 15, and NOT re-triggered on
+                                    # resume (the hook tests `epoch in decay_epochs` and
+                                    # 15 is behind us). So epochs 17-20 run flat at the
+                                    # post-drop 0.0333 - no second drop, deliberately.            # one drop, late. The head restarts from random,
                                     # so it needs room at full lr before anything decays
       decay_factor: 3               # the PAPER's CheXpert value. libauc's tutorials say
                                     # 10, but sec 4.2.1 decreases "by 3 times" and the
