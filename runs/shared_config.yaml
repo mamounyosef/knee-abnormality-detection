@@ -70,9 +70,20 @@ target:
   hard_threshold: 0.5
   label_smoothing: 0.0              # hard mode only
 
-# epochs, grad_clip and the whole optimizer / scheduler /
-# loss / early_stopping blocks are per-run — see each run's config.yaml
+# epochs and the whole optimizer / scheduler / loss / early_stopping blocks
+# are per-run — see each run's config.yaml
 training:
+  # Cap on the gradient's total size, so one bad batch cannot blow up training.
+  # 3.0, NOT 1.0, and it lives here rather than per-run because 1.0 is low enough to
+  # fire on most steps for some trunks and that silently throttles the learning rate:
+  # a step whose gnorm is 2.5 gets rescaled to 1.0, so it moves at 40% of the lr the
+  # config claims. Measured, twice - convnext_small_posweight was clipped on 32% of
+  # steps at 1.0, and dinov3_convnext_base on 88%, which cost it ~0.11 val AUROC
+  # against the identical config on an ImageNet trunk. Self-supervised trunks run the
+  # highest gradients and are hurt worst. Raise it, never lower it, and check the
+  # clip_pct column in train_log.csv before trusting a comparison between two runs.
+  grad_clip: 3.0
+
   amp: true                         # mixed precision: half-precision math, ~2x faster, less VRAM
   channels_last: true               # memory layout that suits tensor-core convolutions
   perf:
@@ -168,6 +179,16 @@ output:
                                     # are the merged history across every hand-off.
   plots_dir: "plots"
   thresholds_json: "thresholds.json"   # frozen per-finding cut-offs from calibration
+
+# Resume across a CONFIG CHANGE. Normally the engine refuses: a checkpoint outlives the
+# config that wrote it, so editing a setting and relaunching would silently continue the
+# old run, half of it trained under each setting, and the result would describe neither.
+# The guard compares model.name, grad_clip, epochs, the optimizer and scheduler settings,
+# input size / slices / slots, target.mode and the train/val CSVs. Preemption and workspace
+# hand-offs replay the SAME config so they never trip it, and `extend` and stage-2 hand-offs
+# are exempt by design. Set this true in a RUN's config.yaml to continue anyway - it still
+# prints a loud warning, because the resulting run is not attributable to either config.
+resume_force: false
 
 resume: "last"                      # where to continue from: null | "best" | "last" | <step> | <path>
                                     # "last" = the newest checkpoint on the volume, and it is the

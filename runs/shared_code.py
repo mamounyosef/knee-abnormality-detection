@@ -2231,6 +2231,67 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     _ck_loss = (((ck.get("cfg") or {}).get("training") or {}).get("loss") or {}).get("name")
     _same_stage = bool(ck) and _ck_loss == cfg["training"]["loss"]["name"]
 
+    # A checkpoint on the volume outlives the config that produced it. `resume: "last"` is
+    # the right default (Modal preempts containers, and a hand-off must not restart the
+    # run), but it means editing a setting and relaunching SILENTLY continues the old run
+    # under the new label - the two halves trained under different settings and the result
+    # describes neither. That is how the grad_clip fix nearly got lost: the fix was in the
+    # config while the volume still held the throttled checkpoint.
+    #
+    # Preemption and hand-offs replay the SAME config, so they never trip this. Only an
+    # actual edit does. Stage-2 hand-offs (a different loss) are already a deliberate
+    # weights-only transfer, so they are exempt, and so is `extend`, whose whole job is to
+    # change lr and epochs.
+    if ck and _same_stage and not (cfg["training"].get("extend") or {}).get("enable"):
+        _guard = [("model.name", ("model", "name")),
+                  ("training.grad_clip", ("training", "grad_clip")),
+                  ("training.epochs", ("training", "epochs")),
+                  ("optimizer.lr", ("training", "optimizer", "lr")),
+                  ("optimizer.backbone_lr_mult", ("training", "optimizer", "backbone_lr_mult")),
+                  ("optimizer.layer_decay", ("training", "optimizer", "layer_decay")),
+                  ("optimizer.weight_decay", ("training", "optimizer", "weight_decay")),
+                  ("scheduler.name", ("training", "scheduler", "name")),
+                  ("input.size", ("input", "size")),
+                  ("input.n_slices", ("input", "n_slices")),
+                  ("input.slots", ("input", "slots")),
+                  ("target.mode", ("target", "mode")),
+                  ("paths.train_csv", ("paths", "train_csv")),
+                  ("paths.val_csv", ("paths", "val_csv"))]
+
+        def _dig(d, path):
+            for k in path:
+                if not isinstance(d, dict) or k not in d:
+                    return "<absent>"
+                d = d[k]
+            return d
+
+        _ocfg = ck.get("cfg") or {}
+        _diff = [(lbl, _dig(_ocfg, pth), _dig(cfg, pth)) for lbl, pth in _guard
+                 if _dig(_ocfg, pth) != _dig(cfg, pth) and _dig(_ocfg, pth) != "<absent>"]
+        if _diff:
+            _w = max(len(l) for l, _, _ in _diff)
+            _lines = "\n".join(f"      {l:<{_w}}  checkpoint={o!r}  ->  config={n!r}"
+                                 for l, o, n in _diff)
+            if cfg.get("resume_force"):
+                print(f"\n  ⚠️  RESUMING ACROSS A CONFIG CHANGE (resume_force is set):"
+                      f"\n{_lines}\n"
+                      f"      The run trains part of itself under each. The result is not "
+                      f"attributable to either config.\n")
+            else:
+                raise RuntimeError(
+                    f"refusing to resume: this checkpoint (step {ck.get('step')}) was "
+                    f"written under a different config.\n{_lines}\n\n"
+                    f"    Continuing would train one half of the run under each setting, "
+                    f"so the result would describe neither.\n"
+                    f"    Pick one:\n"
+                    f"      * start clean - delete the run's results/ on the volume:\n"
+                    f"          modal volume rm -r {cfg['modal']['runs_volume']}"
+                    f" /{cfg['experiment']['name']}/results\n"
+                    f"      * continue the OLD run on a new lr curve - set "
+                    f"training.extend.enable\n"
+                    f"      * you really do mean it - set resume_force: true in the config")
+
+
     if _pesg and ck:
         if _same_stage:
             # Our own checkpoint: PESG's momentum buffers AND its proximal reference
@@ -2419,6 +2480,15 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
 
     last_val_step = -1
     score, improved = -math.inf, False
+    # Chronic gradient clipping is silent and it costs real learning rate: a trunk
+    # whose gnorm sits above grad_clip gets every update rescaled, so the lr in the
+    # config stops being the lr the model actually sees. dinov3_convnext_base was
+    # clipped on 88% of steps at grad_clip=1.0 and underfitted for it, while the
+    # ImageNet trunk on the identical config was clipped on 16%. Counted here and
+    # warned about below, so it can never again be found by hand after the fact.
+    clip_seen, clip_hit, clip_warned = [0], [0], [False]
+    clip_vals = deque(maxlen=4000)     # finite gnorms, for the distribution below
+
     stop_now = [False]            # raised the moment patience runs out, so the step
                                   # loop can stop AT 4/4 rather than carrying on to
                                   # 5/4 or 6/4 and only checking at the epoch boundary
@@ -2626,10 +2696,14 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
             win_imgs += imgs_per_batch
             if it % accum == 0:
                 gnorm = float("nan")
-                if cfg["training"]["grad_clip"]:
+                _clip = float(cfg["training"]["grad_clip"] or 0.0)
+                if _clip:
                     scaler.unscale_(opt)
-                    gnorm = float(nn.utils.clip_grad_norm_(model.parameters(),
-                                                           cfg["training"]["grad_clip"]))
+                    gnorm = float(nn.utils.clip_grad_norm_(model.parameters(), _clip))
+                    if math.isfinite(gnorm):        # AMP skips a step on inf/nan
+                        clip_seen[0] += 1
+                        clip_hit[0] += int(gnorm > _clip)
+                        clip_vals.append(gnorm)
                 _ud_on = ud is not None and ud.active(gstep + 1)
                 if _ud_on:
                     ud.before()
@@ -2671,13 +2745,27 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                                "epoch": epoch, "epoch_step": it // accum,
                                "global_step": gstep, "loss": round(l, 6), "lr": lr,
                                "lr_min": lr_lo, "lr_max": lr_hi,
-                               "gnorm": round(gnorm, 4), "img_s": round(ips, 1),
+                               "gnorm": round(gnorm, 4),
+                               "clip_pct": (round(100.0 * clip_hit[0] / clip_seen[0], 1)
+                                            if clip_seen[0] else None),
+                               "img_s": round(ips, 1),
                                "real_img_s": round(real_ips, 1),
                                "data_wait_pct": round(wait_pct, 1),
                                "overall_img_s": round(overall_ips, 1),
                                "gpu_mem_gb": round(mem, 2), "elapsed_s": round(el, 1)})
                 # flushing the volume is its own concern - a crash between two
                 # validations must not cost the log rows written in between
+                # 200 steps is enough to tell a chronic rate from a warmup spike
+                if (not clip_warned[0] and clip_seen[0] >= 200
+                        and clip_hit[0] / clip_seen[0] > 0.5):
+                    clip_warned[0] = True
+                    _v = sorted(clip_vals)
+                    _md, _mn = _v[len(_v) // 2], sum(_v) / len(_v)
+                    print(
+                        f"\n  ⚠️  CLIPPING {100.0 * clip_hit[0] / clip_seen[0]:.0f}% of {clip_seen[0]} steps at grad_clip={_clip:g} "
+                        f"-> effective lr below the {cfg['training']['optimizer']['lr']:g} configured.\n"
+                        f"      gnorm  med {_md:.2f}  mean {_mn:.2f}  min {_v[0]:.2f}  max {_v[-1]:.2f}  ->  raise grad_clip or lower lr\n")
+
                 ce = int(cfg["output"].get("commit_every_steps", 0) or 0)
                 if ce and gstep % ce == 0:
                     persist()                  # async: never blocks the step loop
@@ -2724,6 +2812,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                           f"  global_step: {gstep}/{total}")
                     print(f"     loss={l:.4f}{d}  {lr_s}  gnorm={gnorm:.2f}  "
                           f"elapsed={fmt(el)}  ETA={fmt(eta)}  gpu_mem(peak)={mem:.2f}GB")
+                    print()                      # split what the model is doing from how fast
                     print(f"     throughput: {ips:.0f} img/s compute | {real_ips:.0f} img/s real "
                           f"({len(roll)}-step) | data-wait {wait_pct:.0f}%")
                     _eff = 100.0 * overall_ips / max(real_ips, 1e-9)
