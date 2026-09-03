@@ -1,0 +1,89 @@
+# RadioDINO ViT-B/16 - the first genuinely NEW pretraining domain we have tried since
+# mricore_vitb. DINO self-supervised training on RadImageNet: 1.35M CT / MRI / ultrasound
+# images across 11 anatomies, knee included.
+#
+# Why this one is worth a run even though it may not win solo: our two medical-pretrained
+# backbones (mricore 0.8970, radimagenet 0.8949) BOTH scored below the ImageNet ConvNeXts
+# and BOTH still earned their ensemble slot, because their errors are decorrelated. This
+# checkpoint stacks three decorrelation sources at once against our ConvNeXt lineup:
+# self-supervised objective (not supervised), radiology domain (not natural images), and
+# a transformer (not a convolution net).
+#
+# Beat: mricore_vitb_relabel, val 0.8970 / audit 0.8889 - the same shape of model on the
+# same pipeline, so it is the honest reference.
+#
+# Hyper-parameters are copied from mricore_vitb_relabel deliberately. Both are ViT-B/16 at
+# 512px with identical token counts and memory, so reusing them keeps the two comparable
+# and reuses settings already proven not to blow up.
+
+experiment:
+  name: "radiodino_vitb"
+
+paths:
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+
+model:
+  name: "hf_hub:Snarcy/RadioDino-b16"   # CC-BY-4.0, ungated. timm pulls it from the hub,
+                                        # so unlike MRI-CORE there is no .pth to stage on
+                                        # the volume first
+  pretrained: true
+  create_kwargs:
+    img_size: 512                       # pretrained at 224 (14x14 patches); timm resamples
+                                        # pos_embed to our 32x32 grid = 1024 tokens
+  pool: "mean"
+  drop_rate: 0.1
+  drop_path_rate: 0.1                   # stochastic depth - ViTs overfit 3,639 studies without it
+  grad_checkpointing: false             # mricore measured ViT-B @512 at ~0.36 GB/image, so a
+                                        # 96-image study is ~35 GB and batch 4 fits the H200
+
+# NOTE: no norm_mean / norm_std override here, unlike mricore. RadioDINO's model card
+# normalizes with the standard ImageNet statistics, which is what shared_config already uses.
+
+training:
+  epochs: 16
+  grad_clip: 3.0
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 3.0e-5                          # BACKBONE lr, same as mricore: ViTs are unstable early
+                                        # and this trunk is already radiology, not ImageNet
+    backbone_lr_mult: 0.5               # head = 6e-5
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.10                   # double the ConvNeXt runs - ViT training is fragile
+                                        # in the first few hundred steps
+    min_lr_mult: 0.01
+  loss:
+    name: "bce"
+    pos_weight: "auto_clamped"
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  extend:
+    enable: false
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 4
+
+dataloader:
+  batch_size: 4                         # 4 studies x 96 images @512 = 1024 tokens each.
+                                        # mricore measured batch 2 at 64 GB, so this lands
+                                        # near 128 GB of the H200's 141 GB
+  accum_steps: 2                        # effective 8 studies per update - same as every run
+  val_batch_size: 8
+  num_workers: 24
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+modal:
+  gpu: "H200"
+  cpu: 16.0
+  memory_gb: 56
+  timeout_hours: 10                     # ViT-B @512 is slower per step than ConvNeXt

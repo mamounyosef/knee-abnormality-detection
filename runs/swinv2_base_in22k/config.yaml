@@ -1,0 +1,91 @@
+# SwinV2-Base on ImageNet-22k. Not a medical model - this run buys ARCHITECTURE diversity.
+#
+# The ensemble table says different architecture is what pays: our best pairs were the ones
+# that crossed families (ConvNeXt + ViT = +0.0022), while a second ConvNeXt added almost
+# nothing and a different LOSS added exactly 0.0000. Our current stack is four ConvNeXts,
+# one plain ViT and one ResNet - no hierarchical transformer anywhere.
+#
+# Why SwinV2 rather than a plain ViT at this size: Swin attends inside local windows and
+# shifts them between layers, so cost grows LINEARLY with image size instead of
+# quadratically. At our 512px that is the difference between affordable and not.
+#
+# A dedicated search for a Swin pretrained on medical images came back empty - nothing on
+# knee, musculoskeletal, OAI or MRNet is publicly released, RadImageNet has not published
+# its Swin weights, and the one MRI-pretrained Swin (SwinBrain) is brain-only with no
+# stated license. So ImageNet-22k is the honest best available starting point.
+#
+# Beat: convnext_base_relabel val 0.9050. Realistically this will land below that - the
+# question is whether it lands in a DIFFERENT place, which is what earns an ensemble slot.
+
+experiment:
+  name: "swinv2_base_in22k"
+
+paths:
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+
+model:
+  name: "swinv2_base_window12to16_192to256.ms_in22k_ft_in1k"
+  pretrained: true
+  create_kwargs:
+    img_size: 512                       # pretrained at 256; verified locally that a 512
+                                        # forward pass builds and runs
+    window_size: 16                     # 512/4 = 128 tokens across at stage 1, then 64, 32,
+                                        # 16 - all divisible by 16, so no ragged windows.
+                                        # SwinV2's log-CPB position bias is what makes
+                                        # growing the window past its pretrained size work
+  pool: "mean"
+  drop_rate: 0.1
+  drop_path_rate: 0.2                   # Swin's own recipe uses heavier stochastic depth
+                                        # than a ConvNeXt of the same size
+
+training:
+  epochs: 12
+  grad_clip: 3.0                    # matches shared_config; transformers run hot early
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-5
+    backbone_lr_mult: 0.5               # head = 1.0e-4
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.08                   # between the ConvNeXt runs' 0.05 and the ViT runs'
+                                        # 0.10 - it is a transformer, so it wants the longer
+                                        # warmup, but it is windowed and better conditioned
+                                        # than a plain ViT
+    min_lr_mult: 0.01
+  loss:
+    name: "bce"
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 4
+
+dataloader:
+  batch_size: 2                         # UNMEASURED for this architecture. Swin-B has the
+                                        # same parameter count as ConvNeXt-Base and the same
+                                        # stage-1 token grid at 512, so batch 2 should sit
+                                        # near ConvNeXt-Base's ~125 GB. If it OOMs, drop to
+                                        # 1 and raise accum_steps to 8 to keep the effective
+                                        # batch at 8 studies
+  accum_steps: 4
+  val_batch_size: 4
+  num_workers: 26
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+modal:
+  gpu: "H200"
+  cpu: 12.0
+  memory_gb: 64
+  timeout_hours: 10                     # windowed attention at 512 is slower per step than
+                                        # ConvNeXt-Base's convolutions

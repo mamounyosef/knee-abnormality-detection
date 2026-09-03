@@ -1,0 +1,80 @@
+# ConvNeXt-Base, but with DINOv3 weights instead of ImageNet-22k supervised weights.
+#
+# This is the cleanest controlled experiment available to us: convnext_base_relabel is the
+# SAME architecture, SAME data, SAME hyper-parameters, SAME split. The only thing that
+# changes is where the starting weights came from. So it answers one question exactly -
+# does the pretraining recipe matter once the architecture is held fixed?
+#
+#   convnext_base_relabel : ImageNet-22k, supervised classification, 14M labelled images
+#   this run              : LVD-1689M, self-supervised, 1.7B unlabelled natural images,
+#                           distilled down from a 7B-parameter DINOv3 teacher
+#
+# Beat: convnext_base_relabel, val 0.9050 / audit 0.9130 - our best single model.
+#
+# We do NOT use the 7B teacher directly. It cannot be fine-tuned in our memory budget, so
+# it could only be used frozen, and the "Resolution scaling governs DINOv3 transfer" paper
+# found frozen 7B features LOSING to a fully fine-tuned 86M backbone. The distilled
+# ConvNeXt is that teacher's knowledge in a body we can actually train.
+#
+# LICENSE: DINOv3 is a custom Meta license, not Apache-2.0. Commercial use is permitted but
+# it requires the "Built with DINOv3" attribution and passes its terms along to anyone we
+# redistribute the weights to - which includes shipping them inside a Kaggle dataset.
+# Confirm that against the competition rules before this model goes in a prize submission.
+
+experiment:
+  name: "dinov3_convnext_base"
+
+paths:
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+
+model:
+  name: "convnext_base.dinov3_lvd1689m"   # ungated - verified downloading with no HF token
+  pretrained: true
+  pool: "mean"
+  drop_rate: 0.1
+  # fully convolutional, so 512px needs no img_size argument and costs nothing structurally
+
+training:
+  # every value below is byte-identical to convnext_base_relabel, on purpose - the weights
+  # are the only variable
+  epochs: 12
+  grad_clip: 3.0                    # see shared_config: 1.0 throttled this trunk on 88% of steps
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-5
+    backbone_lr_mult: 0.5               # head = 1.0e-4
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05
+    min_lr_mult: 0.01
+  loss:
+    name: "bce"
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 4
+
+dataloader:
+  batch_size: 2                         # same shape as convnext_base_relabel: ~125 GB of
+                                        # the H200's 141 GB
+  accum_steps: 4                        # effective 8 studies per update
+  val_batch_size: 4
+  num_workers: 26
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+modal:
+  gpu: "H200"
+  cpu: 12.0
+  memory_gb: 64
