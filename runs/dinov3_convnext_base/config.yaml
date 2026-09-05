@@ -71,32 +71,38 @@ training:
   # levelled off by this point, so the gap may be partly schedule rather than weights.
   # A plain resume would sit at 1% of peak (5e-7) and do nothing; extend keeps the weights and
   # the AdamW moments and runs a NEW cosine over the extra epochs.
+  # Second extension, and a real one. The first ran at 1.5e-6 - 3% of base - and went flat
+  # across every validation before stopping. That established the schedule was exhausted, NOT
+  # that the model was: the update/weight ratio fell to -5.7 simply because the lr had annealed
+  # to nothing, which is circular evidence. This tests the actual question at 8.0e-6 (16% of
+  # base, half what mricore_vitb_relabel used when it was extended for the same reason).
+  #
+  # resume was "best" for the FIRST launch of this extension (see the note at the bottom -
+  # it is "last" now that the extension is under way). last.pt carries
+  # ext_state={base_epoch:12, epochs:4, lr:1.5e-6}, and the engine reads the lr from there and
+  # ignores this block whenever an extension is already under way. best.pt (step 5000, epoch 12,
+  # 0.9011) has an empty ext_state, so this starts a genuinely new extension - and from the peak
+  # weights rather than the drifted-down tail.
   extend:
     enable: true
-    epochs: 4                         # 13-16, ~1,816 more steps
-    lr: 1.5e-6                        # new PEAK, 30% of the original 5e-5 - the same
-                                      # fraction mricore_vitb_relabel used when it was
-                                      # extended for the same reason. High enough to move
-                                      # weights that have been sitting at 5e-7, low enough
-                                      # not to undo a converged trunk
-    warmup_frac: 0.03                 # ~55 steps of re-warm, so the jump up is not a shock
-    min_lr_mult: 0.05                 # the EXTENSION's floor: ends at 8e-7, not 8e-8. Over only
-                                      # 4 epochs the run's usual 1% would spend most of the
-                                      # extension at a lr too small to move anything
-    reset_optimizer: false            # the moments are well-conditioned by now
-    reset_patience: true              # the extension gets its own 4 validations of rope
+    epochs: 5                         # 13-17 from the epoch-12 peak
+    lr: 8.0e-6                        # new PEAK. 5.3x the failed attempt
+    warmup_frac: 0.03                 # ~68 steps of re-warm off 1.4e-6
+    min_lr_mult: 0.05                 # ends at 4.0e-7, not 8.0e-8
+    reset_optimizer: false            # moments are well-conditioned
+    reset_patience: true              # fires on a NEW extension, so `bad` starts at 0
 
   early_stopping:
     enable: true
     monitor: "val_macro_auroc"
     mode: "max"
-    # 4 -> 12 to let the extension actually finish. It stopped at step 6200 of 7264, only
-    # 41% in, so it never saw the annealed tail where a cosine usually banks its last gain.
-    # `reset_patience` does NOT fire on a continuing extension (by design - a crash must not
-    # hand the run fresh rope every time), so `bad` comes back from the checkpoint already
-    # sitting at 4. Anything at or below 4 would stop at the very first validation. 12
-    # clears the ~6 validations left in the extension with room to spare.
-    patience: 12
+    patience: 16                      # the 8e-6 extension stopped at step 5800 of 7270, only 35%
+                                      # in, still climbing back from the lr bump
+                                      # (0.8967 -> 0.8972 -> 0.9002), and it never reached the
+                                      # anneal - the part that decides whether it beats 0.9011.
+                                      # reset_patience does NOT fire on a CONTINUING extension,
+                                      # so `bad` returns from the checkpoint at 4; ~8 validations
+                                      # remain, so anything under 12 stops early again.
 
 dataloader:
   batch_size: 2                         # same shape as convnext_base_relabel: ~125 GB of
@@ -114,3 +120,8 @@ modal:
   gpu: "H200"
   cpu: 12.0
   memory_gb: 64
+
+# last.pt now. The 8e-6 extension is already under way and its state lives there, so this
+# continues that same cosine into its anneal. best.pt here would restart the extension from
+# step 5000 and repeat the 800 steps already paid for.
+resume: "last"
