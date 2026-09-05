@@ -1,0 +1,130 @@
+# mricore_vitb_relabel with the TOKEN pooling changed, and nothing else.
+#
+# A Vision Transformer turns one 512px slice into 1025 tokens: 32x32 = 1024 image patches
+# plus one CLS ("classification") token, a learned extra vector that is not from the image
+# and collects a summary of the slice through attention. timm's default is to throw away
+# the 1024 patch tokens and keep only CLS. For ImageNet ("is this a dog?") that is fine.
+# For us a meniscal tear is a small bright line in a handful of patches, and forcing that
+# through a single summary vector is a plausible bottleneck.
+#
+# This averages the 1024 patch tokens instead. Note there are TWO poolings stacked in this
+# pipeline and only the second has ever been varied:
+#     1025 tokens -> [cls | avg]        -> 768 per slice   <- NEVER tested until now
+#     96 slices   -> [mean | max | attn] -> 768 per study  <- the `pool` knob below
+#
+# Beat: mricore_vitb_relabel, val 0.8970 / audit 0.8889 - same weights, same everything,
+# CLS pooling. This is also the base for the cross-slice attention experiment, which needs
+# a transformer and so cannot run on any of our ConvNeXts.
+
+experiment:
+  name: "mricore_vitb_avgpool"
+
+paths:
+  # Same --like split as convnext_small_relabel: byte-identical train/val MEMBERSHIP to
+  # the baseline, only the target values differ. audit_csv stays 05_audit58.csv - the
+  # panel labels never change, so it is the one honest cross-label-set comparison.
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+
+model:
+  name: "vit_base_patch16_224"      # timm skeleton; the weights below overwrite it entirely
+  pretrained: false                 # never fetch ImageNet weights - we load MRI-CORE instead
+  weights: "MRI_CORE_vitb.pth"
+  create_kwargs:
+    global_pool: "avg"              # average the 1024 patch tokens instead of taking CLS
+    fc_norm: false                  # LOAD-BEARING. With avg pooling timm otherwise MOVES the
+                                    # final LayerNorm: it sets norm=Identity and builds a fresh
+                                    # fc_norm after the pooling. That would (a) discard the
+                                    # LayerNorm DINO trained across 6M MRI slices, replacing 768
+                                    # learned scales and shifts with gamma=1 beta=0, and (b)
+                                    # rename the parameter norm.* -> fc_norm.*, so the checkpoint
+                                    # no longer matches and _load_mri_core raises. false keeps it
+                                    # exactly where it was trained, on all 1025 tokens before the
+                                    # pooling, so token pooling is the only thing that changes.
+  feat_norm: true                   # the "normalize after pooling" idea, better placed: this
+                                    # sits after the 96-SLICE mean, so it normalizes the exact
+                                    # vector the head consumes - the one whose scale sets the
+                                    # head's effective lr. fc_norm would only have normalized
+                                    # per slice.      # looked up on the runs volume first, then data/pretrained/
+  pool: "mean"                      # unchanged from the baseline, so pooling is not a variable
+  drop_rate: 0.1
+  drop_path_rate: 0.1               # stochastic depth - ViTs overfit small data without it
+  grad_checkpointing: false         # measured, not guessed: ViT-B at 512px costs 0.36 GB of
+                                    # activations per image, so a 96-image study is ~35 GB and
+                                    # two are ~71 GB of the H200's 141 GB. Checkpointing would
+                                    # buy headroom we do not need and cost ~30% of the speed.
+
+input:
+  # MRI-CORE was trained on slices min-max normalized to [0,1], NOT ImageNet statistics.
+  # Feeding it ImageNet-standardised input would shift every activation off distribution.
+  norm_mean: [0.0, 0.0, 0.0]
+  norm_std:  [1.0, 1.0, 1.0]
+
+training:
+  epochs: 16
+  grad_clip: 3.0
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 3.0e-5                      # BACKBONE lr. Lower than the ConvNeXt runs' 5e-5: ViTs are
+                                    # less stable early, and this trunk is already in-domain,
+                                    # so it needs less moving than an ImageNet one did.
+    backbone_lr_mult: 0.5           # head = 6e-5
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.10               # doubled from 0.05 - ViT training is famously fragile in
+                                    # the first few hundred steps
+    min_lr_mult: 0.01
+  loss:
+    name: "bce"
+    pos_weight: "auto_clamped"      # carried over from convnext_small_posweight
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  # The 10-epoch run ended at 0.8814 with its BEST score on the very last step and
+  # early stopping never firing - it was still climbing, and its gap to the ConvNeXt
+  # baseline had closed monotonically from -0.0185 to -0.0126. So this continues it
+  # rather than retraining: same folder, same logs, weights and AdamW moments kept,
+  # a fresh cosine over 6 more epochs. Set enable: false to leave the run as it was.
+  extend:
+    enable: false
+    epochs: 6                       # epochs 11-16, ~2730 more steps
+    lr: 9.0e-6                      # new PEAK. The old cosine ended at 1% of 3e-5 = 3e-7,
+                                    # which is why a plain resume would do nothing. Slightly
+                                    # above the original peak because the run was clearly
+                                    # undertrained, not because it was diverging.
+    warmup_frac: 0.03               # ~55 steps of re-warm, so the jump back up to 4e-5
+                                    # does not shock weights that have been at 3e-7
+    reset_optimizer: false          # keep the moments - they are well-conditioned by now
+    reset_patience: true            # the extension gets its own 4 validations of rope
+
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 4                     # VALIDATIONS without improvement, not epochs
+
+dataloader:
+  batch_size: 4                     # 4 studies x 4 slots x 24 slices = 384 images @512 = 1024
+                                    # tokens each. Batch 2 measured 64 GB, so this lands near
+                                    # 128 GB of the H200's 141 GB - deliberately close to the
+                                    # edge to keep the GPU busy.
+  accum_steps: 2                    # effective 8 studies per update - IDENTICAL to every
+                                    # ConvNeXt run, which keeps the comparison honest
+  val_batch_size: 8                 # no backward pass: ~0.034 GB/image vs 0.36 training
+  num_workers: 24
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+modal:
+  gpu: "H200"
+  cpu: 16.0
+  memory_gb: 56
+  timeout_hours: 10                 # ViT-B at 512 is slower per step than ConvNeXt-Small;
+                                    # 8h was already close for the baseline
+
+# fresh run - inherits resume: "last" from shared_config
