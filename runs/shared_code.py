@@ -2864,7 +2864,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                     _md, _mn = _v[len(_v) // 2], sum(_v) / len(_v)
                     print(
                         f"\n  ⚠️  CLIPPING {100.0 * clip_hit[0] / clip_seen[0]:.0f}% of {clip_seen[0]} steps at grad_clip={_clip:g} "
-                        f"-> effective lr below the {cfg['training']['optimizer']['lr']:g} configured.\n"
+                        f"-> real step below the live lr {lr_hi:.2e}.\n"
                         f"      gnorm  med {_md:.2f}  mean {_mn:.2f}  min {_v[0]:.2f}  max {_v[-1]:.2f}  ->  raise grad_clip or lower lr\n")
 
                 ce = int(cfg["output"].get("commit_every_steps", 0) or 0)
