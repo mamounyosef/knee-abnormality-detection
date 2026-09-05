@@ -55,6 +55,13 @@ class SliceModel(nn.Module):
         if m.get("grad_checkpointing"):
             self.backbone.set_grad_checkpointing(True)
         feat = self.backbone.num_features
+        # Normalize what the head receives. The backbone's own final LayerNorm ends in a
+        # LEARNED gain that ships with the weights, and it differs wildly between
+        # checkpoints - DINOv3's is ~2x ImageNet-22k's, which handed the head features
+        # 4.8x larger, saturating the logits and inflating head gradients until they hit
+        # grad_clip. This is a fresh norm (gamma=1, beta=0), so whatever scale the trunk
+        # produces is divided out and the head's lr means the same thing for any trunk.
+        self.feat_norm = nn.LayerNorm(feat) if m.get("feat_norm") else nn.Identity()
         self.per_study = len(cfg["input"]["slots"]) * cfg["input"]["n_slices"]  # images per study
         self.pool = m.get("pool", "mean")            # how those images collapse into one vector
         if self.pool == "attn":
@@ -72,7 +79,7 @@ class SliceModel(nn.Module):
             f = (f * w).sum(dim=1)
         else:
             f = f.mean(dim=1)                         # plain average over slices and slots
-        return self.head(f)
+        return self.head(self.feat_norm(f))
 
 
 def build_model(cfg: dict) -> nn.Module:

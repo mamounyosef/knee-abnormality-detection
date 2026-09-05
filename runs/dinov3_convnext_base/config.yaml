@@ -33,6 +33,16 @@ model:
   pretrained: true
   pool: "mean"
   drop_rate: 0.1
+  feat_norm: true                       # a fresh LayerNorm between the pooled features and
+                                        # the head. Measured: this checkpoint's own final
+                                        # LayerNorm has a learned gain averaging 1.96 against
+                                        # ImageNet-22k's 1.13, so its features reach the head
+                                        # at std 1.53 vs 0.32 - 4.8x. That saturates the logits
+                                        # (sigmoid 0.24-0.82 at init vs 0.45-0.59) and scales
+                                        # head gradients by the same factor, since dL/dW
+                                        # carries f. Without this the run is not a test of
+                                        # DINOv3, it is a test of a head tuned for another
+                                        # feature scale.
   # fully convolutional, so 512px needs no img_size argument and costs nothing structurally
 
 training:
@@ -56,11 +66,37 @@ training:
     focal_gamma: 2.0
     aucm_margin: 1.0
     aucm_bce_mix: 0.1
+  # It finished the 12-epoch cosine still climbing - 0.8964, 0.8969, 0.8991, 0.9011 over the
+  # last four epochs, no flattening, early stopping never fired. convnext_base_relabel had
+  # levelled off by this point, so the gap may be partly schedule rather than weights.
+  # A plain resume would sit at 1% of peak (5e-7) and do nothing; extend keeps the weights and
+  # the AdamW moments and runs a NEW cosine over the extra epochs.
+  extend:
+    enable: true
+    epochs: 4                         # 13-16, ~1,816 more steps
+    lr: 1.5e-6                        # new PEAK, 30% of the original 5e-5 - the same
+                                      # fraction mricore_vitb_relabel used when it was
+                                      # extended for the same reason. High enough to move
+                                      # weights that have been sitting at 5e-7, low enough
+                                      # not to undo a converged trunk
+    warmup_frac: 0.03                 # ~55 steps of re-warm, so the jump up is not a shock
+    min_lr_mult: 0.05                 # the EXTENSION's floor: ends at 8e-7, not 8e-8. Over only
+                                      # 4 epochs the run's usual 1% would spend most of the
+                                      # extension at a lr too small to move anything
+    reset_optimizer: false            # the moments are well-conditioned by now
+    reset_patience: true              # the extension gets its own 4 validations of rope
+
   early_stopping:
     enable: true
     monitor: "val_macro_auroc"
     mode: "max"
-    patience: 4
+    # 4 -> 12 to let the extension actually finish. It stopped at step 6200 of 7264, only
+    # 41% in, so it never saw the annealed tail where a cosine usually banks its last gain.
+    # `reset_patience` does NOT fire on a continuing extension (by design - a crash must not
+    # hand the run fresh rope every time), so `bad` comes back from the checkpoint already
+    # sitting at 4. Anything at or below 4 would stop at the very first validation. 12
+    # clears the ~6 validations left in the extension with room to spare.
+    patience: 12
 
 dataloader:
   batch_size: 2                         # same shape as convnext_base_relabel: ~125 GB of
