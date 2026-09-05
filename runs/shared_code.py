@@ -112,12 +112,36 @@ def _deep_merge(base: dict, over: dict) -> dict:
     return out
 
 
+def _coerce_sci(node):
+    """Turn YAML's accidental strings back into floats.
+
+    YAML only reads scientific notation as a number when the mantissa has a decimal point:
+    `8.0e-6` is a float, `8e-6` is the STRING "8e-6". Every learning rate in this repo is
+    written in that notation, so one missing dot silently hands a string to the optimizer.
+    float() happens to rescue most call sites, which is worse - it means the typo survives
+    into a run and only shows up as a config print that looks subtly wrong.
+
+    Only strings carrying an exponent marker are touched, so genuine strings ("last",
+    "auto_clamped", "cosine") and plain digits (a resume step) are left alone.
+    """
+    items = node.items() if isinstance(node, dict) else enumerate(node)
+    for k, v in list(items):
+        if isinstance(v, (dict, list)):
+            _coerce_sci(v)
+        elif isinstance(v, str) and ("e" in v or "E" in v):
+            try:
+                node[k] = float(v)
+            except ValueError:
+                pass
+
+
 def load_config(experiment_dir, config_name: str = "config.yaml", verbose: bool = True) -> dict:
     """shared_config.yaml + the run's config.yaml, run wins."""
     exp_dir = Path(experiment_dir)
     shared = yaml.safe_load((exp_dir.parent / "shared_config.yaml").read_text(encoding="utf-8"))
     own = yaml.safe_load((exp_dir / config_name).read_text(encoding="utf-8")) or {}
     cfg = _deep_merge(shared, own)
+    _coerce_sci(cfg)
     cfg.setdefault("experiment", {}).setdefault("name", exp_dir.name)   # folder name is the default run name
     if verbose:
         print_config(cfg)
@@ -1446,6 +1470,68 @@ def _restore_rng(st: dict, device):
         print(f"  [warn] could not restore RNG: {type(e).__name__}: {e}")
 
 
+class ScaleProbe:
+    """Feature and logit scale at the head, every N steps.
+
+    The diagnostic that was missing when dinov3_convnext_base underfitted by 0.11 AUROC.
+    Its trunk was fine; its FEATURES were 4.8x larger than the ImageNet trunk's, because
+    a backbone's final LayerNorm carries a learned gain that ships inside the downloaded
+    weights and nothing in self-supervised pretraining ever pressured that gain toward a
+    scale a linear head wants. Bigger features mean bigger logits (a head confident before
+    it has learned anything, where the sigmoid slope is shallow) AND proportionally bigger
+    head gradients, since dL/dW = delta @ f.T carries f. Neither is visible in the loss.
+
+    Healthy: feature std near 1, logit |max| under ~2 early on. A feature std far from 1
+    means the head's learning rate does not mean what the config says it means.
+    """
+
+    def __init__(self, model, every: int = 200):
+        self.every = int(every)
+        self.buf, self.handle, self.head_name = None, None, None
+        head = None
+        for n, m in model.named_modules():          # the last Linear IS the head
+            if isinstance(m, nn.Linear):
+                head, self.head_name = m, n
+        if head is not None:
+            self.handle = head.register_forward_hook(self._hook)
+
+    def _hook(self, _mod, inp, out):
+        if self.buf is not False:                   # False = not an active step
+            f, o = inp[0].detach().float(), out.detach().float()
+            self.buf = (float(f.std()), float(f.norm(dim=-1).mean()),
+                        float(o.std()), float(o.abs().max()))
+
+    def active(self, step: int) -> bool:
+        return self.handle is not None and self.every > 0 and step % self.every == 0
+
+    def arm(self, on: bool):
+        self.buf = None if on else False            # None = armed, waiting for a forward
+
+    def read(self):
+        b = self.buf if isinstance(self.buf, tuple) else None
+        self.buf = False
+        return b
+
+    @staticmethod
+    def row(b):
+        if not b:
+            return {}
+        return {"feat_std": round(b[0], 4), "feat_l2": round(b[1], 3),
+                "logit_std": round(b[2], 4), "logit_absmax": round(b[3], 3)}
+
+    @staticmethod
+    def summarize(b):
+        if not b:
+            return ""
+        fs, fl, ls, lm = b
+        flag = ""
+        if fs > 2.5 or fs < 0.15:
+            flag = ("   <-- feature scale is far from 1: the head's effective lr is not "
+                    "what the config says. Consider model.feat_norm")
+        return (f"  \U0001F4CF scale  features std {fs:.3f}  L2 {fl:.1f}   |   "
+                f"logits std {ls:.3f}  |max| {lm:.2f}{flag}")
+
+
 class UDRatio:
     """log10 of the update-to-data ratio per weight matrix, the Karpathy diagnostic.
 
@@ -2192,11 +2278,18 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     scaler = torch.amp.GradScaler("cuda", enabled=cfg["training"]["amp"] and device.type == "cuda")
     imgs_per_batch = (train_batch_size(cfg) * len(cfg["input"]["slots"])
                       * cfg["input"]["n_slices"])
+    # Always on. There is no run for which "is every layer actually moving?" is not worth
+    # knowing, and it is the one diagnostic that separates a frozen or throttled trunk from
+    # a merely unlucky one - the loss curve shows them as the same thing. Cadence is
+    # configurable, presence is not.
     _udc = cfg["training"].get("log_ud_ratio") or {}
-    ud = UDRatio(model, _udc.get("every_steps", 200)) if _udc.get("enable") else None
-    if ud:
-        print(f"  📏 update/data ratio logging on: {len(ud.params)} weight tensors, "
-              f"every {ud.every} steps -> ud_ratio.csv")
+    ud = UDRatio(model, _udc.get("every_steps", 200))
+    print(f"  📏 update/weight ratio logging: {len(ud.params)} weight tensors, "
+          f"every {ud.every} steps -> ud_ratio.csv")
+    probe = ScaleProbe(model, _udc.get("every_steps", 200))
+    if probe.handle is not None:
+        print(f"  \U0001F4CF feature/logit scale probe on {probe.head_name!r}, "
+              f"every {probe.every} steps")
 
     print(f"[setup] optimizer={'PESG' if _pesg else cfg['training']['optimizer']['name']}  "
           f"scheduler={'none (PESG stagewise)' if _pesg else cfg['training']['scheduler']['name']}  amp={scaler.is_enabled()}")
@@ -2426,6 +2519,10 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         ecfg = json.loads(json.dumps(cfg))    # private copy - only the schedule differs
         if ext.get("warmup_frac") is not None:
             ecfg["training"]["scheduler"]["warmup_frac"] = float(ext["warmup_frac"])
+        # An extension is short, so the run's usual 1% floor spends most of it at a lr that
+        # cannot move anything. Raising the floor keeps the extra epochs actually training.
+        if ext.get("min_lr_mult") is not None:
+            ecfg["training"]["scheduler"]["min_lr_mult"] = float(ext["min_lr_mult"])
         ext_total = steps_per_epoch * extra
 
         base_lr = float(cfg["training"]["optimizer"]["lr"])
@@ -2457,7 +2554,8 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         ext_state.update({"base_epoch": base_epoch, "epochs": extra, "lr": new_lr})
 
         _lrs = ", ".join(f"{g['lr']:.2e}" for g in opt.param_groups)
-        _pat = "reset to 0" if ext.get("reset_patience", True) else f"kept at {bad}"
+        _pat = ("reset to 0" if (ext.get("reset_patience", True) and not continuing)
+                else f"kept at {bad}")   # reset only fires on a NEW extension
         _opt = "RESET" if ext.get("reset_optimizer") else "moments kept"
         _wf = ecfg["training"]["scheduler"].get("warmup_frac", 0.05)
         _banner("CONTINUING AN EXTENSION" if continuing else "EXTENDING A FINISHED RUN",
@@ -2603,8 +2701,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                             elapsed_sec=el, epoch_complete=done, saver=saver, loss_fn=loss_fn,
                             note=f"  \U0001F4BE best.pt written (score {score:.4f})")
 
-        if ud:
-            ud.dump(out / "ud_ratio.csv")     # flushed with last.pt, survives preemption
+        ud.dump(out / "ud_ratio.csv")         # flushed with last.pt, survives preemption
         save_checkpoint(ckpt_dir / "last.pt", cfg, model, opt, sched, scaler, epoch, gstep,
                         score, track=_track(), device=device, loss_fn=loss_fn,
                         elapsed_sec=el, epoch_complete=done, saver=saver,
@@ -2689,6 +2786,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                 win_data, win_first = 0.0, data_dt
             win_data += data_dt
             y = y.to(device, non_blocking=True)
+            probe.arm(probe.active(gstep + 1) and (it + 1) % accum == 0)
             with torch.autocast("cuda", enabled=scaler.is_enabled()):
                 loss = loss_fn(model(prepare_batch(x, cfg, device)), y) / accum
             scaler.scale(loss).backward()
@@ -2704,16 +2802,19 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                         clip_seen[0] += 1
                         clip_hit[0] += int(gnorm > _clip)
                         clip_vals.append(gnorm)
-                _ud_on = ud is not None and ud.active(gstep + 1)
+                _ud_on = ud.active(gstep + 1)
                 if _ud_on:
                     ud.before()
                 scaler.step(opt); scaler.update(); opt.zero_grad(set_to_none=True); sched.step()
                 gstep += 1
+                _pb = probe.read()
                 if _ud_on:
                     _uo = ud.after(epoch, gstep)
                     _um = ud.summarize(_uo)
                     if _um:
                         print(_um)
+                if _pb:
+                    print(ScaleProbe.summarize(_pb))
                 lrs = sched.get_last_lr()
                 lr, lr_lo, lr_hi = lrs[-1], min(lrs), max(lrs)
                 l = loss.item() * accum
@@ -2741,7 +2842,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                 _extra = {}
                 if _pesg and hasattr(loss_fn, "stats"):
                     _extra = loss_fn.stats(cfg["tasks"])   # AUC-M duals a / b / alpha
-                train_log.log({**_extra,
+                train_log.log({**_extra, **ScaleProbe.row(_pb),
                                "epoch": epoch, "epoch_step": it // accum,
                                "global_step": gstep, "loss": round(l, 6), "lr": lr,
                                "lr_min": lr_lo, "lr_max": lr_hi,
@@ -2810,7 +2911,15 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                     print("─" * 70)
                     print(f"  Epoch {epoch}/{epochs}  epoch_step: {it // accum}/{steps_per_epoch}"
                           f"  global_step: {gstep}/{total}")
-                    print(f"     loss={l:.4f}{d}  {lr_s}  gnorm={gnorm:.2f}  "
+                    # one step's gnorm is noisy (ours span 0.6 to 23 on the same run), so
+                    # the rolling mean is what actually says whether the trunk runs hot,
+                    # and clip% says how much of it is surviving the cap
+                    _gw = list(clip_vals)[-50:]
+                    _gs = ""
+                    if _gw:
+                        _gs = (f" (avg{len(_gw)} {sum(_gw) / len(_gw):.2f}"
+                               f", clip {100.0 * clip_hit[0] / max(clip_seen[0], 1):.0f}%)")
+                    print(f"     loss={l:.4f}{d}  {lr_s}  gnorm={gnorm:.2f}{_gs}  "
                           f"elapsed={fmt(el)}  ETA={fmt(eta)}  gpu_mem(peak)={mem:.2f}GB")
                     print()                      # split what the model is doing from how fast
                     print(f"     throughput: {ips:.0f} img/s compute | {real_ips:.0f} img/s real "

@@ -84,6 +84,17 @@ training:
   # clip_pct column in train_log.csv before trusting a comparison between two runs.
   grad_clip: 3.0
 
+  # log10(update / weight) per weight tensor, written to ud_ratio.csv and plotted with
+  # the rest. It measures whether each layer is ACTUALLY moving, instead of trusting that
+  # the configured learning rate reached it - a frozen trunk and a throttled one look
+  # identical in the loss curve. Roughly -3 is healthy for a layer training from scratch;
+  # a pretrained trunk should sit around -5 to -6, and far below that is frozen. On by
+  # default and cheap (one extra pass over the weights every 200 steps): it caught a fully
+  # frozen trunk at -9.02 that two rounds of reasoning had missed, and showed layer_decay
+  # 0.9 producing no depth ordering at all.
+  log_ud_ratio:
+    every_steps: 200                # cadence only - the logging itself is not optional
+
   amp: true                         # mixed precision: half-precision math, ~2x faster, less VRAM
   channels_last: true               # memory layout that suits tensor-core convolutions
   perf:
@@ -105,6 +116,11 @@ training:
                                     # backbone_lr_mult / layer_decay splits survive.
     warmup_frac: 0.02               # short re-warm, so the lr jump does not shock the
                                     # weights; null = keep the run's own warmup_frac
+    min_lr_mult: null               # floor for the EXTENSION's cosine only, as a fraction of
+                                    # its new peak. null = keep the run's scheduler.min_lr_mult
+                                    # (1%). An extension is only a few epochs, so 1% spends
+                                    # most of them at a lr too small to move anything - 0.05
+                                    # or 0.10 keeps the extra epochs doing real work.
     reset_optimizer: false          # false = keep the AdamW moments (usually right)
     reset_patience: true            # start early stopping fresh for the extension
 
