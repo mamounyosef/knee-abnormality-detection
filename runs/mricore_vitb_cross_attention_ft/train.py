@@ -98,31 +98,26 @@ class CrossSliceBlock(nn.Module):
     until the mean at the very end. This adds the missing axis: at each token position,
     attend over the S slices.
 
-    gamma is a per-channel scale on the branch, initialised to 1.0 - so at step 1 this is
-    just `x + h`, a plain residual branch, exactly as if there were no gate at all.
+    UNGATED: out = x + h, a plain residual branch at full strength from step 1.
 
-    It used to init near 0 (a "safe" gate that starts as the identity) and that was a trap:
-    the gradient reaching the branch's OWN weights is scaled by gamma, so at gamma=1e-3 the
-    attention trained ~1000x too slowly, while gamma's gradient was evaluated on a branch
-    that was still random noise - so the gate correctly closed, which kept the branch
-    untrained, which kept the gate closed. mricore_vitb_cross_attention_ft rode that loop
-    all the way down: gamma 9.1e-4 -> 4.0e-4 over 600 steps, val stuck at 0.8936 against a
-    0.8970 init. The parameter is kept only as a MEASUREMENT: it is logged every diagnostic
-    step, so a gamma that decays tells us the model is routing around cross-slice
-    information rather than leaving us to guess.
+    There used to be a per-channel `gamma` scaling h, initialised near 0 so the block began
+    as the identity. That was a trap. The gradient reaching the branch's OWN weights is
+    scaled by gamma, so at 1e-3 the attention trained ~1000x too slowly, while gamma's own
+    gradient was measured on a branch that was still random noise - the gate closed, which
+    kept the branch untrained, which kept the gate closed. mricore_vitb_cross_attention_ft
+    rode that loop the whole way down: |gamma| 9.1e-4 -> 4.0e-4 over 600 steps, channels
+    open 296 -> 52, val pinned at 0.8936 against a 0.8970 init. The gate is gone entirely.
 
     Attention is quadratic in sequence length and S=96 is far shorter than T=1025, so each
     of these costs ~1/11th of the spatial attention beside it.
     """
 
-    def __init__(self, dim: int, num_heads: int, per_study: int, attn_drop: float = 0.0,
-                 gamma_init: float = 1.0):
+    def __init__(self, dim: int, num_heads: int, per_study: int, attn_drop: float = 0.0):
         super().__init__()
         self.S = per_study                            # S = 96
         self.norm = nn.LayerNorm(dim)                 # LayerNorm(F=768), normalizes over the last dim
         self.attn = nn.MultiheadAttention(dim, num_heads,      # F=768, 12 heads -> head_size is 64
                                           dropout=attn_drop, batch_first=True)
-        self.gamma = nn.Parameter(torch.full((dim,), gamma_init))  # (F,) = (768,), per channel
         self.is_fresh = True                          # -> optimizer.fresh_lr, not the trunk rate
 
     def forward(self, x):
@@ -137,11 +132,10 @@ class CrossSliceBlock(nn.Module):
         h = h.view(B, T, self.S, F)                   # (B*T, S, F) -> (B, T, S, F)
         h = h.permute(0, 2, 1, 3)                     # (B, T, S, F) -> (B, S, T, F)
         h = h.reshape(BS, T, F)                       # (B, S, T, F) -> (B*S, T, F)
-        return x + self.gamma * h                     # (B*S, T, F) + (F,) * (B*S, T, F), gamma broadcasts
+        return x + h                                  # (B*S, T, F) + (B*S, T, F), plain residual
 
 
-def _insert_cross_slice(backbone, per_study: int, after: list, attn_drop: float = 0.0,
-                        gamma_init: float = 1.0):
+def _insert_cross_slice(backbone, per_study: int, after: list, attn_drop: float = 0.0):
     """Splice CrossSliceBlocks into the ViT's block list.
 
     timm keeps the 12 transformer blocks in an nn.Sequential where every element maps
@@ -154,11 +148,11 @@ def _insert_cross_slice(backbone, per_study: int, after: list, attn_drop: float 
     for i, blk in enumerate(backbone.blocks, start=1):        # 1-based: "after block 3"
         out.append(blk)
         if i in after:
-            out.append(CrossSliceBlock(dim, heads, per_study, attn_drop, gamma_init))
+            out.append(CrossSliceBlock(dim, heads, per_study, attn_drop))
             added += 1
     backbone.blocks = nn.Sequential(*out)
     print(f"  \U0001F9E9 cross-slice attention: {added} block(s) after {after} "
-          f"-> {len(out)} total, S={per_study}, dim={dim}, heads={heads}, gamma init {gamma_init:g}")
+          f"-> {len(out)} total, S={per_study}, dim={dim}, heads={heads}, ungated")
     return backbone
 
 
@@ -245,8 +239,7 @@ class SliceModel(nn.Module):
         if xs.get("enable"):
             _insert_cross_slice(self.backbone, self.per_study,
                                 list(xs.get("after", [3, 6, 9])),
-                                float(xs.get("attn_drop", 0.0)),
-                                float(xs.get("gamma_init", 1.0)))
+                                float(xs.get("attn_drop", 0.0)))
 
     def forward(self, x):                      # x: (B*slots*D, C, H, W)
         f = self.backbone(x)                   # (B*slots*D, F)

@@ -1,6 +1,7 @@
 # Null result: gamma_init 1e-3 (6 Sep)
 
-Kept as evidence, not as a run to build on. Superseded by `gamma_init: 1.0`.
+Kept as evidence, not as a run to build on. The gate has since been **deleted outright**:
+the block is now `out = x + attn(norm(x))`, with no scale parameter at all.
 
 ## What happened
 

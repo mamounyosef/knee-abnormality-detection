@@ -1,11 +1,21 @@
 # Cross-slice attention as a STAGE-2 FINETUNE of the converged mricore_vitb_relabel,
 # rather than from raw MRI-CORE weights.
 #
-# Why this is the better experiment. gamma starts at zero, so this run STARTS at
-# mricore_vitb_relabel's 0.8970 - not at chance. Every point it moves is attributable to
-# cross-slice attention and nothing else. The from-scratch version spends 16 epochs
-# re-learning the task before the effect can even show, and its final number confounds
-# "does slice fusion help" with "did this seed train well".
+# Why run this alongside the from-scratch version. This one inherits a trunk that already
+# scores 0.8970, so it only has to learn where to look across slices, not the task as well.
+# The from-scratch version spends 16 epochs re-learning the task before the effect can show,
+# and its final number confounds "does slice fusion help" with "did this seed train well".
+#
+# What it does NOT do any more is start exactly at 0.8970. The blocks are ungated, so a
+# random full-strength branch perturbs the converged trunk on step 1 and the run starts
+# below its init and has to earn it back. The first attempt kept a near-zero `gamma` to
+# avoid that, and the gate simply closed: |gamma| 9.1e-4 -> 4.0e-4 over 600 steps, val
+# pinned at 0.8936. A branch throttled to 0.1% strength cannot bootstrap out of its own
+# throttle, so there is nothing to measure. Archived under null_result_gamma1e-3/.
+#
+# Running both framings in parallel is what separates the two explanations:
+#   from-scratch low                -> cross-slice attention does not help this problem
+#   from-scratch fine, this one low -> it helps, but a converged trunk will not accept it
 #
 # The trap this avoids: inserting blocks SHIFTS the indices. The checkpoint's blocks.3 is a
 # real transformer Block; ours is a CrossSliceBlock. Loading with strict=False after the
@@ -51,20 +61,6 @@ model:
                                     # each new block is ~1/11th of the spatial attention
                                     # beside it
     attn_drop: 0.0
-    gamma_init: 1.0                 # full strength: x + 1.0*h is exactly x + h, i.e. a plain
-                                    # residual branch with no gate at all. gamma stays as a
-                                    # PARAMETER purely so we can watch it, not to hold the block
-                                    # back.
-                                    #
-                                    # 1e-3 was tried first and it was a trap. The gradient
-                                    # reaching the branch's own weights is scaled by gamma, so at
-                                    # 1e-3 the attention trained ~1000x too slowly, while gamma's
-                                    # own gradient was measured on a branch that was still random
-                                    # noise. The gate closed, which kept the branch untrained,
-                                    # which kept the gate closed. mricore_vitb_cross_attention_ft
-                                    # rode that loop the whole way: |gamma| 9.1e-4 -> 4.0e-4 over
-                                    # 600 steps, channels open 296 -> 52, val pinned at 0.8936
-                                    # against a 0.8970 init. The run never tested the idea.
                                     # 1e-3 is well inside noise, so the run still effectively
                                     # starts where mricore_vitb_relabel ended
   grad_checkpointing: false         # measured, not guessed: ViT-B at 512px costs 0.36 GB of
@@ -108,7 +104,7 @@ training:
     aucm_bce_mix: 0.1
   log_ud_ratio:
     every_steps: 150                # matched to the validation cadence below, so every score
-                                    # has a fresh gamma / update-weight reading beside it
+                                    # has a fresh update/weight reading beside it
 
   extend:
     enable: false

@@ -18,10 +18,16 @@
 # the sequence axis and attends over them at every token position - the same attention the
 # ViT already does, pointed at the slice axis instead of the patch axis.
 #
-# gamma starts at ZERO, so on step 1 this model is numerically identical to
-# mricore_vitb_relabel. It cannot damage a trunk that took 6M MRI slices to train, and it
-# only diverges if cross-slice information actually helps. A gamma that stays near zero is
-# the model telling us it does not - a real answer either way.
+# The blocks are UNGATED: out = x + attn(norm(x)), full strength from step 1.
+#
+# There was a per-channel `gamma` scaling the branch, initialised near zero so the model
+# started as an exact copy of the trunk. It looked safe and it was a trap: the gradient
+# reaching the branch's own weights is scaled by gamma, so at 1e-3 the attention trained
+# ~1000x too slowly while gamma's own gradient was measured on a branch that was still
+# random noise. The gate closed, which kept the branch untrained, which kept the gate
+# closed. mricore_vitb_cross_attention_ft rode that loop the whole way down: |gamma|
+# 9.1e-4 -> 4.0e-4 over 600 steps, channels open 296 -> 52, val pinned at 0.8936 against a
+# 0.8970 init. It never tested the idea. The gate is gone, not set to 1.
 #
 # Beat: mricore_vitb_relabel, val 0.8970 / audit 0.8889.
 # Supporting evidence: all four prior RSNA Kaggle winners fused across slices with an LSTM or
@@ -55,20 +61,6 @@ model:
                                     # each new block is ~1/11th of the spatial attention
                                     # beside it
     attn_drop: 0.0
-    gamma_init: 1.0                 # full strength: x + 1.0*h is exactly x + h, i.e. a plain
-                                    # residual branch with no gate at all. gamma stays as a
-                                    # PARAMETER purely so we can watch it, not to hold the block
-                                    # back.
-                                    #
-                                    # 1e-3 was tried first and it was a trap. The gradient
-                                    # reaching the branch's own weights is scaled by gamma, so at
-                                    # 1e-3 the attention trained ~1000x too slowly, while gamma's
-                                    # own gradient was measured on a branch that was still random
-                                    # noise. The gate closed, which kept the branch untrained,
-                                    # which kept the gate closed. mricore_vitb_cross_attention_ft
-                                    # rode that loop the whole way: |gamma| 9.1e-4 -> 4.0e-4 over
-                                    # 600 steps, channels open 296 -> 52, val pinned at 0.8936
-                                    # against a 0.8970 init. The run never tested the idea.
                                     # 1e-3 is well inside noise, so the run still effectively
                                     # starts where mricore_vitb_relabel ended
   grad_checkpointing: false         # measured, not guessed: ViT-B at 512px costs 0.36 GB of

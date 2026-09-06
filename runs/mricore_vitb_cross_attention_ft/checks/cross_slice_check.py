@@ -14,8 +14,8 @@ So this checks the properties, not the shapes alone:
     3  attention mixes over SLICES, not over tokens
     4  studies are independent - study b never sees study b'
     5  token positions are independent - token t never sees token t'
-    6  gamma=0 is an exact no-op; gamma>0 is not
-    7  gradients reach gamma, so the gate can actually open
+    6  the block is UNGATED: out is exactly x + attn(norm(x)), no scale anywhere
+    7  the branch actually moves the output, and every new tensor gets gradient
     8  the whole forward matches an explicit element-by-element reference
 
   and for _insert_cross_slice, which rewrites timm's block list:
@@ -25,10 +25,10 @@ So this checks the properties, not the shapes alone:
        not reordered
    11  their pretrained weights are bit-identical after the rewrite
    12  after=[] is a no-op
-   13  the rebuilt backbone still runs, and at gamma=0 gives bit-identical output
-   16  the SHIPPING default gamma_init=1.0 is exactly a plain 'x + h' branch
+   13  the rebuilt backbone still runs, and the spliced blocks change its output
+   14  no CrossSliceBlock carries a scale parameter - the gate is gone, not just set to 1
 
-    python runs/mricore_vitb_cross_attention/checks/cross_slice_check.py
+    python runs/mricore_vitb_cross_attention_ft/checks/cross_slice_check.py
 """
 
 import importlib.util
@@ -66,11 +66,9 @@ B, S, T, F, H = 3, 4, 5, 8, 2
 CrossSliceBlock = _load_block()
 
 
-def _fresh(seed=0, gamma=0.0):
-    """gamma is EXPLICIT here. The constructor default is 1.0 (full strength, no gate),
-    so a test that wants a closed gate has to say so - it can no longer inherit one."""
+def _fresh(seed=0):
     torch.manual_seed(seed)
-    blk = CrossSliceBlock(F, H, S, gamma_init=gamma).eval()
+    blk = CrossSliceBlock(F, H, S).eval()
     return blk
 
 
@@ -94,7 +92,6 @@ def _mixes_slices_not_tokens():
     """3, 5 — perturbing slice s changes the other slices; perturbing token t does not
     change the other tokens."""
     blk = _fresh()
-    nn.init.constant_(blk.gamma, 1.0)
     x = torch.randn(B * S, T, F)
     base = blk(x)
 
@@ -122,7 +119,6 @@ def _mixes_slices_not_tokens():
 def _studies_independent():
     """4 — the failure that would be invisible: study A attending to study B."""
     blk = _fresh()
-    nn.init.constant_(blk.gamma, 1.0)
     x = torch.randn(B * S, T, F)
     base = blk(x).view(B, S, T, F)
     x2 = x.clone()
@@ -137,36 +133,58 @@ def _studies_independent():
     return leak < 1e-4 and moved > 1e-4
 
 
-def _gate():
-    """6, 7 — the gate is an exact no-op closed, live open, and trainable."""
-    blk = _fresh(gamma=0.0)
+def _ungated():
+    """6, 7 — the block is a plain residual branch, and all of it trains.
+
+    There is no longer a gate to open, so the property to hold is the opposite of the old
+    one: the branch must contribute from step 1, and every tensor in it must receive
+    gradient. mricore_vitb_cross_attention_ft failed precisely because a scale parameter
+    sat in front of h and the optimizer drove it to zero.
+    """
+    blk = _fresh()
     x = torch.randn(B * S, T, F)
-    with torch.no_grad():
-        noop = float((blk(x) - x).abs().max())
-    print(f"  {'PASS' if noop == 0.0 else 'FAIL'}  gamma=0 is an EXACT no-op         "
-          f"(max delta {noop:.3e})")
 
+    # 1. out is EXACTLY x + attn(norm(x)) - hand-computed, nothing scaling h
     with torch.no_grad():
-        nn.init.constant_(blk.gamma, 0.1)
-        live = float((blk(x) - x).abs().max())
-    print(f"  {'PASS' if live > 1e-4 else 'FAIL'}  gamma=0.1 changes the output      "
-          f"(max delta {live:.3e})")
+        got = blk(x)
+        h = blk.norm(x).view(B, S, T, F).permute(0, 2, 1, 3).reshape(B * T, S, F)
+        h, _ = blk.attn(h, h, h, need_weights=False)
+        h = h.view(B, T, S, F).permute(0, 2, 1, 3).reshape(B * S, T, F)
+        ref = x + h
+    d = float((got - ref).abs().max())
+    exact = d == 0.0
+    print(f"  {'PASS' if exact else 'FAIL'}  out is exactly x + attn(norm(x))  "
+          f"(max delta {d:.3e})")
 
-    blk2 = _fresh(gamma=0.0)                   # gamma back at 0
-    out = blk2(torch.randn(B * S, T, F))
-    out.sum().backward()
-    g = blk2.gamma.grad
-    grad_ok = g is not None and float(g.abs().sum()) > 0
-    print(f"  {'PASS' if grad_ok else 'FAIL'}  gamma receives gradient AT ZERO   "
-          f"(|grad| sum {float(g.abs().sum()) if g is not None else 0:.3e})")
-    return noop == 0.0 and live > 1e-4 and grad_ok
+    # 2. no scale parameter survives anywhere in the block
+    scales = [n for n, _ in blk.named_parameters()
+              if n.endswith("gamma") or n.endswith("scale") or n.endswith("layer_scale")]
+    clean = not scales
+    print(f"  {'PASS' if clean else 'FAIL'}  no gate/scale parameter on the block  "
+          f"{scales if scales else '(none)'}")
+
+    # 3. the branch moves the output - it cannot be a silent no-op any more
+    moved = float((got - x).abs().max())
+    live = moved > 1e-3
+    print(f"  {'PASS' if live else 'FAIL'}  the branch changes the output     "
+          f"(max delta {moved:.3e})")
+
+    # 4. every trainable tensor in the block gets gradient
+    blk2 = _fresh()
+    blk2(torch.randn(B * S, T, F)).sum().backward()
+    dead = [n for n, q in blk2.named_parameters()
+            if q.grad is None or float(q.grad.abs().sum()) == 0.0]
+    trains = not dead
+    print(f"  {'PASS' if trains else 'FAIL'}  every param gets gradient         "
+          f"{len(list(blk2.named_parameters())) - len(dead)}"
+          f"/{len(list(blk2.named_parameters()))} tensors"
+          + (f"  dead: {dead}" if dead else ""))
+    return exact and clean and live and trains
 
 
 def _matches_reference():
     """8 — the whole forward, against a loop that no one could accidentally vectorise wrong."""
     blk = _fresh(seed=7)
-    with torch.no_grad():
-        nn.init.uniform_(blk.gamma, 0.2, 0.5)
     x = torch.randn(B * S, T, F)
     with torch.no_grad():
         got = blk(x)
@@ -179,7 +197,7 @@ def _matches_reference():
                 seq = torch.stack([h[b * S + s, t] for s in range(S)]).unsqueeze(0)  # (1, S, F)
                 a, _ = blk.attn(seq, seq, seq, need_weights=False)                   # (1, S, F)
                 for s in range(S):
-                    ref[b * S + s, t] = x[b * S + s, t] + blk.gamma * a[0, s]
+                    ref[b * S + s, t] = x[b * S + s, t] + a[0, s]
     d = float((got - ref).abs().max())
     ok = d < 1e-5
     print(f"  {'PASS' if ok else 'FAIL'}  matches an explicit per-study, per-token loop "
@@ -225,54 +243,32 @@ def _insertion():
     x = torch.randn(S, 3, 64, 64)
     with torch.no_grad():
         ref = bb(x)
-        mod._insert_cross_slice(bb, S, [3, 6, 9], gamma_init=0.0)
+        mod._insert_cross_slice(bb, S, [3, 6, 9])
         got = bb(x)
     d = float((ref - got).abs().max())
-    run_ok = d == 0.0
+    # Ungated, so the old "bit-identical at gamma=0" property is now impossible BY DESIGN.
+    # The thing worth asserting flipped: the rebuilt backbone must still run, and the new
+    # blocks must actually change what comes out of it.
+    run_ok = got.shape == ref.shape and d > 1e-4 and torch.isfinite(got).all()
     ok = ok and run_ok
-    print(f"  {'PASS' if run_ok else 'FAIL'}  rebuilt backbone runs end to end, gamma=0 output "
-          f"bit-identical  (max delta {d:.3e})")
+    print(f"  {'PASS' if run_ok else 'FAIL'}  rebuilt backbone runs, spliced blocks change "
+          f"its output  (max delta {d:.3e})")
+
+    n_scale = [n for n, _ in bb.named_parameters()
+               if n.endswith("gamma") or n.endswith("scale")]
+    clean = not n_scale
+    ok = ok and clean
+    print(f"  {'PASS' if clean else 'FAIL'}  no gate parameter anywhere in the backbone  "
+          f"{n_scale if n_scale else '(none)'}")
     return ok
-
-
-def _default_is_full_strength():
-    """16 — the SHIPPING default (gamma_init=1.0) is a plain residual branch.
-
-    This is the whole fix from mricore_vitb_cross_attention_ft: `x + 1.0*h` must equal
-    `x + h` exactly, i.e. the gate is numerically absent at step 1 rather than throttling
-    the branch's gradient by 1e-3. Verified against a hand-computed x + attn(norm(x)).
-    """
-    blk = CrossSliceBlock(F, H, S).eval()           # no gamma_init -> the default
-    default_ok = float((blk.gamma - 1.0).abs().max()) == 0.0
-    print(f"  {'PASS' if default_ok else 'FAIL'}  default gamma_init is exactly 1.0")
-
-    x = torch.randn(B * S, T, F)
-    with torch.no_grad():
-        got = blk(x)
-        h = blk.norm(x).view(B, S, T, F).permute(0, 2, 1, 3).reshape(B * T, S, F)
-        h, _ = blk.attn(h, h, h, need_weights=False)
-        h = h.view(B, T, S, F).permute(0, 2, 1, 3).reshape(B * S, T, F)
-        ref = x + h                                  # NO gamma anywhere
-    d = float((got - ref).abs().max())
-    same = d == 0.0
-    print(f"  {'PASS' if same else 'FAIL'}  gamma=1.0 IS 'x + h', no gate            "
-          f"(max delta {d:.3e})")
-
-    moved = float((got - x).abs().max())
-    live = moved > 1e-3
-    print(f"  {'PASS' if live else 'FAIL'}  and the branch actually contributes      "
-          f"(max delta {moved:.3e})")
-    return default_ok and same and live
 
 
 def main():
     print(f"CrossSliceBlock  B={B} S={S} T={T} F={F} heads={H}\n" + "-" * 78)
-    r = [_shapes(), _mixes_slices_not_tokens(), _studies_independent(), _gate(),
+    r = [_shapes(), _mixes_slices_not_tokens(), _studies_independent(), _ungated(),
          _matches_reference()]
     print("-" * 78 + "\n  _insert_cross_slice")
     r.append(_insertion())
-    print("-" * 78 + "\n  shipping default")
-    r.append(_default_is_full_strength())
     print("-" * 78)
     print(f"  {'ALL CHECKS PASS' if all(r) else 'FAILURES ABOVE'}")
     return 0 if all(r) else 1
