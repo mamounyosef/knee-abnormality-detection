@@ -47,12 +47,18 @@ C = "mricore_vitb_cross_attention"
 
 # the top of the flat sweep, plus the two things already submitted as references
 COMBOS = [
-    ("w6-C-for-mricore-L",  [S, B, C, R, D, L]),
-    ("w5-C-for-mricore",    [S, B, C, R, D]),
-    ("w4-B-D-C-R",          [B, D, C, R]),
-    ("w7-six-plus-C",       [S, B, M, R, D, L, C]),
-    ("w5-submitted",        [S, B, M, R, D]),
-    ("w6-submitted",        [S, B, M, R, D, L]),
+    # RadImageNet is OUT of every one of these. Its licence is "personal, non-commercial
+    # (e.g., academic) research purposes only... any commercial use, sale, or other
+    # monetization is strictly prohibited", and competing for a cash prize is a
+    # commercial use. It stays a valid internal ablation, it cannot ship.
+    ("nr5-C-D-L",        [S, B, C, D, L]),
+    ("nr4-C-D",          [S, B, C, D]),
+    ("nr4-M-D",          [S, B, M, D]),
+    ("nr5-both-mricore", [S, B, M, C, D]),
+    ("nr3-B-C-D",        [B, C, D]),
+    ("nr3-B-M-D",        [B, M, D]),
+    ("nr4-C-D-L",        [B, C, D, L]),
+    ("nr6-everything",   [S, B, M, C, D, L]),
 ]
 
 

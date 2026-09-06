@@ -54,25 +54,30 @@ MEMBERS = [
     ("convnext_small_relabel", "best"),
     ("convnext_base_relabel", "best"),
     ("mricore_vitb_cross_attention", "best"),
-    ("radimagenet_resnet50_relabel", "best"),
     ("dinov3_convnext_base", "best"),
 ]
-# Per-class blend weights fitted by ensemble.py's search. Point at the summary json of
-# the fit whose members match MEMBERS exactly, or None for a flat average.
+# RadImageNet is deliberately ABSENT: its licence is "personal, non-commercial (e.g.,
+# academic) research purposes only... any commercial use, sale, or other monetization is
+# strictly prohibited", and a cash prize is a commercial use. Dropping it costs 0.0021
+# OOF - it was earning real weight (0.62 Medial Meniscus, 0.58 Fracture), which is why
+# this had to be checked rather than assumed.
 #
-# Ranked on the OUT-OF-FOLD number, never the in-sample one. For this fit:
-#   flat 0.9144  |  OOF 0.9166  |  in-sample 0.9198
-# The 0.0032 between OOF and in-sample is the overfitting; the 0.0022 between OOF and
-# flat is what the weights actually buy, and it is the only one worth acting on.
-BLEND_WEIGHTS = ("ensemble_results/2026-09-06_23-01-33_w5-C-for-mricore-search"
-                 "/weighted_val_summary.json")
-PUBLISH      = True            # push the dataset + notebook and submit
-WAIT_FOR_RUN = True            # poll until the notebook finishes, then submit
+# convnext_large is ALSO absent, for a completely different reason. The only local
+# best.pt for it is step 1200 / 0.8780, while its real best is step 2600 / 0.9061. The
+# sweep scores members from results/predictions/*.npz - so it measured 0.9061 - but the
+# bundle ships the CHECKPOINT, i.e. 0.8780. Every earlier submission containing
+# convnext_large therefore shipped a model 0.028 worse than the one measured, including
+# the 6-member that scored 0.922 against the 5-member's 0.924. Do not re-add it until
+# the step-2600 checkpoint is pulled and best.pt's `score` matches val_log's best.
+BLEND_WEIGHTS = "ensemble_results/2026-09-06_23-57-35_nr4-C-D-search/weighted_val_summary.json"
+PUBLISH      = True
+WAIT_FOR_RUN = True
 KAGGLE_USER  = "mamounhussam"
-SLUG         = "knee-ensemble-5-crossattn-weighted"   # dataset slug; notebook is <SLUG>-submit
-NOTE         = ("5-model weighted ensemble: convnext_small + convnext_base + "
-                "mricore_vitb_cross_attention + radimagenet + dinov3 | per-class weights, "
-                "val OOF 0.9166 (flat 0.9144) | cross_attention REPLACES mricore_vitb_relabel")
+SLUG         = "knee-ensemble-4-prize-eligible"
+NOTE         = ("4-model weighted ensemble, PRIZE-ELIGIBLE (no RadImageNet): "
+                "convnext_small + convnext_base + mricore_vitb_cross_attention "
+                "+ dinov3 | per-class weights, val OOF 0.9140 (flat 0.9134) | "
+                "Built with DINOv3")
 # ===========================================================================
 
 PKG_ROOT = Path(__file__).resolve().parent.parent.parent      # <repo>/runs

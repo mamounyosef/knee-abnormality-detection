@@ -4372,6 +4372,33 @@ def build_kaggle_ensemble_assets(members: list, out_dir, kaggle_user: str,
         for name, row in zip(names, mat):
             print(f"     {name:32s} {' '.join(f'{v:.2f}' for v in row)}")
 
+    # DINOv3's licence is not permissive like MRI-CORE's Apache-2.0: redistributing the
+    # weights - and putting them in a Kaggle dataset IS redistribution - obliges us to
+    # include the licence text and to display "Built with DINOv3" wherever the materials
+    # are made available. Neither is optional, and neither was being shipped until a
+    # rules audit caught it, so it is automated here rather than left to remember.
+    _dino = [m[0] for m in members if "dinov3" in m[0].lower()]
+    if _dino:
+        lic_src = Path(__file__).resolve().parent.parent / "data" / "licenses" / "DINOV3_LICENSE.md"
+        if not lic_src.exists():
+            raise SystemExit(
+                f"{_dino} is in this submission but the DINOv3 licence is missing at\n"
+                f"  {lic_src}\n"
+                f"Redistributing DINOv3 weights without the licence breaches its terms. "
+                f"Fetch it from https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md")
+        shutil.copy(lic_src, w / "DINOV3_LICENSE.md")
+        (w / "NOTICE.md").write_text(
+            "# Built with DINOv3\n\n"
+            "This model bundle contains weights derived from Meta's DINOv3 "
+            "(members: " + ", ".join(_dino) + ").\n\n"
+            "DINOv3 is distributed under the DINOv3 License, a copy of which is included "
+            "in this dataset as DINOV3_LICENSE.md. Use of the DINOv3 materials is subject "
+            "to that licence.\n\n"
+            "Other pretrained weights in this bundle carry their own licences and are not "
+            "covered by the DINOv3 License.\n", encoding="utf-8")
+        print(f"  \u2696\ufe0f  DINOv3 member(s) {_dino} -> shipped DINOV3_LICENSE.md "
+              f"+ 'Built with DINOv3' NOTICE.md")
+
     shutil.copy(Path(__file__), w / "shared_code.py")
     wheels_src = Path(__file__).resolve().parent / "_wheels"
     for whl in (wheels_src.glob("*.whl") if wheels_src.is_dir() else []):
@@ -4393,6 +4420,16 @@ def build_kaggle_ensemble_assets(members: list, out_dir, kaggle_user: str,
         "competition_sources": ["rsna-knee-abnormality-detection"],
         "kernel_sources": [],
     }, indent=2), encoding="utf-8")
+
+    # "prominently display" means the notebook, not just a file in the dataset
+    _notice_cell = None
+    if _dino:
+        _notice_cell = (
+            "# Built with DINOv3\n\n"
+            "This notebook uses weights derived from Meta's **DINOv3**. DINOv3 is "
+            "distributed under the DINOv3 License, included in the attached dataset as "
+            "`DINOV3_LICENSE.md`.\n\n"
+            "Other pretrained weights used here carry their own separate licences.")
 
     cells = [
         r"""import sys, glob, json, subprocess, traceback, importlib.util
@@ -4519,8 +4556,12 @@ except Exception:
     bail('inference failed')
 pd.read_csv('submission.csv').head()""",
     ]
-    nb = {"cells": [{"cell_type": "code", "metadata": {}, "source": c.splitlines(True),
-                     "outputs": [], "execution_count": None} for c in cells],
+    _cells = [{"cell_type": "code", "metadata": {}, "source": c.splitlines(True),
+               "outputs": [], "execution_count": None} for c in cells]
+    if _notice_cell:                      # first cell, so it is the first thing seen
+        _cells.insert(0, {"cell_type": "markdown", "metadata": {},
+                          "source": _notice_cell.splitlines(True)})
+    nb = {"cells": _cells,
           "metadata": {"kernelspec": {"name": "python3", "language": "python",
                                       "display_name": "Python 3"}},
           "nbformat": 4, "nbformat_minor": 5}
