@@ -981,6 +981,22 @@ class CSVLogger:
                                          extrasaction="ignore")
                 if new:
                     self._w.writeheader()
+            else:
+                # Columns can appear MID-RUN: gate_* rows are only built on the diagnostic
+                # cadence, so row 1 does not have them and the header locked without them.
+                # DictWriter(extrasaction="ignore") would drop them silently for the whole
+                # run - which is exactly how mricore_vitb_cross_attention_ft lost every
+                # gamma value it printed. Widen the file instead, same as on resume.
+                late = [k for k in row if k not in self._w.fieldnames]
+                if late:
+                    fields = list(self._w.fieldnames) + late
+                    self._f.close()
+                    self._migrate(list(self._w.fieldnames), fields)
+                    self._f = open(self.path, "a", newline="", encoding="utf-8")
+                    self._w = csv.DictWriter(self._f, fieldnames=fields, restval="",
+                                             extrasaction="ignore")
+                    print(f"  📝 {self.path.name}: added {len(late)} new "
+                          f"column(s) mid-run, earlier rows back-filled blank")
             self._w.writerow(row); self._f.flush()
         except Exception as e:                # logging must never crash training
             print(f"  [warn] CSV log failed: {type(e).__name__}: {e}")
@@ -1412,11 +1428,25 @@ def build_optimizer(model: nn.Module, cfg: dict, loss_fn: nn.Module | None = Non
     # trunk, the rest is freshly initialized. Substring matching got this wrong -
     # "fc" also matches every mlp.fc1/fc2 inside a ConvNeXt block.
     has_bb = hasattr(model, "backbone")
-    head, backbone = [], []
-    n_head = n_bb = 0
+
+    # A module can declare itself freshly initialised by setting `is_fresh = True`. Blocks
+    # spliced INTO a pretrained trunk live under `backbone.` and would otherwise inherit the
+    # trunk's learning rate - which is chosen for weights that are already converged and is
+    # exactly wrong for weights that are still random. mricore_vitb_cross_attention_ft put 21
+    # random tensors on a 6e-6 trunk rate that way.
+    fresh_ids = set()
+    for _, mod_ in model.named_modules():
+        if getattr(mod_, "is_fresh", False):
+            fresh_ids.update(id(q) for q in mod_.parameters())
+    fresh_lr = o.get("fresh_lr")
+
+    head, backbone, fresh = [], [], []
+    n_head = n_bb = n_fr = 0
     for n, p in model.named_parameters():
         if not p.requires_grad:
             continue
+        if fresh_lr and id(p) in fresh_ids:
+            fresh.append(p); n_fr += p.numel(); continue
         is_bb = (n.startswith("backbone.") if has_bb
                  else not any(k in n for k in ("head", "classifier", "pool_attn")))
         (backbone if is_bb else head).append(p)
@@ -1425,8 +1455,15 @@ def build_optimizer(model: nn.Module, cfg: dict, loss_fn: nn.Module | None = Non
         else:
             n_head += p.numel()
     groups = [{"params": backbone, "lr": lr}, {"params": head, "lr": head_lr}]
-    print(f"  \U0001F9EE lr groups: backbone {n_bb / 1e6:.2f}M @ {lr:.2e} (config lr)  |  "
-          f"head {n_head / 1e6:.2f}M @ {head_lr:.2e}  (lr / {mult})")
+    msg = (f"  \U0001F9EE lr groups: backbone {n_bb / 1e6:.2f}M @ {lr:.2e} (config lr)  |  "
+           f"head {n_head / 1e6:.2f}M @ {head_lr:.2e}  (lr / {mult})")
+    if fresh:
+        groups.append({"params": fresh, "lr": float(fresh_lr)})
+        msg += f"  |  fresh {n_fr / 1e6:.2f}M @ {float(fresh_lr):.2e}  (optimizer.fresh_lr)"
+    elif fresh_ids and not fresh_lr:
+        msg += (f"  |  \u26a0\ufe0f {len(fresh_ids)} tensors declare is_fresh but "
+                f"optimizer.fresh_lr is unset - they are on the trunk rate")
+    print(msg)
     return torch.optim.AdamW(groups, lr=head_lr, weight_decay=o.get("weight_decay", 0.05))
 
 
@@ -2286,12 +2323,12 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     ud = UDRatio(model, _udc.get("every_steps", 200))
     print(f"  📏 update/weight ratio logging: {len(ud.params)} weight tensors, "
           f"every {ud.every} steps -> ud_ratio.csv")
-    # Any zero-initialised gate in the model (CrossSliceBlock.gamma, LayerScale, ...). A gate
-    # that never leaves zero is the model declining whatever the block offers, which is a real
-    # answer and invisible in the loss - so it is reported, not inferred.
+    # Any gated branch in the model (CrossSliceBlock.gamma, LayerScale, ...). A gamma that
+    # DECAYS is the model declining whatever the block offers, which is a real answer and
+    # completely invisible in the loss - so it is reported, not inferred.
     _gates = [(n, q) for n, q in model.named_parameters() if n.endswith("gamma")]
     if _gates:
-        print(f"  🚪 gates: {len(_gates)} zero-init gamma tensor(s) tracked "
+        print(f"  🚪 gates: {len(_gates)} gamma tensor(s) tracked "
               f"-> printed every {_udc.get('every_steps', 200)} steps")
 
     probe = ScaleProbe(model, _udc.get("every_steps", 200))
@@ -2818,6 +2855,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                     ud.before()
                 scaler.step(opt); scaler.update(); opt.zero_grad(set_to_none=True); sched.step()
                 gstep += 1
+                _extra = {}                # gate rows and AUC-M duals, merged into the log
                 _pb = probe.read()
                 if _ud_on:
                     _uo = ud.after(epoch, gstep)
@@ -2827,12 +2865,28 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                 if _pb:
                     print(ScaleProbe.summarize(_pb))
                 if _gates and _ud_on:
-                    _gs = "  ".join(f"{n.split('.')[-2]}={float(q.detach().abs().mean()):.4f}"
-                                    for n, q in _gates)
-                    _gmax = max(float(q.detach().abs().mean()) for _, q in _gates)
-                    print(f"  🚪 gates |gamma| mean: {_gs}"
-                          + ("   <-- still ~0: the block is contributing nothing"
-                             if _gmax < 1e-4 else ""))
+                    # Whether a spliced-in block is actually USED is the whole question, so
+                    # report the gate in full: the mean says how much branch survives, min/max
+                    # say whether it moved uniformly or on a handful of channels, and `open`
+                    # counts channels past 1e-3. All of it also lands in train_log.csv.
+                    print("  \U0001F6AA gates (gamma)")
+                    _gopen = 0.0
+                    for _n, _q in _gates:
+                        _v = _q.detach().float()
+                        _a = _v.abs()
+                        _lbl = _n.rsplit(".", 2)[-2] if "." in _n else _n
+                        _op = int((_a > 1e-3).sum())
+                        _gopen = max(_gopen, float(_a.mean()))
+                        print(f"     {_lbl:<10} |g| mean {float(_a.mean()):.5f}  "
+                              f"min {float(_v.min()):+.5f}  max {float(_v.max()):+.5f}  "
+                              f"std {float(_v.std()):.5f}  open {_op}/{_v.numel()}")
+                        _extra[f"gate_{_lbl}_absmean"] = round(float(_a.mean()), 8)
+                        _extra[f"gate_{_lbl}_max"] = round(float(_v.max()), 8)
+                        _extra[f"gate_{_lbl}_min"] = round(float(_v.min()), 8)
+                        _extra[f"gate_{_lbl}_open"] = _op
+                    if _gopen < 1e-4:
+                        print("     \u26a0\ufe0f  every gate still ~0: the blocks are "
+                              "contributing nothing yet")
                 lrs = sched.get_last_lr()
                 lr, lr_lo, lr_hi = lrs[-1], min(lrs), max(lrs)
                 l = loss.item() * accum
@@ -2857,9 +2911,9 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                        if device.type == "cuda" else 0.0)
                 el = time.time() - t0
                 eta = el * (total / gstep - 1)
-                _extra = {}
                 if _pesg and hasattr(loss_fn, "stats"):
-                    _extra = loss_fn.stats(cfg["tasks"])   # AUC-M duals a / b / alpha
+                    # update, not assign: _extra may already hold the gate rows
+                    _extra.update(loss_fn.stats(cfg["tasks"]))   # AUC-M duals a / b / alpha
                 train_log.log({**_extra, **ScaleProbe.row(_pb),
                                "epoch": epoch, "epoch_step": it // accum,
                                "global_step": gstep, "loss": round(l, 6), "lr": lr,

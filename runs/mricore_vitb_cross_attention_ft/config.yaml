@@ -1,0 +1,156 @@
+# Cross-slice attention as a STAGE-2 FINETUNE of the converged mricore_vitb_relabel,
+# rather than from raw MRI-CORE weights.
+#
+# Why this is the better experiment. gamma starts at zero, so this run STARTS at
+# mricore_vitb_relabel's 0.8970 - not at chance. Every point it moves is attributable to
+# cross-slice attention and nothing else. The from-scratch version spends 16 epochs
+# re-learning the task before the effect can even show, and its final number confounds
+# "does slice fusion help" with "did this seed train well".
+#
+# The trap this avoids: inserting blocks SHIFTS the indices. The checkpoint's blocks.3 is a
+# real transformer Block; ours is a CrossSliceBlock. Loading with strict=False after the
+# insertion would put trunk weights into the wrong modules and drop the rest, silently.
+# train.py therefore loads init_from while blocks is still 0..11, and inserts afterwards.
+#
+# What it cannot answer: whether the trunk would learn DIFFERENTLY with cross-slice available
+# from the start. That is what the from-scratch mricore_vitb_cross_attention run is for.
+
+experiment:
+  name: "mricore_vitb_cross_attention_ft"
+
+paths:
+  # Same --like split as convnext_small_relabel: byte-identical train/val MEMBERSHIP to
+  # the baseline, only the target values differ. audit_csv stays 05_audit58.csv - the
+  # panel labels never change, so it is the one honest cross-label-set comparison.
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+
+model:
+  name: "vit_base_patch16_224"      # timm skeleton; the weights below overwrite it entirely
+  pretrained: false                 # never fetch ImageNet weights - we load MRI-CORE instead
+  weights: "MRI_CORE_vitb.pth"      # looked up on the runs volume first, then data/pretrained/
+  pool: "mean"                      # unchanged from the baseline, so pooling is not a variable
+  drop_rate: 0.1
+  drop_path_rate: 0.1               # stochastic depth - ViTs overfit small data without it
+  init_from: "mricore_vitb_relabel"  # start from that run's best.pt (val 0.8970) instead of
+                                    # raw MRI-CORE. Loaded BEFORE the cross-slice blocks are
+                                    # spliced in, while the block indices still match
+  feat_norm: false                  # OFF here, unlike the from-scratch run. init_from's head
+                                    # was trained on UN-normalised features; inserting a
+                                    # LayerNorm in front of it shifts its input (measured: max
+                                    # logit delta 0.078 at init) and the run would no longer
+                                    # start exactly where mricore_vitb_relabel ended. Starting
+                                    # at exactly 0.8970 is the entire point of this design
+  cross_slice:
+    enable: true
+    after: [3, 6, 9]                # insert after these 1-based block indices -> 15 blocks
+                                    # total. Three, not twelve: fuses early / middle / late
+                                    # while adding 7.1M params to an 86M model rather than
+                                    # 28M. Cost is ~+2.3% compute - attention is quadratic in
+                                    # sequence length and S=96 is far shorter than T=1025, so
+                                    # each new block is ~1/11th of the spatial attention
+                                    # beside it
+    attn_drop: 0.0
+    gamma_init: 1.0                 # full strength: x + 1.0*h is exactly x + h, i.e. a plain
+                                    # residual branch with no gate at all. gamma stays as a
+                                    # PARAMETER purely so we can watch it, not to hold the block
+                                    # back.
+                                    #
+                                    # 1e-3 was tried first and it was a trap. The gradient
+                                    # reaching the branch's own weights is scaled by gamma, so at
+                                    # 1e-3 the attention trained ~1000x too slowly, while gamma's
+                                    # own gradient was measured on a branch that was still random
+                                    # noise. The gate closed, which kept the branch untrained,
+                                    # which kept the gate closed. mricore_vitb_cross_attention_ft
+                                    # rode that loop the whole way: |gamma| 9.1e-4 -> 4.0e-4 over
+                                    # 600 steps, channels open 296 -> 52, val pinned at 0.8936
+                                    # against a 0.8970 init. The run never tested the idea.
+                                    # 1e-3 is well inside noise, so the run still effectively
+                                    # starts where mricore_vitb_relabel ended
+  grad_checkpointing: false         # measured, not guessed: ViT-B at 512px costs 0.36 GB of
+                                    # activations per image, so a 96-image study is ~35 GB and
+                                    # two are ~71 GB of the H200's 141 GB. Checkpointing would
+                                    # buy headroom we do not need and cost ~30% of the speed.
+
+input:
+  # MRI-CORE was trained on slices min-max normalized to [0,1], NOT ImageNet statistics.
+  # Feeding it ImageNet-standardised input would shift every activation off distribution.
+  norm_mean: [0.0, 0.0, 0.0]
+  norm_std:  [1.0, 1.0, 1.0]
+
+training:
+  # Short and gentle: the trunk is already converged, so this is not retraining, it is asking
+  # whether opening the gates buys anything. A high lr here would just wreck a finished model.
+  epochs: 6
+  grad_clip: 4.0
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 6.0e-6                      # BACKBONE lr, 20% of the 3e-5 that trained it
+    backbone_lr_mult: 0.5           # head and the NEW blocks = 1.2e-5, twice the trunk -
+                                    # the cross-slice blocks are randomly initialised and
+                                    # need to move faster than a converged trunk
+    layer_decay: null
+    fresh_lr: 6.0e-5                  # 10x the trunk's 6e-6. The trunk is converged and must barely move; the three cross-slice
+                                    # blocks are RANDOM and have to learn from nothing. Without this they
+                                    # sat in the backbone group on the trunk rate - 21 random tensors
+                                    # crawling at 6e-6, which is the wrong test entirely
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05
+    min_lr_mult: 0.05               # ends at 3e-7, not 6e-8 - a 6-epoch run spends too much
+                                    # of itself in the tail otherwise
+  loss:
+    name: "bce"
+    pos_weight: "auto_clamped"
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  log_ud_ratio:
+    every_steps: 150                # matched to the validation cadence below, so every score
+                                    # has a fresh gamma / update-weight reading beside it
+
+  extend:
+    enable: false
+
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 12                       # 6 validations: the gates need time to open at all                     # VALIDATIONS without improvement, not epochs
+
+dataloader:
+  batch_size: 2                     # HALVED from mricore_vitb_relabel's 4, which peaked near
+                                    # 128 GB of the H200's 141 GB. Each CrossSliceBlock permutes
+                                    # then reshapes, and reshape on a permuted (non-contiguous)
+                                    # tensor is a COPY: (B*96, 1025, 768) is ~604 MB in bf16 at
+                                    # batch 4, twice per block, three blocks - roughly 11 GB of
+                                    # extra activations on a run that had ~13 GB of headroom.
+                                    # Batch 2 halves that and keeps a real margin.
+  accum_steps: 4                    # effective 8 studies per update - unchanged, so the step
+                                    # count and lr schedule still match mricore_vitb_relabel
+  val_batch_size: 4                 # no backward pass, but the reshape copies still land
+  num_workers: 24
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+modal:
+  gpu: "H200"
+  cpu: 14.0
+  memory_gb: 56
+  timeout_hours: 10                 # ViT-B at 512 is slower per step than ConvNeXt-Small;
+                                    # 8h was already close for the baseline
+
+# fresh run - inherits resume: "last" from shared_config
+
+# This run is only 6 epochs (~2,730 steps) and starts already at 0.8970, so the whole question
+# is answered in the first few hundred steps - whether the gates open at all and whether the
+# score moves off its starting point. The shared default (every 400 until epoch 4) would give
+# just 3 validations across epochs 1-3 and miss it. 150 everywhere -> ~18 validations.
+evaluation:
+  eval_every_steps_before: 150
+  eval_every_steps_after: 150
+  eval_every_steps_epoch_threshold: 1
