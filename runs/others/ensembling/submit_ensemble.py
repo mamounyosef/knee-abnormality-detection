@@ -35,17 +35,26 @@ from pathlib import Path
 # LOADER setting (neighbouring slices in the RGB channels), so it cannot share member
 # 0's decode pass. It would need a second pass over every DICOM to buy +0.0004 on val,
 # which is inside the noise. predict_dicom_ensemble now rejects it explicitly.
+# dinov3_convnext_base is the 5th member. It LOSES solo to convnext_base_relabel
+# (0.9011 vs 0.9050) on a byte-identical config, so supervised ImageNet-22k beats DINOv3
+# as a standalone model - but it is the largest ensemble gain since the relabel: flat
+# 0.9110 -> 0.9127, per-class out-of-fold 0.9116 -> 0.9140. Sharing an architecture with
+# convnext_base_relabel did NOT make it redundant the way aucm_m20 was; the per-class
+# search leans on it for PF OA (0.54), MCL (0.44) and ACL (0.36). A 6th and 7th member
+# (convnext_large, radiodino_vitb) both add nothing: 0.9138 / 0.9139.
 MEMBERS = [
     ("convnext_small_relabel", "best"),
     ("convnext_base_relabel", "best"),
     ("mricore_vitb_relabel", "best"),
     ("radimagenet_resnet50_relabel", "best"),
+    ("dinov3_convnext_base", "best"),
+    ("convnext_large", "best"),
 ]
 PUBLISH      = True            # push the dataset + notebook and submit
 WAIT_FOR_RUN = True            # poll until the notebook finishes, then submit
 KAGGLE_USER  = "mamounhussam"
-SLUG         = "knee-ensemble-4-relabel"      # dataset slug; notebook is <SLUG>-submit
-NOTE         = "4-model RELABEL ensemble (small + base + mricore + radimagenet, all on qwen-2.4T labels) | val 0.9110 | audit58 0.9125"
+SLUG         = "knee-ensemble-6-dinov3-large"  # dataset slug; notebook is <SLUG>-submit
+NOTE         = "6-model ensemble: relabel four + dinov3_convnext_base + convnext_large | val 0.9129 flat, audit58 0.9136 | best flat val of a 14-combination sweep"
 # ===========================================================================
 
 PKG_ROOT = Path(__file__).resolve().parent.parent.parent      # <repo>/runs

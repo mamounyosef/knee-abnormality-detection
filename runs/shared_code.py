@@ -2286,6 +2286,14 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     ud = UDRatio(model, _udc.get("every_steps", 200))
     print(f"  📏 update/weight ratio logging: {len(ud.params)} weight tensors, "
           f"every {ud.every} steps -> ud_ratio.csv")
+    # Any zero-initialised gate in the model (CrossSliceBlock.gamma, LayerScale, ...). A gate
+    # that never leaves zero is the model declining whatever the block offers, which is a real
+    # answer and invisible in the loss - so it is reported, not inferred.
+    _gates = [(n, q) for n, q in model.named_parameters() if n.endswith("gamma")]
+    if _gates:
+        print(f"  🚪 gates: {len(_gates)} zero-init gamma tensor(s) tracked "
+              f"-> printed every {_udc.get('every_steps', 200)} steps")
+
     probe = ScaleProbe(model, _udc.get("every_steps", 200))
     if probe.handle is not None:
         print(f"  \U0001F4CF feature/logit scale probe on {probe.head_name!r}, "
@@ -2786,7 +2794,10 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                 win_data, win_first = 0.0, data_dt
             win_data += data_dt
             y = y.to(device, non_blocking=True)
-            probe.arm(probe.active(gstep + 1) and (it + 1) % accum == 0)
+            # `it % accum == 0` is the micro-batch that also triggers the optimizer step
+            # below. Arming one earlier means the NEXT iteration's arm(False) wipes the
+            # reading before read() sees it, which is why the probe printed nothing.
+            probe.arm(probe.active(gstep + 1) and it % accum == 0)
             with torch.autocast("cuda", enabled=scaler.is_enabled()):
                 loss = loss_fn(model(prepare_batch(x, cfg, device)), y) / accum
             scaler.scale(loss).backward()
@@ -2815,6 +2826,13 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                         print(_um)
                 if _pb:
                     print(ScaleProbe.summarize(_pb))
+                if _gates and _ud_on:
+                    _gs = "  ".join(f"{n.split('.')[-2]}={float(q.detach().abs().mean()):.4f}"
+                                    for n, q in _gates)
+                    _gmax = max(float(q.detach().abs().mean()) for _, q in _gates)
+                    print(f"  🚪 gates |gamma| mean: {_gs}"
+                          + ("   <-- still ~0: the block is contributing nothing"
+                             if _gmax < 1e-4 else ""))
                 lrs = sched.get_last_lr()
                 lr, lr_lo, lr_hi = lrs[-1], min(lrs), max(lrs)
                 l = loss.item() * accum

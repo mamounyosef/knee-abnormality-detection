@@ -28,18 +28,27 @@ B = "convnext_base_relabel"
 M = "mricore_vitb_relabel"
 R = "radimagenet_resnet50_relabel"
 L = "convnext_large"
+D = "dinov3_convnext_base"
+X = "radiodino_vitb"
 
 COMBOS = [
-    ("large",                 [L]),
-    ("large-base",            [L, B]),
-    ("large-small",           [L, S]),
-    ("large-base-small",      [L, B, S]),
-    ("large-base-mricore",    [L, B, M]),
-    ("large-base-radim",      [L, B, R]),
-    ("large-base-small-mri",  [L, B, S, M]),
-    ("large-base-mri-radim",  [L, B, M, R]),
-    ("all5",                  [S, B, M, R, L]),
-    ("baseline4",             [S, B, M, R]),      # the 0.919 submission, for reference
+    ("4-baseline",            [S, B, M, R]),        # the 0.919 submission, for reference
+    ("5-dinov3",              [S, B, M, R, D]),     # the new submission
+    ("5-large",               [S, B, M, R, L]),
+    ("6-dinov3-large",        [S, B, M, R, D, L]),
+    ("7-all",                 [S, B, M, R, D, L, X]),
+    # does dinov3 REPLACE a member rather than join them?
+    ("4-dinov3-for-small",    [D, B, M, R]),
+    ("4-dinov3-for-base",     [S, D, M, R]),
+    ("4-dinov3-for-radim",    [S, B, M, D]),
+    ("4-dinov3-for-mricore",  [S, B, D, R]),
+    # is a weak member now dead weight, with dinov3 present?
+    ("4-drop-radim",          [S, B, M, D]),
+    ("4-drop-small",          [B, M, R, D]),
+    ("4-drop-mricore",        [S, B, R, D]),
+    ("3-core",                [B, M, D]),
+    # dinov3 + large together, without the weakest
+    ("5-no-radim",            [S, B, M, D, L]),
 ]
 SPLITS = ["val", "audit"]
 
