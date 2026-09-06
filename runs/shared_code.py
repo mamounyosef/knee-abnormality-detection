@@ -4306,7 +4306,8 @@ def verify_dicom_path(cfg: dict, dicom_root, series_csv: pd.DataFrame,
 
 
 def build_kaggle_ensemble_assets(members: list, out_dir, kaggle_user: str,
-                                 dataset_slug: str, notebook_slug: str, title: str = ""):
+                                 dataset_slug: str, notebook_slug: str, title: str = "",
+                                 blend_weights: dict | None = None):
     """Bundle SEVERAL runs into one Kaggle dataset + a notebook that averages them.
 
     members: [(name, cfg, exp_dir, checkpoint_path), ...] - member 0 owns the loader.
@@ -4344,6 +4345,33 @@ def build_kaggle_ensemble_assets(members: list, out_dir, kaggle_user: str,
               f"step {ck.get('step')} score {ck.get('score')}")
     (w / "members.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
+    # Per-class blend weights, if the caller fitted some. Written as an explicit
+    # (n_members, n_tasks) matrix in MEMBER order and TASK order, not as a dict, so the
+    # notebook cannot silently reorder it. ensemble.py saves a dict keyed by name; the
+    # conversion happens HERE, once, where both orders are known.
+    if blend_weights:
+        tasks0 = members[0][1]["tasks"]
+        names = [m[0] for m in members]
+        missing_t = [t for t in tasks0 if t not in blend_weights]
+        if missing_t:
+            raise ValueError(f"blend_weights is missing {len(missing_t)} task(s): "
+                             f"{missing_t[:4]}")
+        mat = []
+        for name in names:
+            row = []
+            for t in tasks0:
+                per = blend_weights[t]
+                if name not in per:
+                    raise ValueError(f"blend_weights[{t!r}] has no entry for {name!r} - "
+                                     f"it holds {sorted(per)}")
+                row.append(float(per[name]))
+            mat.append(row)
+        (w / "blend_weights.json").write_text(json.dumps(
+            {"members": names, "tasks": tasks0, "matrix": mat}, indent=2), encoding="utf-8")
+        print(f"  \u2696\ufe0f  blend weights: {len(names)} members x {len(tasks0)} findings")
+        for name, row in zip(names, mat):
+            print(f"     {name:32s} {' '.join(f'{v:.2f}' for v in row)}")
+
     shutil.copy(Path(__file__), w / "shared_code.py")
     wheels_src = Path(__file__).resolve().parent / "_wheels"
     for whl in (wheels_src.glob("*.whl") if wheels_src.is_dir() else []):
@@ -4380,6 +4408,13 @@ if not subs:
     raise SystemExit('competition data not found under /kaggle/input')
 COMP = Path(subs[0]).parent
 MEMBERS = json.loads((W / 'members.json').read_text())
+BLEND = None
+_bw = W / 'blend_weights.json'
+if _bw.exists():
+    BLEND = json.loads(_bw.read_text())
+    print('per-class blend weights found for', len(BLEND['members']), 'members')
+else:
+    print('no blend_weights.json -> flat average')
 print('weights:', W, '| comp:', COMP)
 print('members:', [m['name'] for m in MEMBERS])""",
         r"""# the test set mixes JPEG Lossless and JPEG 2000 in with the raw series and pydicom
@@ -4455,8 +4490,19 @@ if STRESS:
 import time as _time
 _t0 = _time.time()
 try:
+    # reorder the saved matrix into MEMBERS order, and into the task order this
+    # notebook actually submits in - both are checked, because a silent mismatch here
+    # blends the wrong model into the wrong finding and still writes a valid-looking file
+    _W = None
+    if BLEND:
+        _names = [m['name'] for m in MEMBERS]
+        assert _names == BLEND['members'], (
+            'member order differs: %s vs %s' % (_names, BLEND['members']))
+        _ti = [BLEND['tasks'].index(t) for t in TASKS]
+        _W = [[row[j] for j in _ti] for row in BLEND['matrix']]
+        print('using per-class blend weights')
     pred = sc.predict_dicom_ensemble(CFGS, MODELS, todo, plan, idx, files_by_series,
-                                     batch_size=1)
+                                     batch_size=1, weights=_W)
     # the 9h cap is enforced on the HIDDEN test set, which is larger than what runs
     # here, so the number that has to be extrapolated is s/study, not the total
     _el = _time.time() - _t0
@@ -4680,7 +4726,7 @@ pd.read_csv('submission.csv').head()''',
 def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, plan: dict,
                            index: pd.DataFrame, files_by_series: dict, device=None,
                            batch_size: int | None = None, num_workers: int | None = None,
-                           report_every: int = 50) -> pd.DataFrame:
+                           report_every: int = 50, weights=None) -> pd.DataFrame:
     """Score several models in ONE pass over the DICOMs and average their logits.
 
     Decoding a study costs ~9s against <1s of GPU, so looping predict_dicom once per
@@ -4694,10 +4740,31 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
     (MRI-CORE wants [0,1], the ImageNet backbones want their own mean/std).
 
     Averaging is in LOGIT space, matching how the offline ensemble was measured.
+
+    weights: optional per-class blend weights, shaped (n_members, n_tasks) in the SAME
+    member order as `models` and the same task order as cfgs[0]["tasks"]. None means the
+    flat mean. Fitted weights come from ensemble.py's search, whose held-out (out-of-fold)
+    estimate beat flat by ~0.002 - the in-sample number it also reports is ~0.004 higher
+    still and must not be believed.
     """
     device = device or torch.device("cuda" if usable_cuda() else "cpu")
     nw = num_workers if num_workers is not None else min(4, (os.cpu_count() or 2))
     cfg0, tasks = cfgs[0], cfgs[0]["tasks"]
+
+    # A silently mis-shaped or mis-ordered weight matrix would blend the wrong member into
+    # the wrong finding and still produce a plausible submission, so check it loudly here
+    # rather than trusting the caller.
+    W = None
+    if weights is not None:
+        W = torch.as_tensor(np.asarray(weights, dtype=np.float32))
+        if W.shape != (len(models), len(tasks)):
+            raise ValueError(f"weights must be (n_members, n_tasks) = "
+                             f"({len(models)}, {len(tasks)}), got {tuple(W.shape)}")
+        col = W.sum(dim=0)
+        if not torch.all(col > 0):
+            raise ValueError(f"every task needs a non-zero weight column, got sums {col}")
+        W = (W / col).to(device)                  # each finding's weights sum to 1
+        print(f"  \u2696\ufe0f  weighted blend over {len(models)} members x {len(tasks)} findings")
     n = len(studies_df)
 
     # slice_context is a LOADER setting (KneeShardDataset._load fills the RGB channels
@@ -4741,7 +4808,13 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
                 amp = c["training"]["amp"] and device.type == "cuda"
                 with torch.autocast("cuda", enabled=amp):
                     lg.append(m(prepare_batch(x, c, device)).float())
-            avg = torch.stack(lg).mean(dim=0)      # logit space, as measured offline
+            stacked = torch.stack(lg)                  # (n_members, batch, n_tasks)
+            if W is None:
+                avg = stacked.mean(dim=0)              # logit space, as measured offline
+            else:
+                # W is (n_members, n_tasks) -> unsqueeze the batch axis so each finding
+                # gets its own weighting across members
+                avg = (stacked * W[:, None, :]).sum(dim=0)
             out.append(torch.sigmoid(avg).cpu().numpy())
         except Exception as e:                     # a dead batch scores 0.5, run goes on
             failed += k

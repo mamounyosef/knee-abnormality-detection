@@ -18,6 +18,7 @@ single Modal workspace does not hold every run. Pull any that are missing with
     python runs/others/ensembling/submit_ensemble.py
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -38,23 +39,40 @@ from pathlib import Path
 # dinov3_convnext_base is the 5th member. It LOSES solo to convnext_base_relabel
 # (0.9011 vs 0.9050) on a byte-identical config, so supervised ImageNet-22k beats DINOv3
 # as a standalone model - but it is the largest ensemble gain since the relabel: flat
-# 0.9110 -> 0.9127, per-class out-of-fold 0.9116 -> 0.9140. Sharing an architecture with
-# convnext_base_relabel did NOT make it redundant the way aucm_m20 was; the per-class
-# search leans on it for PF OA (0.54), MCL (0.44) and ACL (0.36). A 6th and 7th member
-# (convnext_large, radiodino_vitb) both add nothing: 0.9138 / 0.9139.
+# 0.9110 -> 0.9127, per-class out-of-fold 0.9116 -> 0.9140.
+#
+# THIS submission changes two things against the 0.924 one:
+#   1. mricore_vitb_cross_attention REPLACES mricore_vitb_relabel. Cross-attention ties
+#      it solo (0.8963 vs 0.8970) but fuses across the 96 slices inside the trunk, which
+#      nothing else in the pool does - ablating its three cross-slice blocks costs 0.0356
+#      AUROC. Adding it on top of mricore_vitb_relabel buys almost nothing (+0.0013);
+#      swapping gains +0.0022. They share the MRI-CORE trunk, so they are the most
+#      correlated pair in the pool and only one earns a slot.
+#   2. PER-CLASS WEIGHTS instead of a flat average, fitted 5-fold and ranked on the
+#      held-out estimate. Weighted beat flat by ~+0.002 OOF on every combination tried.
 MEMBERS = [
     ("convnext_small_relabel", "best"),
     ("convnext_base_relabel", "best"),
-    ("mricore_vitb_relabel", "best"),
+    ("mricore_vitb_cross_attention", "best"),
     ("radimagenet_resnet50_relabel", "best"),
     ("dinov3_convnext_base", "best"),
-    ("convnext_large", "best"),
 ]
+# Per-class blend weights fitted by ensemble.py's search. Point at the summary json of
+# the fit whose members match MEMBERS exactly, or None for a flat average.
+#
+# Ranked on the OUT-OF-FOLD number, never the in-sample one. For this fit:
+#   flat 0.9144  |  OOF 0.9166  |  in-sample 0.9198
+# The 0.0032 between OOF and in-sample is the overfitting; the 0.0022 between OOF and
+# flat is what the weights actually buy, and it is the only one worth acting on.
+BLEND_WEIGHTS = ("ensemble_results/2026-09-06_23-01-33_w5-C-for-mricore-search"
+                 "/weighted_val_summary.json")
 PUBLISH      = True            # push the dataset + notebook and submit
 WAIT_FOR_RUN = True            # poll until the notebook finishes, then submit
 KAGGLE_USER  = "mamounhussam"
-SLUG         = "knee-ensemble-6-dinov3-large"  # dataset slug; notebook is <SLUG>-submit
-NOTE         = "6-model ensemble: relabel four + dinov3_convnext_base + convnext_large | val 0.9129 flat, audit58 0.9136 | best flat val of a 14-combination sweep"
+SLUG         = "knee-ensemble-5-crossattn-weighted"   # dataset slug; notebook is <SLUG>-submit
+NOTE         = ("5-model weighted ensemble: convnext_small + convnext_base + "
+                "mricore_vitb_cross_attention + radimagenet + dinov3 | per-class weights, "
+                "val OOF 0.9166 (flat 0.9144) | cross_attention REPLACES mricore_vitb_relabel")
 # ===========================================================================
 
 PKG_ROOT = Path(__file__).resolve().parent.parent.parent      # <repo>/runs
@@ -79,10 +97,31 @@ def main():
         raise SystemExit(f"missing checkpoints for {len(missing)} member(s):\n{lines}\n"
                          f"  pull them with `modal volume get` - see this file's header")
 
+    blend = None
+    if BLEND_WEIGHTS:
+        wf = Path(__file__).resolve().parent / BLEND_WEIGHTS
+        if not wf.exists():
+            raise SystemExit(f"BLEND_WEIGHTS points at nothing: {wf}")
+        fit = json.loads(wf.read_text(encoding="utf-8"))
+        fit_members = fit.get("members") or []
+        want = [n for n, _ in MEMBERS]
+        # a fit whose members differ from MEMBERS would silently weight the wrong models
+        if fit_members != want:
+            raise SystemExit(
+                f"the weight fit does not match MEMBERS.\n"
+                f"  fit:     {fit_members}\n"
+                f"  MEMBERS: {want}\n"
+                f"  re-run the search for these members, or set BLEND_WEIGHTS = None")
+        blend = fit["weights_per_class"]
+        print(f"  \u2696\ufe0f  weights from {wf.name}: OOF "
+              f"{fit.get('oof_mean_auroc', float('nan')):.4f}  "
+              f"flat {fit.get('flat_mean_auroc', float('nan')):.4f}")
+
     sc._banner(f"ENSEMBLE SUBMISSION ({len(members)} members)", "\U0001F9E9")
     out = sc.build_kaggle_ensemble_assets(
         members, Path(__file__).resolve().parent / "kaggle", KAGGLE_USER,
-        SLUG, f"{SLUG}-submit", title=f"knee ensemble {len(members)}")
+        SLUG, f"{SLUG}-submit", title=f"knee ensemble {len(members)}",
+        blend_weights=blend)
 
     if not PUBLISH:
         print("PUBLISH is False - assets built, nothing uploaded")
