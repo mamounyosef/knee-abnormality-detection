@@ -119,7 +119,7 @@ training:
     enable: true
     monitor: "val_macro_auroc"
     mode: "max"
-    patience: 4                     # VALIDATIONS without improvement, not epochs
+    patience: 12                     # VALIDATIONS without improvement, not epochs
 
 dataloader:
   batch_size: 2                     # HALVED from mricore_vitb_relabel's 4, which peaked near
@@ -145,5 +145,7 @@ modal:
   memory_gb: 56
   timeout_hours: 10                 # ViT-B at 512 is slower per step than ConvNeXt-Small;
                                     # 8h was already close for the baseline
-
-# fresh run - inherits resume: "last" from shared_config
+evaluation:
+  eval_every_steps_before: 400
+  eval_every_steps_after: 120
+  eval_every_steps_epoch_threshold: 4
