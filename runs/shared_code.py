@@ -4324,8 +4324,25 @@ def build_kaggle_ensemble_assets(members: list, out_dir, kaggle_user: str,
     w = out / "weights"
 
     manifest = []
+    stale = []
     for i, (name, cfg, exp_dir, ckpt) in enumerate(members):
         ck = torch.load(ckpt, map_location="cpu", weights_only=False)
+        # A checkpoint scoring BELOW its own run's best validation is a stale copy -
+        # typically pulled from the workspace where a run STARTED, when the run was handed
+        # off mid-training and finished somewhere else. This is invisible without a check:
+        # the ensemble sweep scores members from results/predictions/*.npz (which holds
+        # every validation) while THIS ships the checkpoint, so the sweep can promise one
+        # model and the submission send a worse one. convnext_large shipped 0.8780 while
+        # being measured at 0.9061, across at least one real submission.
+        try:
+            _vl = Path(exp_dir) / cfg["output"]["run_dir"] / "val_log.csv"
+            if _vl.exists() and ck.get("score") is not None:
+                _best = float(pd.read_csv(_vl)["val_macro_auroc"].max())
+                if float(ck["score"]) < _best - 0.002:
+                    stale.append((name, ck.get("step"), float(ck["score"]), _best))
+        except Exception as _e:
+            print(f"  [warn] could not sanity-check {name}'s checkpoint: "
+                  f"{type(_e).__name__}: {_e}")
         torch.save({"model": ck["model"], "cfg": ck.get("cfg", cfg),
                     "epoch": ck.get("epoch"), "step": ck.get("step"),
                     "score": ck.get("score")}, w / f"m{i}_model.pt")
@@ -4343,6 +4360,17 @@ def build_kaggle_ensemble_assets(members: list, out_dir, kaggle_user: str,
                          "step": ck.get("step"), "score": ck.get("score")})
         print(f"  \U0001F4E6 m{i} {name:30s} epoch {ck.get('epoch')} "
               f"step {ck.get('step')} score {ck.get('score')}")
+    if stale:
+        lines = "\n".join(
+            f"    {n}: shipping step {st} @ {sc_:.4f}, but val_log's best is {b:.4f}"
+            for n, st, sc_, b in stale)
+        raise SystemExit(
+            f"STALE CHECKPOINT(S) - refusing to build a submission that ships a model "
+            f"worse than the one measured:\n{lines}\n"
+            f"  The run was probably handed off between workspaces and this best.pt came "
+            f"from the one where it STARTED. Find the workspace holding the later "
+            f"checkpoints and pull its best.pt.")
+
     (w / "members.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
     # Per-class blend weights, if the caller fitted some. Written as an explicit

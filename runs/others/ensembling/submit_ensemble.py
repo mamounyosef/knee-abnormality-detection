@@ -51,33 +51,32 @@ from pathlib import Path
 #   2. PER-CLASS WEIGHTS instead of a flat average, fitted 5-fold and ranked on the
 #      held-out estimate. Weighted beat flat by ~+0.002 OOF on every combination tried.
 MEMBERS = [
-    ("convnext_small_relabel", "best"),
     ("convnext_base_relabel", "best"),
     ("mricore_vitb_cross_attention", "best"),
     ("dinov3_convnext_base", "best"),
+    ("convnext_large", "best"),
 ]
 # RadImageNet is deliberately ABSENT: its licence is "personal, non-commercial (e.g.,
 # academic) research purposes only... any commercial use, sale, or other monetization is
-# strictly prohibited", and a cash prize is a commercial use. Dropping it costs 0.0021
-# OOF - it was earning real weight (0.62 Medial Meniscus, 0.58 Fracture), which is why
-# this had to be checked rather than assumed.
+# strictly prohibited", and a cash prize is a commercial use. Costs 0.0021 OOF.
 #
-# convnext_large is ALSO absent, for a completely different reason. The only local
-# best.pt for it is step 1200 / 0.8780, while its real best is step 2600 / 0.9061. The
-# sweep scores members from results/predictions/*.npz - so it measured 0.9061 - but the
-# bundle ships the CHECKPOINT, i.e. 0.8780. Every earlier submission containing
-# convnext_large therefore shipped a model 0.028 worse than the one measured, including
-# the 6-member that scored 0.922 against the 5-member's 0.924. Do not re-add it until
-# the step-2600 checkpoint is pulled and best.pt's `score` matches val_log's best.
-BLEND_WEIGHTS = "ensemble_results/2026-09-06_23-57-35_nr4-C-D-search/weighted_val_summary.json"
+# convnext_large IS here now, with the RIGHT checkpoint. The local best.pt used to be
+# step 1200 / 0.8780 - a stale copy from the workspace where the run started - while the
+# run actually continued elsewhere and peaked at step 2600 / 0.9061. The sweep scores
+# members from results/predictions/*.npz (0.9061) but the bundle ships the CHECKPOINT
+# (0.8780), so every earlier submission carrying convnext_large shipped a model 0.028
+# worse than the one measured, including the 6-member that scored 0.922. Fixed: best.pt
+# is now step 2600 and its `score` matches val_log's peak. ALWAYS check that before a
+# submission - it is silent otherwise.
+BLEND_WEIGHTS = "ensemble_results/2026-09-06_23-58-21_nr4-C-D-L-search/weighted_val_summary.json"
 PUBLISH      = True
 WAIT_FOR_RUN = True
 KAGGLE_USER  = "mamounhussam"
-SLUG         = "knee-ensemble-4-prize-eligible"
+SLUG         = "knee-ensemble-4-large-fixed"
 NOTE         = ("4-model weighted ensemble, PRIZE-ELIGIBLE (no RadImageNet): "
-                "convnext_small + convnext_base + mricore_vitb_cross_attention "
-                "+ dinov3 | per-class weights, val OOF 0.9140 (flat 0.9134) | "
-                "Built with DINOv3")
+                "convnext_base + mricore_vitb_cross_attention + dinov3 + "
+                "convnext_large (FIXED checkpoint, step 2600 not 1200) | "
+                "per-class weights, val OOF 0.9145 (flat 0.9137) | Built with DINOv3")
 # ===========================================================================
 
 PKG_ROOT = Path(__file__).resolve().parent.parent.parent      # <repo>/runs
