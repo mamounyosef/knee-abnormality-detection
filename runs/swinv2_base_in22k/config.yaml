@@ -14,8 +14,8 @@
 # its Swin weights, and the one MRI-pretrained Swin (SwinBrain) is brain-only with no
 # stated license. So ImageNet-22k is the honest best available starting point.
 #
-# Beat: convnext_base_relabel val 0.9050. Realistically this will land below that - the
-# question is whether it lands in a DIFFERENT place, which is what earns an ensemble slot.
+# Beat: convnext_base_relabel val 0.9050. Expect below that - decorrelation is the point.
+# Relaunch 7 Sep: cut on 3 Sep for OOM, never scored. See runs_timeline.md #26.
 
 experiment:
   name: "swinv2_base_in22k"
@@ -42,6 +42,8 @@ model:
 training:
   epochs: 12
   grad_clip: 3.0                    # matches shared_config; transformers run hot early
+  grad_checkpointing: true          # ~35% slower per step, ~10x less activation memory.
+                                    # Without it this run OOMs at any batch size.
   optimizer:
     name: "adamw"
     weight_decay: 0.05
@@ -65,17 +67,13 @@ training:
     enable: true
     monitor: "val_macro_auroc"
     mode: "max"
-    patience: 4
+    patience: 6
 
 dataloader:
-  batch_size: 2                         # UNMEASURED for this architecture. Swin-B has the
-                                        # same parameter count as ConvNeXt-Base and the same
-                                        # stage-1 token grid at 512, so batch 2 should sit
-                                        # near ConvNeXt-Base's ~125 GB. If it OOMs, drop to
-                                        # 1 and raise accum_steps to 8 to keep the effective
-                                        # batch at 8 studies
-  accum_steps: 4
-  val_batch_size: 4
+  batch_size: 1                         # batch 2 OOMed at 1.97 GB/image. Even batch 1 is
+                                        # ~189 GB raw - grad_checkpointing is what fits it.
+  accum_steps: 8                        # effective 8 studies, same as every run before it
+  val_batch_size: 2
   num_workers: 26
   val_num_workers: null
   prefetch_factor: 4
@@ -84,8 +82,9 @@ dataloader:
   drop_last: false
 
 modal:
-  gpu: "H200"
+  gpu: "B200"                           # 180 GB, and fast enough to offset checkpointing.
+                                        # Check gpu_peak_gb - batch 2 may fit and be faster.
   cpu: 12.0
   memory_gb: 64
-  timeout_hours: 10                     # windowed attention at 512 is slower per step than
-                                        # ConvNeXt-Base's convolutions
+  timeout_hours: 12                     # slow per step, batch 1 doubles them, checkpointing
+                                        # adds ~35%. resume: "last" picks up a timeout.

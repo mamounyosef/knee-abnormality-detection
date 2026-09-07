@@ -172,6 +172,7 @@ def print_config(cfg: dict):
     i, t, o = cfg["input"], cfg["training"], cfg["output"]
     m, dl, aug = cfg.get("modal", {}), cfg.get("dataloader", {}), cfg["augmentation"]
     mo = cfg.get("model", {})
+    _es = t.get("early_stopping", {}) or {}
     n_img = len(i["slots"]) * i["n_slices"]
     field = i["size"] * (i["mm_per_px"] or 0)
 
@@ -241,9 +242,10 @@ def print_config(cfg: dict):
         ("target", f"{cfg['target']['mode']}  (LLM probabilities, 0.895 macro AUROC vs the 58)"),
         ("precision", f"amp={t['amp']}  channels_last={t['channels_last']}  "
                       f"grad_clip={t['grad_clip']}"),
-        ("early stopping", f"{t['early_stopping']['monitor']} "
-                           f"({t['early_stopping']['mode']}), "
-                           f"patience={t['early_stopping']['patience']}"),
+        # a run with nothing held out turns this off and drops the other keys with it
+        ("early stopping",
+         (f"{_es.get('monitor')} ({_es.get('mode')}), patience={_es.get('patience')}"
+          if _es.get('enable', True) else "off")),
     ], "\U0001F3CB\uFE0F")
 
     _kv("dataloader", [
@@ -1467,9 +1469,24 @@ def build_optimizer(model: nn.Module, cfg: dict, loss_fn: nn.Module | None = Non
     return torch.optim.AdamW(groups, lr=head_lr, weight_decay=o.get("weight_decay", 0.05))
 
 
+def schedule_steps(cfg: dict, total_steps: int) -> int:
+    """Steps the lr CURVE spans, which is not always the steps we train for.
+
+    scheduler.schedule_epochs stretches the cosine over a different number of epochs than
+    training.epochs, so a shortened run replays a longer run's lr trajectory instead of
+    annealing fully into its own end.
+    """
+    se = cfg["training"]["scheduler"].get("schedule_epochs")
+    ep = cfg["training"].get("epochs") or 0
+    if not se or not ep or int(se) == int(ep):
+        return total_steps
+    return max(1, int(round(total_steps * float(se) / float(ep))))
+
+
 def warmup_steps(cfg: dict, total_steps: int) -> int:
     """How many steps the lr ramp lasts — same formula build_scheduler uses."""
-    return max(1, int(total_steps * cfg["training"]["scheduler"].get("warmup_frac", 0.05)))
+    n = schedule_steps(cfg, total_steps)
+    return max(1, int(n * cfg["training"]["scheduler"].get("warmup_frac", 0.05)))
 
 
 def build_scheduler(opt, cfg: dict, total_steps: int):
@@ -1477,6 +1494,12 @@ def build_scheduler(opt, cfg: dict, total_steps: int):
     s = cfg["training"]["scheduler"]
     warm = warmup_steps(cfg, total_steps)
     lo = s.get("min_lr_mult", 0.01)
+    n = schedule_steps(cfg, total_steps)
+    if n != total_steps:
+        print(f"  \U0001F4C9 lr curve spans {n} steps ({s['schedule_epochs']} epochs) but "
+              f"training stops at {total_steps} ({cfg['training']['epochs']} epochs) - "
+              f"ends at {100 * total_steps / n:.0f}% of the cosine, not at its floor")
+    total_steps = n
 
     def fn(step):                                    # returns a multiplier on the base lr
         if step < warm:
@@ -2345,7 +2368,11 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
           f"train bs={train_batch_size(cfg)}/{cfg.get('dataloader', {}).get('num_workers', 4)}w  "
           f"val bs={_vbs}/{_vnw}w")
 
-    es = cfg["training"]["early_stopping"]
+    # .get defaults throughout: a run with nothing held out sets enable false and has no
+    # reason to carry a monitor, a mode or a patience
+    es = cfg["training"].get("early_stopping", {}) or {}
+    es = {"enable": es.get("enable", True), "monitor": es.get("monitor", "val_macro_auroc"),
+          "mode": es.get("mode", "max"), "patience": es.get("patience", 4)}
     best, best_epoch, bad, gstep = -math.inf, 0, 0, 0
     start_epoch, top_k_track = 1, []
     # declared up here because the resume block below restores into them

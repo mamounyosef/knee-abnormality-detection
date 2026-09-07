@@ -1,0 +1,66 @@
+# convnext_base_relabel trained on ALL 4,400 labelled studies (train + val + audit).
+# No held-out set, so no early stopping and no best-checkpoint pick: TAKE last.pt.
+
+experiment:
+  name: "convnext_base_full"
+
+paths:
+  train_csv: "08_train_full.csv"    # 3,638 + 704 + 58, built by data_code/08_make_full_train.py
+  val_csv:   "05_val_qwen24t-med.csv"   # IN-SAMPLE now. A progress readout, not a score.
+
+model:
+  name: "convnext_base.fb_in22k_ft_in1k"
+  pretrained: true
+  pool: "mean"
+  drop_rate: 0.1
+
+training:
+  epochs: 8                         # convnext_base_relabel peaked at epoch 8 / step 3600.
+                                    # 4,400 studies = 550 steps/epoch, so 4,400 steps here.
+  grad_clip: 3.0                    # engine default; the parent ran 1.0 and clipped 13.6%
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-5
+    backbone_lr_mult: 0.5           # head = 1.0e-4
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05
+    min_lr_mult: 0.01
+    schedule_epochs: 12             # cosine spans 12 epochs but we stop at 8, so the lr
+                                    # curve matches convnext_base_relabel step for step
+  loss:
+    name: "bce"
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  early_stopping:
+    enable: false                   # nothing held out left to stop on
+    monitor: "val_macro_auroc"      # unused while disabled, kept so the engine can print it
+    mode: "max"
+    patience: 4
+
+evaluation:
+  eval_every_steps_before: 550      # once an epoch; it cannot inform anything, just a curve
+  eval_every_steps_after: 550
+  audit:
+    enable: false                   # the 58 are in the training set now
+
+dataloader:
+  batch_size: 2                     # 2 studies x 4 slots x 24 slices = 192 images @512
+  accum_steps: 4                    # effective 8 studies per update, same as the parent
+  val_batch_size: 4
+  num_workers: 26
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+modal:
+  gpu: "H200"
+  cpu: 20.0
+  memory_gb: 64
+  timeout_hours: 10                 # 21% more data per epoch than the parent

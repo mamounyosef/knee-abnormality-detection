@@ -1,0 +1,81 @@
+# convnext_base_relabel with seed 42 -> 1337 and grad_clip 1.0 -> 3.0. A cheap decorrelated
+# ensemble member, not a controlled seed test. Expect ~0.9050 solo. See runs_timeline.md #30.
+
+experiment:
+  name: "convnext_base_seed1337"
+
+reproducibility:
+  seed: 1337                        # 42 everywhere else
+
+paths:
+  # same split membership as convnext_base_relabel, so the two ensemble without leakage
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+
+model:
+  name: "convnext_base.fb_in22k_ft_in1k"   # timm id: ConvNeXt-Base pretrained on ImageNet-22k
+  pretrained: true
+  pool: "mean"                      # how the 96 slice features collapse per study: mean | max | attn
+  drop_rate: 0.1                    # dropout in the head, mild regularization
+
+training:
+  epochs: 12
+  grad_clip: 3.0                    # engine default; the parent ran 1.0 and clipped 13.6%
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-5                      # BACKBONE lr — the trunk is 99.9% of the weights
+    backbone_lr_mult: 0.5           # head = lr / 0.5 = 1.0e-4, twice the trunk. Knee MRI
+                                    # is far from ImageNet, so the trunk needs real adaptation
+    layer_decay: null               # layer-wise lr decay, e.g. 0.75: each layer down gets 75%
+                                    # of the one above. Replaces backbone_lr_mult when set.
+  scheduler:
+    name: "cosine"                  # learning rate warms up, then decays along a cosine curve
+    warmup_frac: 0.05
+    min_lr_mult: 0.01               # floor: ends at 1% of the base learning rate
+  loss:
+    name: "bce"                     # bce = binary cross-entropy | focal = focuses on hard cases
+                                    # aucm = pairwise surrogate for AUROC, the actual metric
+    pos_weight: null                # "auto" up-weights rare labels
+    focal_gamma: 2.0
+    aucm_margin: 1.0                # how far apart aucm pushes a positive from a negative
+    aucm_bce_mix: 0.1               # bit of bce mixed in, keeps the probabilities sane
+  early_stopping:                   # stop once val stops improving, saves GPU hours
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 4                     # VALIDATIONS without improvement, not epochs.
+                                    # With eval_every_steps that is several per
+                                    # epoch; the counter is only CHECKED at an
+                                    # epoch boundary.
+
+# CPU-side loading; decoding shards is the bottleneck, so keep workers busy
+dataloader:
+  batch_size: 2                     # 2 studies x 4 slots x 24 slices = 192 images @512.
+                                    # Small peaked at 46.7GB for 96 images (~0.49 GB/img);
+                                    # Base's wider stages put it near 0.63, so ~125GB of
+                                    # the H200's 141GB. 4 studies would need ~250GB.
+  accum_steps: 4                    # effective 8 studies per update -> 454 steps/epoch,
+                                    # same as tiny and small, so the curves still compare
+  val_batch_size: 4                 # no backward pass, so no stored activations
+
+  num_workers: 26                   # Small ran data-wait 0% at 190 img/s on an A100. The
+                                    # H200 at batch 2 wants ~380 img/s sustained and
+                                    # retrieval averaged ~185 between bursts, so the loader
+                                    # becomes the bottleneck here unless it scales too
+  val_num_workers: null             # null = same as num_workers
+
+  prefetch_factor: 4                # batches queued per worker
+  pin_memory: true                  # page-locked memory, faster CPU -> GPU copies
+  persistent_workers: true          # don't respawn workers every epoch
+  drop_last: false                  # keep the ragged final batch
+
+modal:
+  gpu: "H200"                       # 141GB, and ~1.7x the A100's throughput
+  cpu: 14.0                         # one core per dataloader worker, decoding npz is
+                                    # CPU-bound and the GPU is now fast enough to notice
+  memory_gb: 64                     # 24 workers x prefetch 4, and batch 2 doubles the
+                                    # bytes each queued batch holds
+
+# inherits resume: "last" from shared_config - the preemption-safe setting. On a fresh
+# volume there is nothing to resume, so this starts from scratch.
