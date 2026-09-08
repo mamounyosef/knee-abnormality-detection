@@ -18,13 +18,13 @@ from pathlib import Path
 
 # ============================ CONFIG (edit here) ============================
 SET             = "val"        # split to score: "val" (704, LLM labels) | "audit" (58, panel)
-WEIGHTS         = "flat"       # "flat" = equal average | "search" = fit per-class weights
+WEIGHTS         = "search"       # "flat" = equal average | "search" = fit per-class weights
                                # now and save them | a saved fit to reuse ("best_val",
                                # a folder name, or a path)
 COMBINE_SPACE   = "logit"      # blend space: "logit" (the .npz hold logits, so lossless)
                                # | "prob" | "rank" (rank kills F1/P/R/Spec)
-RUN_TAG         = ""           # appended to the output folder name
-BEST_METRIC     = "weighted_mean_auroc"   # what ranks a search run; "oof_mean_auroc"
+RUN_TAG         = "ref-four"           # appended to the output folder name
+BEST_METRIC     = "oof_mean_auroc"   # what ranks a search run; "oof_mean_auroc"
                                # ranks on the held-out estimate instead
 
 # --- members ---------------------------------------------------------------
@@ -34,8 +34,8 @@ BEST_METRIC     = "weighted_mean_auroc"   # what ranks a search run; "oof_mean_a
 FULL_MODELS = [
     "convnext_small_relabel",
     "convnext_base_relabel",
-    "mricore_vitb_relabel",
-    "radimagenet_resnet50_relabel",
+    "mricore_vitb_cross_attention",
+    "dinov3_convnext_base",
 ]
 AUTO_TOP_N      = 1            # expand a bare run name into its N best validations
 AUTO_MIN_GAP    = 400          # min steps between them, so they aren't near-duplicates

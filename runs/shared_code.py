@@ -2821,6 +2821,10 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     per_step_imgs = (train_batch_size(cfg) * accum
                      * len(cfg["input"]["slots"]) * cfg["input"]["n_slices"])
     retr_prev = (0, 0, 0, 0.0)      # last retrieval snapshot
+    # counted once on a real batch, then reused - the count itself is not free
+    flops_per_img = [None]
+    last_print = [None, None]       # (elapsed, gstep) of the previous console line
+    _peak = _peak_tflops(torch.cuda.get_device_name(0)) if device.type == "cuda" else 0.0
     for epoch in range(start_epoch, epochs + 1):
         print("\n" + "=" * 70)
         print(f"\U0001F4DA EPOCH {epoch}/{epochs}")
@@ -3018,8 +3022,19 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                     if _gw:
                         _gs = (f" (avg{len(_gw)} {sum(_gw) / len(_gw):.2f}"
                                f", clip {100.0 * clip_hit[0] / max(clip_seen[0], 1):.0f}%)")
+                    # wall time since the previous console line, so the cost of a
+                    # window is readable without differencing two elapsed= values
+                    # nothing to difference against on this process's FIRST line, and
+                    # elapsed survives a resume while last_print does not - so subtracting
+                    # a zero here would report the whole prior run as one window
+                    _since = ""
+                    if last_print[0] is not None and gstep > last_print[1]:
+                        _since = (f"  +{fmt(el - last_print[0])}"
+                                  f"/{gstep - last_print[1]}st")
+                    last_print[0], last_print[1] = el, gstep
                     print(f"     loss={l:.4f}{d}  {lr_s}  gnorm={gnorm:.2f}{_gs}  "
-                          f"elapsed={fmt(el)}  ETA={fmt(eta)}  gpu_mem(peak)={mem:.2f}GB")
+                          f"elapsed={fmt(el)}  ETA={fmt(eta)}  gpu_mem(peak)={mem:.2f}GB"
+                          f"{_since}")
                     print()                      # split what the model is doing from how fast
                     print(f"     throughput: {ips:.0f} img/s compute | {real_ips:.0f} img/s real "
                           f"({len(roll)}-step) | data-wait {wait_pct:.0f}%")
@@ -3038,6 +3053,27 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                         print(f"     retrieval:  {d_i / d_el:.0f} img/s | "
                               f"{d_b / 1e6 / d_el:.0f} MB/s | "
                               f"{d_ns / 1e6 / d_i:.1f} ms/img avg read (shards)", flush=True)
+                    # Is the GPU actually WORKING, or just occupied? img/s says how fast
+                    # this model runs; MFU says how much of the card that speed uses, so
+                    # a number that looks fine can still be leaving 80% on the table.
+                    if device.type == "cuda":
+                        if flops_per_img[0] is None:
+                            flops_per_img[0] = _measure_flops_per_image(model, x, cfg, device)
+                        _sm, _mc = _gpu_busy()
+                        _bits = []
+                        # x3: backward costs roughly twice forward, so fwd+bwd ~ 3x fwd
+                        _ach = 3.0 * flops_per_img[0] * ips / 1e12
+                        if flops_per_img[0] and _peak:
+                            _bits.append(f"MFU {100.0 * _ach / _peak:.0f}% "
+                                         f"({_ach:.0f} of {_peak:.0f} TFLOP/s fp16/bf16)")
+                        elif flops_per_img[0]:
+                            _bits.append(f"{_ach:.0f} TFLOP/s (no peak figure for this card)")
+                        if _sm is not None:
+                            _bits.append(f"SM busy {_sm:.0f}%")
+                        if _mc is not None:
+                            _bits.append(f"mem ctrl busy {_mc:.0f}%")
+                        if _bits:
+                            print("     compute:    " + " | ".join(_bits), flush=True)
                     prev_loss = l
                     if log_fn:
                         log_fn({"train/loss": l, "train/lr": lr, "train/gnorm": gnorm}, gstep)
@@ -3174,6 +3210,80 @@ def fmt(sec: float) -> str:
 # =============================================================================
 # modal glue
 # =============================================================================
+def _measure_flops_per_image(model, x, cfg, device) -> float:
+    """FLOPs for ONE image's forward pass, counted once on a real batch.
+
+    Counted, not looked up: our models wrap a timm trunk in a per-study head, and every
+    published GFLOP figure is for the bare trunk at its own resolution.
+    """
+    try:
+        from torch.utils.flop_counter import FlopCounterMode
+    except ImportError:
+        return 0.0
+    was_training = model.training
+    try:
+        # ONE study, not the whole batch. The answer is per-image either way, and swinv2
+        # already runs at 160 of the B200's 178 GB - a second forward pass over the full
+        # batch would OOM the run just to print a diagnostic.
+        x1 = x[:1] if x.dim() >= 5 and x.shape[0] > 1 else x
+        model.eval()
+        with torch.no_grad():
+            # count images from what the MODEL sees, never from the loader's shape:
+            # x is (B, slots, D, H, W) and prepare_batch flattens it to (B*slots*D, C, H, W),
+            # so guessing here silently under-counted by the slice depth and inflated MFU 24x
+            xb = prepare_batch(x1, cfg, device)
+            n_img = xb.shape[0]
+            fc = FlopCounterMode(display=False)
+            with fc:
+                model(xb)
+            total = fc.get_total_flops()
+            del xb
+        return float(total) / max(n_img, 1)
+    except Exception as e:
+        # never let a diagnostic kill a training run
+        print(f"  [warn] could not count FLOPs: {type(e).__name__}: {e}")
+        return 0.0
+    finally:
+        if was_training:
+            model.train()
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
+            # the probe's own allocation must not masquerade as a training peak
+            torch.cuda.reset_peak_memory_stats()
+
+
+# Dense (non-sparse) tensor-core throughput at the precision amp actually uses, bf16/fp16
+# with fp32 accumulate. Vendor headline numbers usually quote 2x these via sparsity.
+_PEAK_TFLOPS = {
+    "B200": 2250.0, "B100": 1800.0, "H200": 989.0, "H100": 989.0,
+    "A100": 312.0, "L40S": 362.0, "L4": 121.0, "A10G": 125.0,
+    "V100": 125.0, "T4": 65.0,
+    "4090": 165.2, "4080": 97.5, "4070": 58.0, "4060": 60.5, "3090": 71.0,
+}
+
+
+def _peak_tflops(name: str) -> float:
+    """Peak dense bf16 TFLOP/s for this device, 0.0 when we have no figure for it."""
+    for k, v in _PEAK_TFLOPS.items():
+        if k.lower() in (name or "").lower():
+            return v
+    return 0.0
+
+
+def _gpu_busy() -> tuple:
+    """(sm_busy_pct, mem_ctrl_busy_pct) from NVML, (None, None) when unavailable.
+
+    Both are TIME-based: the fraction of the sample window in which any kernel was
+    resident, and in which the memory controller was reading or writing. Neither is an
+    achieved-bandwidth or a FLOP figure - a kernel using 3% of the tensor cores still
+    reports ~100% SM busy, which is exactly why MFU is printed beside them.
+    """
+    try:
+        return torch.cuda.utilization(), torch.cuda.memory_usage()
+    except Exception:
+        return None, None
+
+
 def modal_image():
     """Container image for remote runs: deps + this runs/ folder + the small CSVs."""
     import modal
@@ -3182,6 +3292,7 @@ def modal_image():
             .pip_install("torch", "torchvision", "timm", "numpy", "pandas",
                          "opencv-python-headless", "scikit-learn", "pyyaml", "wandb",
                          "libauc",   # official AUCMLoss + PESG, training only
+                         "nvidia-ml-py",   # torch.cuda.utilization/memory_usage need it
 
                          "matplotlib", "psutil", "pydicom")
             .add_local_dir(str(Path(__file__).parent), "/root/runs")
