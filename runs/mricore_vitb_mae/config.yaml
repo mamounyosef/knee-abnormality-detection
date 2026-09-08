@@ -1,0 +1,93 @@
+# MAE continued pretraining of MRI-CORE ViT-B/16 on our knee slices, no labels.
+# Settings from arXiv 2111.06377 (Table 8 + the Table 1 ablations); DEVIATION marks ours.
+
+experiment:
+  name: "mricore_vitb_mae"
+
+paths:
+  train_csv: "05_train_qwen24t-med.csv"   # TRAIN SPLIT ONLY - val stays unseen
+  val_csv:   "05_val_qwen24t-med.csv"     # the holdout: never trained on, so free to measure
+
+mae:
+  mask_ratio: 0.75                  # Table 1f: random 75% beats block and grid sampling
+  decoder_depth: 2                  # Table 1a: ft 84.9 at 2, 4 and 8 blocks - only linear
+                                    # probing cares about depth, and we never probe. 2 costs
+                                    # 65 GFLOPs/image against 4's 82, a 21% saving.
+  decoder_dim: 512                  # Table 1b: 512 is the sweet spot
+  decoder_heads: 16
+  norm_pix_loss: true               # Table 1d: 85.4 vs 84.9 fine-tune
+  slices_per_series: 8              # a shard holds a whole series, so read 8 at once
+  encoder_out: "MRI_CORE_vitb_mae.pth"
+
+model:
+  name: "vit_base_patch16_224"      # timm skeleton; MRI-CORE overwrites it
+  pretrained: false
+  weights: "MRI_CORE_vitb.pth"
+
+input:
+  slots: ["sag_plain"]              # unused: this dataset indexes series directly
+  n_slices: 8                       # overridden to mae.slices_per_series
+
+augmentation:
+  enable: true
+  eval_enable: false
+  # Table 1e: cropping-only 84.9, crop + colour jitter 84.3. Geometry only.
+  # DEVIATION: the paper uses RandomResizedCrop; we resample every scan to 0.40 mm/px
+  # so a knee is one physical size, and RRC would destroy that invariant.
+  rotation:   {p: 0.5, deg: 15}
+  translate:  {p: 0.5, frac: 0.10}
+  scale:      {p: 0.5, range: [0.80, 1.20]}
+  brightness: {p: 0.0, factor: 0.0}   # OFF - colour jitter measurably hurts MAE
+  contrast:   {p: 0.0, factor: 0.0}   # OFF
+  hflip:      {p: 0.0}                # banned project-wide: swaps medial <-> lateral
+  slice_dropout: {p: 0.0, frac: 0.0}  # slices are independent samples here
+
+training:
+  epochs: 60
+  grad_clip: 0.0                    # paper A.1: "we do NOT use ... gradient clip"
+  amp: true
+  channels_last: true
+  optimizer:
+    name: "adamw"
+    lr: 1.5e-4                      # base lr; scaled by imgs_per_step / 256
+    encoder_lr_mult: 0.33           # DEVIATION: the trunk is pretrained, the decoder is not
+    betas: [0.9, 0.95]              # paper Table 8 - NOT AdamW's usual 0.999
+    weight_decay: 0.05
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05               # paper: 40 of 800 epochs
+    min_lr_mult: 0.0
+  early_stopping:
+    enable: false                   # nothing to early-stop on
+
+dataloader:
+  batch_size: 104                  # 104 x 8 = 832 images/forward. MEASURED 0.1455
+                                   # GB/image, so ~121 GB of the H200's 141: 14% spare
+                                   # for allocator fragmentation. 112 would fit too
+                                   # (~130 GB) but leaves only 8%.
+  accum_steps: 1                    # lr scales off imgs_per_step: 3.0e-4 dec, 9.9e-5 enc
+  num_workers: 26
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: true
+
+evaluation:
+  audit:
+    enable: false
+
+output:
+  console_log_every: 40
+  save_debug_images: 100        # every N steps: the input sheet AND the
+                                # original/masked/reconstruction/paste triptych
+  checkpoint_every_steps: 250   # ~4 min at batch 64. Rolling stepNNNN.pt so a kill
+                                # mid-epoch costs minutes, not the whole epoch.
+  keep_last_n: 5                # 5 x ~1.3 GB on the volume
+
+modal:
+  gpu: "H200"                  
+                                    # finish inside timeout_hours - resume across sessions
+  cpu: 16.0
+  memory_gb: 52
+  timeout_hours: 12

@@ -23,7 +23,7 @@ WEIGHTS         = "search"       # "flat" = equal average | "search" = fit per-c
                                # a folder name, or a path)
 COMBINE_SPACE   = "logit"      # blend space: "logit" (the .npz hold logits, so lossless)
                                # | "prob" | "rank" (rank kills F1/P/R/Spec)
-RUN_TAG         = "ref-four"           # appended to the output folder name
+RUN_TAG         = "W-hier"           # appended to the output folder name
 BEST_METRIC     = "oof_mean_auroc"   # what ranks a search run; "oof_mean_auroc"
                                # ranks on the held-out estimate instead
 
@@ -33,9 +33,11 @@ BEST_METRIC     = "oof_mean_auroc"   # what ranks a search run; "oof_mean_auroc"
 # [("r", 3200), ("r", 4000)] -> LIST = sub-ensemble, averaged first, ONE vote above
 FULL_MODELS = [
     "convnext_small_relabel",
-    "convnext_base_relabel",
+    "convnext_large",
+    ["convnext_base_relabel", "convnext_base_seed1337"],
     "mricore_vitb_cross_attention",
     "dinov3_convnext_base",
+    "swinv2_base_in22k",
 ]
 AUTO_TOP_N      = 1            # expand a bare run name into its N best validations
 AUTO_MIN_GAP    = 400          # min steps between them, so they aren't near-duplicates

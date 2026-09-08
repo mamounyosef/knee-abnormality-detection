@@ -1,0 +1,124 @@
+# convnext_base_fluid: a specialised branch of convnext_base_relabel.
+# Group = fluid and inflammation: excess joint fluid and an inflamed joint lining.
+# Starts from the parent's epoch-5 checkpoint (step 2200, val 0.8986) and
+# trains 5 more epochs on these findings only, replaying the lr the parent
+# actually had over its epochs 6-10 (head 6.98e-5 -> 1.07e-5).
+
+# convnext_base_4slot retrained on the qwen-2.4T medium-effort labels. Nothing else
+# changes: same architecture, same hyper-parameters, same split membership.
+#
+# The precedent is convnext_small_relabel, which was the same swap on Small and was worth
+# +0.004 on the leaderboard (0.908 -> 0.912) and +0.0134 on audit-58 (0.8901 -> 0.9035).
+# Base is the strongest solo ensemble member (val 0.8944), so it is retrained first.
+#
+# Ensembling the relabelled Small with the three OLD members was tested locally and gained
+# nothing - the old members aim at a different target distribution, so their errors do not
+# complement. The ensemble only pays again once its members share a label set. That is what
+# this run starts.
+
+experiment:
+  name: "convnext_base_fluid"
+
+paths:
+  # Same --like split as convnext_small_relabel: byte-identical train/val MEMBERSHIP to the
+  # baseline, only the target values differ. Keeps this comparable to convnext_base_4slot
+  # (val 0.8944 / audit 0.8900) on everything except the labels.
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+  # audit_csv stays 05_audit58.csv - the panel labels never change, so it is the one
+  # honest cross-label-set comparison.
+
+model:
+  name: "convnext_base.fb_in22k_ft_in1k"   # timm id: ConvNeXt-Base pretrained on ImageNet-22k
+  pretrained: true
+  pool: "mean"                      # how the 96 slice features collapse per study: mean | max | attn
+  drop_rate: 0.1                    # dropout in the head, mild regularization
+
+training:
+  epochs: 6                       # the parent's epochs 6-11: it stopped at 10, so this adds
+                                  # one epoch of headroom past its peak. early_stopping ends
+                                  # it sooner if the group stops improving.
+  grad_clip: 3.0                    # cap gradient size so one bad batch can't blow up training.
+                                    # 1.0 throttled the effective lr; 3.0 only catches real spikes
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 3.49e-5                     # the parent's BACKBONE lr at step 2200, so the
+                                    # branch picks up exactly where it left off
+    backbone_lr_mult: 0.4           # head = lr / 0.4 = 8.73e-5, 2.5x the trunk. The parent
+                                    # ran 0.5 (head 2x). Raised here because the head is the
+                                    # part that SPECIALISES and it is now 2-6 rows instead of
+                                    # 12, while the trunk is shared and worth protecting.
+                                    # Still under the parent's own peak head lr of 1.0e-4.
+    layer_decay: null               # layer-wise lr decay, e.g. 0.75: each layer down gets 75%
+                                    # of the one above. Replaces backbone_lr_mult when set.
+  scheduler:
+    name: "cosine"                  # learning rate warms up, then decays along a cosine curve
+    warmup_frac: 0.025              # 66 of 2640 steps. The trunk is already warm, so this
+                                    # is NOT the usual ramp-in: the branch checkpoint is
+                                    # weights-only, so AdamW restarts with zero momentum
+                                    # and its first steps are badly scaled. 66 steps is
+                                    # enough for the moment estimates to fill in.
+    min_lr_mult: 0.02               # floor: head 1.74e-6. Over 11 epochs there is room for a
+                                    # full anneal, and the parent's own floor was 1% of peak.
+  loss:
+    name: "bce"                     # bce = binary cross-entropy | focal = focuses on hard cases
+                                    # aucm = pairwise surrogate for AUROC, the actual metric
+    pos_weight: null                # "auto" up-weights rare labels
+    focal_gamma: 2.0
+    aucm_margin: 1.0                # how far apart aucm pushes a positive from a negative
+    aucm_bce_mix: 0.1               # bit of bce mixed in, keeps the probabilities sane
+  early_stopping:                   # stop once val stops improving, saves GPU hours
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 4                     # VALIDATIONS without improvement, not epochs.
+                                    # With eval_every_steps that is several per
+                                    # epoch; the counter is only CHECKED at an
+                                    # epoch boundary.
+
+# CPU-side loading; decoding shards is the bottleneck, so keep workers busy
+dataloader:
+  batch_size: 2                     # 2 studies x 4 slots x 24 slices = 192 images @512.
+                                    # Small peaked at 46.7GB for 96 images (~0.49 GB/img);
+                                    # Base's wider stages put it near 0.63, so ~125GB of
+                                    # the H200's 141GB. 4 studies would need ~250GB.
+  accum_steps: 4                    # effective 8 studies per update -> 454 steps/epoch,
+                                    # same as tiny and small, so the curves still compare
+  val_batch_size: 4                 # no backward pass, so no stored activations
+
+  num_workers: 26                   # Small ran data-wait 0% at 190 img/s on an A100. The
+                                    # H200 at batch 2 wants ~380 img/s sustained and
+                                    # retrieval averaged ~185 between bursts, so the loader
+                                    # becomes the bottleneck here unless it scales too
+  val_num_workers: null             # null = same as num_workers
+
+  prefetch_factor: 4                # batches queued per worker
+  pin_memory: true                  # page-locked memory, faster CPU -> GPU copies
+  persistent_workers: true          # don't respawn workers every epoch
+  drop_last: false                  # keep the ragged final batch
+
+modal:
+  gpu: "H200"                       # 141GB, and ~1.7x the A100's throughput
+  cpu: 20.0                         # one core per dataloader worker, decoding npz is
+                                    # CPU-bound and the GPU is now fast enough to notice
+  memory_gb: 64                     # 24 workers x prefetch 4, and batch 2 doubles the
+                                    # bytes each queued batch holds
+
+# inherits resume: "last" from shared_config - the preemption-safe setting. On a fresh
+# volume there is nothing to resume, so this starts from scratch.
+
+# ---- this branch's findings (overrides the 12 in shared_config) ----
+tasks:
+  - Effusion
+  - Synovitis
+
+# ---- validation cadence ----
+# shared_config scores every 400 steps until epoch 5, which suits a 12-epoch run from
+# scratch. This branch is only 6 epochs long and starts from an ALREADY-GOOD trunk
+# (val 0.8986), so the best checkpoint can appear almost immediately and a 400-step
+# gap would step straight over it. 2640 steps total -> 22 evals, then 26.
+evaluation:
+  eval_every_steps_before: 200          # epochs 1-2
+  eval_every_steps_after: 100           # epoch 3 onward
+  eval_every_steps_epoch_threshold: 3   # first epoch using the 100-step rate

@@ -208,7 +208,10 @@ def print_config(cfg: dict):
                        f"= {field:.0f} mm field"),
         ("slice sampling", f"train={i['train_slice_sampling']}  eval={i['slice_sampling']}  "
                            f"margin={i.get('slice_margin', 0)}"),
-        ("missing slots", f"fallback_same_plane={i['fallback_same_plane']}"),
+        ("missing slots", f"fallback_same_plane={i['fallback_same_plane']}"
+                          + ("" if not isinstance(i['fallback_same_plane'], (list, tuple))
+                             else f"  (no fallback: "
+                                  f"{[q for q in i['slots'] if q not in i['fallback_same_plane']]})")),
         ("duplicate rule", i["duplicate_rule"]),
         None,
         ("window", f"{i['window']}  pct={i['window_pct']}"),
@@ -552,7 +555,15 @@ def plan_slots(index: pd.DataFrame, cfg: dict) -> dict[str, dict[str, str]]:
     """Pick one series per slot for every study -> {study: {slot: series}}.
     Duplicate rule breaks ties; fallback accepts any series of the right plane."""
     slots, rule = cfg["input"]["slots"], cfg["input"]["duplicate_rule"]
-    fallback = cfg["input"]["fallback_same_plane"]      # accept any series of the right plane
+    # true/false for every slot, or a LIST naming the slots that may fall back. Per-slot
+    # matters when one slot is the variable under test: cor_plain has no fallback of its
+    # own (its only same-plane neighbour is cor_fluid, which is already its own slot, so
+    # falling back would feed the same series twice), while the other four keep theirs.
+    _fb = cfg["input"]["fallback_same_plane"]
+    if isinstance(_fb, (list, tuple, set)):
+        fallback_slots = set(_fb)
+    else:
+        fallback_slots = set(slots) if _fb else set()
 
     # 44% of studies have >1 series competing for a slot; first row after the sort wins
     sort_by, asc = {
@@ -568,7 +579,7 @@ def plan_slots(index: pd.DataFrame, cfg: dict) -> dict[str, dict[str, str]]:
         chosen = {}
         for slot in slots:
             cand = g[g.slot == slot]                     # exact slot match first
-            if cand.empty and fallback:
+            if cand.empty and slot in fallback_slots:
                 cand = g[g.plane == PLANE_OF[slot]]      # same plane, either setting
             if cand.empty:
                 continue                                 # slot stays empty -> zeros at load time
@@ -4515,6 +4526,13 @@ def build_kaggle_ensemble_assets(members: list, out_dir, kaggle_user: str,
     # (n_members, n_tasks) matrix in MEMBER order and TASK order, not as a dict, so the
     # notebook cannot silently reorder it. ensemble.py saves a dict keyed by name; the
     # conversion happens HERE, once, where both orders are known.
+    # A STALE blend_weights.json is silent and wrong: the builder only writes this file
+    # when weights are given, but the notebook loads it whenever it EXISTS, so a flat
+    # submission built in a folder a weighted one used would ship the old weights.
+    _bw = w / "blend_weights.json"
+    if not blend_weights and _bw.exists():
+        _bw.unlink()
+        print("  🧹 removed a stale blend_weights.json - this build is FLAT")
     if blend_weights:
         tasks0 = members[0][1]["tasks"]
         names = [m[0] for m in members]
@@ -4995,6 +5013,7 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
         m.eval().to(device)
 
     out, done, t0, failed = [], 0, time.time(), 0
+    notes = []
     it = iter(loader)
     while True:
         try:
@@ -5009,32 +5028,66 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
             failed += left
             break
         k = x.shape[0]
-        try:
+
+        def _score_batch():
+            """One batch through every member, freeing each input as we go. With five
+            members resident the allocator fragments, and study 2 can die where study 1
+            was fine."""
             lg = []
             for c, m in zip(cfgs, models):
                 amp = c["training"]["amp"] and device.type == "cuda"
                 with torch.autocast("cuda", enabled=amp):
-                    lg.append(m(prepare_batch(x, c, device)).float())
+                    xb = prepare_batch(x, c, device)
+                    o = m(xb).float()
+                del xb                                 # the (96, 3, 512, 512) input
+                lg.append(o)
             stacked = torch.stack(lg)                  # (n_members, batch, n_tasks)
+            del lg
             if W is None:
                 avg = stacked.mean(dim=0)              # logit space, as measured offline
             else:
                 # W is (n_members, n_tasks) -> unsqueeze the batch axis so each finding
                 # gets its own weighting across members
                 avg = (stacked * W[:, None, :]).sum(dim=0)
-            out.append(torch.sigmoid(avg).cpu().numpy())
+            r = torch.sigmoid(avg).cpu().numpy()
+            del stacked, avg
+            return r
+
+        try:
+            try:
+                out.append(_score_batch())
+            except torch.cuda.OutOfMemoryError:
+                # the memory is usually there, just spread across blocks the allocator
+                # is still holding - so free them and try the same batch once more
+                torch.cuda.empty_cache()
+                print(f"  ♻️  OOM at study {done}, retrying on a cleared cache",
+                      flush=True)
+                out.append(_score_batch())
         except Exception as e:                     # a dead batch scores 0.5, run goes on
             failed += k
-            print(f"  ⚠️  batch at study {done} failed ({type(e).__name__}: {e}) -> 0.5")
+            msg = f"batch at study {done} failed ({type(e).__name__}: {e}) -> 0.5"
+            print(f"  ⚠️  {msg}", flush=True)
+            notes.append(msg)
             out.append(np.full((k, len(tasks)), 0.5, np.float32))
+        if device.type == "cuda":
+            torch.cuda.empty_cache()               # next study starts on a clean heap
         done += k
         if report_every and done % report_every < k:
             el = time.time() - t0
             print(f"  … {done}/{n} studies  {el / max(done, 1):.1f}s each  "
                   f"eta {fmt(el / max(done, 1) * (n - done))}", flush=True)
     probs = np.concatenate(out) if out else np.zeros((0, len(tasks)))
-    print(f"  ✅ scored {len(probs)} studies with {len(models)} members in "
-          f"{fmt(time.time() - t0)}" + (f" ({failed} fell back to 0.5)" if failed else ""))
+    summary = (f"scored {len(probs)} studies with {len(models)} members in "
+               f"{fmt(time.time() - t0)}"
+               + (f" ({failed} fell back to 0.5)" if failed else ""))
+    print(f"  ✅ {summary}")
+    # the kernel's stdout is not downloadable, so leave the diagnosis in a file that
+    # `kaggle kernels output` can fetch - otherwise a Kaggle-only failure is invisible
+    try:
+        Path("inference_log.txt").write_text(summary + chr(10) + chr(10).join(notes),
+                                             encoding="utf-8")
+    except Exception:
+        pass
     res = pd.DataFrame(probs, columns=tasks)
     res.insert(0, "StudyInstanceUID", studies_df["StudyInstanceUID"].values)
     return res

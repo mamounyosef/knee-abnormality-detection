@@ -62,13 +62,22 @@ class SliceModel(nn.Module):
         self.feat_norm = nn.LayerNorm(feat) if m.get("feat_norm") else nn.Identity()
         self.per_study = len(cfg["input"]["slots"]) * cfg["input"]["n_slices"]  # images per study
         self.pool = m.get("pool", "mean")            # how those images collapse into one vector
+        self.infer_chunk = int(m.get("infer_chunk") or 0)   # see forward()
         if self.pool == "attn":
             # tiny network that scores each slice, so the model can weight informative ones
             self.pool_attn = nn.Sequential(nn.Linear(feat, 128), nn.Tanh(), nn.Linear(128, 1))
         self.head = nn.Linear(feat, sc.num_output_logits(cfg))   # one logit per label, 12
 
     def forward(self, x):                      # x: (B*slots*D, C, H, W)
-        f = self.backbone(x)                   # (B*slots*D, F)
+        # Swin costs 0.171 GB/image at inference against ConvNeXt's 0.044, so one study's
+        # 96 images is 16.8 GB - over Kaggle's 15 GB T4. Chunking is EXACT here: every
+        # image is encoded independently (LayerNorm only, no BatchNorm), so the features
+        # agree to ~3e-8 (float accumulation order), only the peak allocation changes.
+        n = self.infer_chunk
+        if not self.training and n and x.shape[0] > n:
+            f = torch.cat([self.backbone(c) for c in x.split(n)], dim=0)
+        else:
+            f = self.backbone(x)               # (B*slots*D, F)
         f = f.view(-1, self.per_study, f.shape[-1])   # regroup the flat images back per study
         if self.pool == "max":
             f = f.max(dim=1).values                   # strongest slice wins each feature

@@ -44,21 +44,22 @@ R = "radimagenet_resnet50_relabel"
 L = "convnext_large"
 D = "dinov3_convnext_base"
 C = "mricore_vitb_cross_attention"
+W = "swinv2_base_in22k"
+Z = "convnext_base_seed1337"
 
-# the top of the flat sweep, plus the two things already submitted as references
+# Does swinv2 earn a slot? It is our best SINGLE model (val 0.9053 / audit 0.9101) and the
+# only hierarchical transformer in the pool, so it is the best decorrelation candidate left.
+# Kept deliberately SHORT: every extra combination is another chance for the 704-study val
+# to pick a winner by luck, and OOF has already misranked one submission.
 COMBOS = [
-    # RadImageNet is OUT of every one of these. Its licence is "personal, non-commercial
-    # (e.g., academic) research purposes only... any commercial use, sale, or other
-    # monetization is strictly prohibited", and competing for a cash prize is a
-    # commercial use. It stays a valid internal ablation, it cannot ship.
-    ("nr5-C-D-L",        [S, B, C, D, L]),
-    ("nr4-C-D",          [S, B, C, D]),
-    ("nr4-M-D",          [S, B, M, D]),
-    ("nr5-both-mricore", [S, B, M, C, D]),
-    ("nr3-B-C-D",        [B, C, D]),
-    ("nr3-B-M-D",        [B, M, D]),
-    ("nr4-C-D-L",        [B, C, D, L]),
-    ("nr6-everything",   [S, B, M, C, D, L]),
+    # RadImageNet is OUT of all of these - non-commercial licence, prize money is commercial.
+    ("ref-SBCD",        [S, B, C, D]),          # the standing 0.928
+    ("W-SBCDW",         [S, B, C, D, W]),       # add swinv2
+    ("W-BCDW",          [B, C, D, W]),          # add it, drop convnext_small
+    ("W-SBCDLW",        [S, B, C, D, L, W]),    # everything prize-eligible
+    ("W-BCDLW",         [B, C, D, L, W]),
+    ("W-swap-S",        [W, B, C, D]),          # swinv2 INSTEAD of convnext_small
+    ("W-hier-seeds",    [S, [B, Z], C, D, W]),  # + the nested seed pair that gave +0.0011
 ]
 
 

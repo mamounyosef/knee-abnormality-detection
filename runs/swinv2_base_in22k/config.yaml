@@ -36,14 +36,17 @@ model:
                                         # growing the window past its pretrained size work
   pool: "mean"
   drop_rate: 0.1
+  infer_chunk: 24                       # encode 96 images 24 at a time at INFERENCE:
+                                        # 16.8 GB in one go, 4.5 GB chunked, and Kaggle
+                                        # gives 15. Exact, not approximate - see forward().
   drop_path_rate: 0.2                   # Swin's own recipe uses heavier stochastic depth
                                         # than a ConvNeXt of the same size
 
 training:
   epochs: 12
   grad_clip: 3.0                    # matches shared_config; transformers run hot early
-  grad_checkpointing: true          # ~35% slower per step, ~10x less activation memory.
-                                    # Without it this run OOMs at any batch size.
+  grad_checkpointing: false         # ON, batch 1 peaked at only 34 of the B200's 178 GB
+                                    # but ETA was 13h24m. Off should fit and run ~35% faster.
   optimizer:
     name: "adamw"
     weight_decay: 0.05
@@ -70,8 +73,9 @@ training:
     patience: 6
 
 dataloader:
-  batch_size: 1                         # batch 2 OOMed at 1.97 GB/image. Even batch 1 is
-                                        # ~189 GB raw - grad_checkpointing is what fits it.
+  batch_size: 1                         # the floor: 1 study is 4 slots x 24 slices = 96
+                                        # images. 192 OOMed on a 140 GB H200, so raw cost is
+                                        # >0.73 GB/image; 96 fits the B200 under 1.86.
   accum_steps: 8                        # effective 8 studies, same as every run before it
   val_batch_size: 2
   num_workers: 26
@@ -86,5 +90,5 @@ modal:
                                         # Check gpu_peak_gb - batch 2 may fit and be faster.
   cpu: 12.0
   memory_gb: 64
-  timeout_hours: 12                     # slow per step, batch 1 doubles them, checkpointing
-                                        # adds ~35%. resume: "last" picks up a timeout.
+  timeout_hours: 16                     # measured ETA was 13h24m WITH checkpointing, over
+                                        # the old 12. resume: "last" picks up a timeout.

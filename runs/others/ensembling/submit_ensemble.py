@@ -55,6 +55,7 @@ MEMBERS = [
     ("mricore_vitb_cross_attention", "best"),
     ("dinov3_convnext_base", "best"),
     ("convnext_large", "best"),
+    ("swinv2_base_in22k", "best"),
 ]
 # RadImageNet is deliberately ABSENT: its licence is "personal, non-commercial (e.g.,
 # academic) research purposes only... any commercial use, sale, or other monetization is
@@ -68,15 +69,20 @@ MEMBERS = [
 # worse than the one measured, including the 6-member that scored 0.922. Fixed: best.pt
 # is now step 2600 and its `score` matches val_log's peak. ALWAYS check that before a
 # submission - it is silent otherwise.
-BLEND_WEIGHTS = "ensemble_results/2026-09-06_23-58-21_nr4-C-D-L-search/weighted_val_summary.json"
+BLEND_WEIGHTS = None           # FLAT. With swinv2 in, the search buys +0.0001 OOF
+                               # against +0.0006 without it, while in-sample climbs
+                               # to 0.9190 - the weights are fitting noise now.
 PUBLISH      = True
 WAIT_FOR_RUN = True
+SUBMIT       = True           # False = run the kernel and stop. Kernel runs are FREE;
+                              # only the submit costs one of the day's 5. Use it to see
+                              # the notebook's real output before spending one.
 KAGGLE_USER  = "mamounhussam"
-SLUG         = "knee-ensemble-4-large-fixed"
-NOTE         = ("4-model weighted ensemble, PRIZE-ELIGIBLE (no RadImageNet): "
-                "convnext_base + mricore_vitb_cross_attention + dinov3 + "
-                "convnext_large (FIXED checkpoint, step 2600 not 1200) | "
-                "per-class weights, val OOF 0.9145 (flat 0.9137) | Built with DINOv3")
+SLUG         = "knee-ensemble-5-swinv2-flat"
+NOTE         = ("5-model FLAT ensemble, PRIZE-ELIGIBLE (no RadImageNet): convnext_base + "
+                "mricore_vitb_cross_attention + dinov3 + convnext_large + swinv2_base_in22k "
+                "| flat val 0.9147 vs 0.9134 for the 0.928 four | no fitted weights "
+                "| Built with DINOv3")
 # ===========================================================================
 
 PKG_ROOT = Path(__file__).resolve().parent.parent.parent      # <repo>/runs
@@ -131,7 +137,10 @@ def main():
         print("PUBLISH is False - assets built, nothing uploaded")
         return
     sc.kaggle_publish(out, KAGGLE_USER, SLUG, f"{SLUG}-submit",
-                      message=NOTE, wait=WAIT_FOR_RUN)
+                      message=NOTE, wait=WAIT_FOR_RUN, submit=SUBMIT)
+    if not SUBMIT:
+        print("  SUBMIT is False - the kernel ran, nothing was submitted. Fetch its "
+              "submission.csv and inference_log.txt before flipping it True.")
 
 
 if __name__ == "__main__":
