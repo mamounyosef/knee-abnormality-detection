@@ -30,7 +30,10 @@ model:
 
 training:
   epochs: 12
-  grad_clip: 1.0                    # cap gradient size so one bad batch can't blow up training
+  grad_clip: 3.0                    # NOT the parent's 1.0. At 1.0 this run clipped 100% of
+                                    # steps (avg gnorm 2.47), throttling the effective lr by
+                                    # ~60%. Confounds the 5th-slot comparison with the parent,
+                                    # deliberately accepted.
   optimizer:
     name: "adamw"
     weight_decay: 0.05
@@ -54,7 +57,7 @@ training:
     enable: true
     monitor: "val_macro_auroc"
     mode: "max"
-    patience: 4                     # VALIDATIONS without improvement, not epochs.
+    patience: 7                     # VALIDATIONS without improvement, not epochs.
                                     # With eval_every_steps that is several per
                                     # epoch; the counter is only CHECKED at an
                                     # epoch boundary.
@@ -81,8 +84,8 @@ dataloader:
   drop_last: false                  # keep the ragged final batch
 
 modal:
-  gpu: "H200"                       # 141GB, and ~1.7x the A100's throughput
-  cpu: 20.0                         # one core per dataloader worker, decoding npz is
+  gpu: "B200"                       # 141GB, and ~1.7x the A100's throughput
+  cpu: 14.0                         # one core per dataloader worker, decoding npz is
                                     # CPU-bound and the GPU is now fast enough to notice
   memory_gb: 64                     # 24 workers x prefetch 4, and batch 2 doubles the
                                     # bytes each queued batch holds

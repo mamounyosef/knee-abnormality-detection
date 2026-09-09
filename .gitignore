@@ -235,6 +235,7 @@ test.ipynb
 current_modal_commands.txt
 
 debugged_images/
+debug_images/
 runs/*/kaggle/
 
 # per-run console captures: local notes for me, never shared
@@ -248,6 +249,8 @@ data/pretrained/
 
 # checkpoints stay on the Modal volume - hundreds of MB each
 runs/*/results/checkpoints/
+# exported trunks (MAE encoder etc) live on the modal volumes, not in git
+runs/*/results/*.pth
 
 # built Kaggle bundles - weights are rebuilt from checkpoints on demand
 runs/others/ensembling/kaggle/

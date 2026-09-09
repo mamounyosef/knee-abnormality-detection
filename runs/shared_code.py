@@ -1705,6 +1705,30 @@ class UDRatio:
             print(f"  [warn] could not write {path.name}: {type(e).__name__}: {e}")
 
 
+def _uncompiled(model):
+    """The real module behind a torch.compile wrapper, or the model itself.
+
+    torch.compile returns an OptimizedModule that holds the original under
+    `_orig_mod`, and its state_dict keys all gain an "_orig_mod." prefix. Saving that
+    prefix would make every checkpoint depend on whether compile happened to be on,
+    so checkpoints are always written from the ORIGINAL module.
+    """
+    return getattr(model, "_orig_mod", model)
+
+
+def _load_model_state(model, sd):
+    """Load weights whichever side of torch.compile they were saved from.
+
+    Strips a leading "_orig_mod." (a checkpoint written by an older compiled run) and
+    loads into the unwrapped module, so compiled and non-compiled runs can resume from
+    each other's checkpoints in either direction.
+    """
+    if any(k.startswith("_orig_mod.") for k in sd):
+        sd = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v
+              for k, v in sd.items()}
+    return _uncompiled(model).load_state_dict(sd)
+
+
 def save_checkpoint(path: Path, cfg, model, opt=None, sched=None, scaler=None,
                     epoch=0, step=0, score=None, track=None, device=None,
                     weights_only=False, elapsed_sec=0.0, epoch_complete=True,
@@ -1714,7 +1738,7 @@ def save_checkpoint(path: Path, cfg, model, opt=None, sched=None, scaler=None,
     epoch_complete=False marks a checkpoint written part-way through an epoch, so
     resume replays that epoch instead of silently skipping the rest of its data.
     """
-    payload = {"model": model.state_dict(), "cfg": cfg, "epoch": epoch,
+    payload = {"model": _uncompiled(model).state_dict(), "cfg": cfg, "epoch": epoch,
                "step": step, "score": score, "track": track,
                "elapsed_sec": elapsed_sec, "epoch_complete": epoch_complete}
     if not weights_only:
@@ -1843,7 +1867,7 @@ def load_checkpoint(resume, model, ckpt_dir: Path, opt=None, sched=None,
         return {}
     print(f"  \u21A9\uFE0F  resuming from {path}")
     ck = torch.load(path, map_location="cpu", weights_only=False)
-    model.load_state_dict(ck["model"])
+    _load_model_state(model, ck["model"])
     for obj, key in ((opt, "optimizer"), (sched, "scheduler"), (scaler, "scaler")):
         if obj is not None and key in ck and ck[key] is not None:
             try:
@@ -3864,7 +3888,7 @@ def _load_ckpt_weights(model, ckpt_dir: Path, checkpoint, device):
     if path is None:
         raise FileNotFoundError(f"no checkpoint {checkpoint!r} under {ckpt_dir}")
     ck = torch.load(path, map_location="cpu", weights_only=False)
-    model.load_state_dict(ck["model"])
+    _load_model_state(model, ck["model"])
     return ck, path
 
 
@@ -4691,7 +4715,7 @@ try:
         i = m['i']
         model = _load_def(i).build_model(cfg)
         ck = torch.load(W / ('m%d_model.pt' % i), map_location='cpu', weights_only=False)
-        model.load_state_dict(ck['model'])
+        _load_model_state(model, ck['model'])
         MODELS.append(model.eval())
         print('m%d %-30s epoch %s score %s' % (i, m['name'], ck.get('epoch'), ck.get('score')))
 except Exception:
