@@ -251,6 +251,8 @@ data/pretrained/
 runs/*/results/checkpoints/
 # exported trunks (MAE encoder etc) live on the modal volumes, not in git
 runs/*/results/*.pth
+# stray 0-byte files from shell redirects, named after whatever was in scope
+runs/*/results/*[!.]
 
 # built Kaggle bundles - weights are rebuilt from checkpoints on demand
 runs/others/ensembling/kaggle/

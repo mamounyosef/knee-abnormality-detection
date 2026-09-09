@@ -1,0 +1,165 @@
+# mricore_vitb_relabel plus CROSS-SLICE ATTENTION, and nothing else.
+#
+# The problem: one study is 96 slices, each encoded completely alone, and the 96 feature
+# vectors are averaged at the very end. A meniscal tear spans several adjacent slices, so
+# the one comparison the model is never allowed to make is between them.
+#
+# Already ruled out: convnext_small_transformer_pool attended over the 96 POOLED vectors and
+# lost 0.0148, the worst result of the project. By the pooling stage each slice is a single
+# vector, so there is nothing spatial left to compare. The fix has to act inside the trunk,
+# while each slice is still 1025 tokens.
+#
+# Also ruled out: mricore_vitb_avgpool (0.8871 vs 0.8970) - averaging the 1024 patch tokens
+# loses to CLS, so this run keeps CLS pooling.
+#
+# The mechanism: timm keeps the 12 transformer blocks in an nn.Sequential where every element
+# maps (B*S, T, F) -> (B*S, T, F). New blocks are spliced into that list after blocks 3, 6
+# and 9. The pretrained 12 are untouched. Each new block reshapes to put the S=96 slices on
+# the sequence axis and attends over them at every token position - the same attention the
+# ViT already does, pointed at the slice axis instead of the patch axis.
+#
+# The blocks are UNGATED: out = x + attn(norm(x)), full strength from step 1.
+#
+# There was a per-channel `gamma` scaling the branch, initialised near zero so the model
+# started as an exact copy of the trunk. It looked safe and it was a trap: the gradient
+# reaching the branch's own weights is scaled by gamma, so at 1e-3 the attention trained
+# ~1000x too slowly while gamma's own gradient was measured on a branch that was still
+# random noise. The gate closed, which kept the branch untrained, which kept the gate
+# closed. mricore_vitb_cross_attention_ft rode that loop the whole way down: |gamma|
+# 9.1e-4 -> 4.0e-4 over 600 steps, channels open 296 -> 52, val pinned at 0.8936 against a
+# 0.8970 init. It never tested the idea. The gate is gone, not set to 1.
+#
+# Beat: mricore_vitb_relabel, val 0.8970 / audit 0.8889.
+# Supporting evidence: all four prior RSNA Kaggle winners fused across slices with an LSTM or
+# GRU rather than averaging. Nobody won by mean-pooling.
+
+experiment:
+  name: "mricore_vitb_mae_cross_attention"
+
+paths:
+  # Same --like split as convnext_small_relabel: byte-identical train/val MEMBERSHIP to
+  # the baseline, only the target values differ. audit_csv stays 05_audit58.csv - the
+  # panel labels never change, so it is the one honest cross-label-set comparison.
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+
+model:
+  name: "vit_base_patch16_224"      # timm skeleton; the weights below overwrite it entirely
+  pretrained: false                 # never fetch ImageNet weights - we load MRI-CORE instead
+  weights: "MRI_CORE_vitb_mae.pth" # THE ONLY CHANGE vs mricore_vitb_cross_attention.
+                                  # Same MRI-CORE ViT-B/16, but after 60 epochs of masked
+                                  # autoencoding on our own 674,408 knee slices. Same
+                                  # {"teacher": {"backbone.*"}} layout, so the loader is
+                                  # unchanged. Baseline to beat: 0.8962.
+  pool: "mean"                      # unchanged from the baseline, so pooling is not a variable
+  drop_rate: 0.1
+  drop_path_rate: 0.1               # stochastic depth - ViTs overfit small data without it
+  feat_norm: true                   # fresh LayerNorm on the vector the head consumes
+  cross_slice:
+    enable: true
+    after: [3, 6, 9]                # insert after these 1-based block indices -> 15 blocks
+                                    # total. Three, not twelve: fuses early / middle / late
+                                    # while adding 7.1M params to an 86M model rather than
+                                    # 28M. Cost is ~+2.3% compute - attention is quadratic in
+                                    # sequence length and S=96 is far shorter than T=1025, so
+                                    # each new block is ~1/11th of the spatial attention
+                                    # beside it
+    attn_drop: 0.0
+                                    # 1e-3 is well inside noise, so the run still effectively
+                                    # starts where mricore_vitb_relabel ended
+  grad_checkpointing: false         # measured, not guessed: ViT-B at 512px costs 0.36 GB of
+                                    # activations per image, so a 96-image study is ~35 GB and
+                                    # two are ~71 GB of the H200's 141 GB. Checkpointing would
+                                    # buy headroom we do not need and cost ~30% of the speed.
+
+input:
+  # DELIBERATELY ImageNet, unlike every other mricore_* run.
+  #
+  # The ORIGINAL MRI-CORE weights want [0,1], which is why the sibling runs set 0/1. But
+  # mricore_vitb_mae's config never overrode these, so its 60 epochs of masked autoencoding
+  # ran on ImageNet-standardised input: [0,1] mapped to about [-2.12, +2.25], a 4.4x
+  # scale-up plus a shift. That is a pure affine change and patch_embed (a conv) can absorb
+  # it exactly, which is what 60 epochs did - the reconstruction loss fell monotonically to
+  # 0.3532. So the MAE trunk is now tuned to ImageNet-scaled input, and pos_embed's balance
+  # against patch content was relearned at that scale.
+  #
+  # The trunk and its input convention are one package. Feeding this trunk [0,1] would be
+  # the actual mistake, so we match what it was pretrained on.
+  norm_mean: [0.485, 0.456, 0.406]
+  norm_std:  [0.229, 0.224, 0.225]
+
+training:
+  epochs: 16
+  grad_clip: 3.0
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 3.0e-5                      # BACKBONE lr. Lower than the ConvNeXt runs' 5e-5: ViTs are
+                                    # less stable early, and this trunk is already in-domain,
+                                    # so it needs less moving than an ImageNet one did.
+    backbone_lr_mult: 0.5           # head = 6e-5
+    layer_decay: null
+    fresh_lr: 6.0e-5                  # the new blocks are random while the trunk is pretrained, so they get their own rate
+                                    # rather than inheriting the trunk's 3e-5
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.10               # doubled from 0.05 - ViT training is famously fragile in
+                                    # the first few hundred steps
+    min_lr_mult: 0.01
+  loss:
+    name: "bce"
+    pos_weight: "auto_clamped"      # carried over from convnext_small_posweight
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  # The 10-epoch run ended at 0.8814 with its BEST score on the very last step and
+  # early stopping never firing - it was still climbing, and its gap to the ConvNeXt
+  # baseline had closed monotonically from -0.0185 to -0.0126. So this continues it
+  # rather than retraining: same folder, same logs, weights and AdamW moments kept,
+  # a fresh cosine over 6 more epochs. Set enable: false to leave the run as it was.
+  extend:
+    enable: false
+    epochs: 6                       # epochs 11-16, ~2730 more steps
+    lr: 9.0e-6                      # new PEAK. The old cosine ended at 1% of 3e-5 = 3e-7,
+                                    # which is why a plain resume would do nothing. Slightly
+                                    # above the original peak because the run was clearly
+                                    # undertrained, not because it was diverging.
+    warmup_frac: 0.03               # ~55 steps of re-warm, so the jump back up to 4e-5
+                                    # does not shock weights that have been at 3e-7
+    reset_optimizer: false          # keep the moments - they are well-conditioned by now
+    reset_patience: true            # the extension gets its own 4 validations of rope
+
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 12                     # VALIDATIONS without improvement, not epochs
+
+dataloader:
+  batch_size: 2                     # HALVED from mricore_vitb_relabel's 4, which peaked near
+                                    # 128 GB of the H200's 141 GB. Each CrossSliceBlock permutes
+                                    # then reshapes, and reshape on a permuted (non-contiguous)
+                                    # tensor is a COPY: (B*96, 1025, 768) is ~604 MB in bf16 at
+                                    # batch 4, twice per block, three blocks - roughly 11 GB of
+                                    # extra activations on a run that had ~13 GB of headroom.
+                                    # Batch 2 halves that and keeps a real margin.
+  accum_steps: 4                    # effective 8 studies per update - unchanged, so the step
+                                    # count and lr schedule still match mricore_vitb_relabel
+  val_batch_size: 4                 # no backward pass, but the reshape copies still land
+  num_workers: 24
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+modal:
+  gpu: "H200"
+  cpu: 14.0
+  memory_gb: 56
+  timeout_hours: 10                 # ViT-B at 512 is slower per step than ConvNeXt-Small;
+                                    # 8h was already close for the baseline
+evaluation:
+  eval_every_steps_before: 400
+  eval_every_steps_after: 120
+  eval_every_steps_epoch_threshold: 4
