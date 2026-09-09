@@ -20,7 +20,11 @@ credit, and it needs the checkpoint already synced locally.
 import sys
 from pathlib import Path
 
-RUN_LOCAL = False              # True = do it here, False = do it on Modal
+RUN_LOCAL = True               # True = do it here, False = do it on Modal.
+                               # Local because every workspace holding this run's volume
+                               # is out of credit. The only thing the Modal path adds is
+                               # the DICOM-vs-shard check (it needs the raw zip); the
+                               # packaging and the Kaggle upload always run from this PC.
 PUBLISH = True                 # after building: push the dataset + notebook and submit
 WAIT_FOR_RUN = True            # poll until the notebook finishes, then submit
 KAGGLE_USER = "mamounhussam"   # owner slug for the dataset and the notebook

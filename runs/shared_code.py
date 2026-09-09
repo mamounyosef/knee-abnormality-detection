@@ -259,9 +259,7 @@ def print_config(cfg: dict):
     ], "\U0001F69A")
 
     _kv("evaluation & output", [
-        ("eval cadence", f"{cfg['evaluation'].get('eval_every_steps_before')} steps "
-                         f"until epoch {cfg['evaluation'].get('eval_every_steps_epoch_threshold')}, "
-                         f"then every {cfg['evaluation'].get('eval_every_steps_after')} steps"
+        ("eval cadence", _eval_cadence_str(cfg)
                          + (f"  + every {cfg['evaluation']['eval_every_epochs']} epoch(s)"
                             if cfg['evaluation'].get('eval_every_epochs') else "")),
         ("audit set", f"enable={cfg['evaluation']['audit']['enable']}  "
@@ -1978,6 +1976,23 @@ def seed_worker(worker_id: int):
 # =============================================================================
 # eval / train
 # =============================================================================
+def _eval_cadence_str(cfg: dict) -> str:
+    """One line describing the tiered validation cadence, for print_config."""
+    e = cfg["evaluation"]
+    thr = e.get("eval_every_steps_epoch_threshold")
+    if not thr:
+        return f"every {e.get('eval_every_steps') or 0} steps"
+    mid, mid_rate = e.get("eval_every_steps_epoch_mid_threshold"), e.get("eval_every_steps_mid")
+    parts = []
+    if mid and mid_rate and int(mid) < int(thr):
+        parts.append(f"{e.get('eval_every_steps_before')} steps until epoch {int(mid)}")
+        parts.append(f"{mid_rate} until epoch {int(thr)}")
+    else:
+        parts.append(f"{e.get('eval_every_steps_before')} steps until epoch {int(thr)}")
+    parts.append(f"then every {e.get('eval_every_steps_after')}")
+    return ", ".join(parts)
+
+
 def eval_interval(cfg: dict, epoch: int) -> int:
     """Steps between validations for this epoch - 0 disables step-triggered eval.
 
@@ -1985,13 +2000,26 @@ def eval_interval(cfg: dict, epoch: int) -> int:
     which interval applies: early epochs move fast and are not worth scoring often,
     later ones are where the best checkpoint usually shows up.
     eval_every_steps_epoch_threshold is the first epoch that uses the "after" rate.
+
+    Three tiers, coarse to fine:
+        epoch <  mid_threshold   ->  eval_every_steps_before
+        epoch <  threshold       ->  eval_every_steps_mid
+        epoch >= threshold       ->  eval_every_steps_after
+    The middle tier is optional. Leave eval_every_steps_epoch_mid_threshold unset (or
+    equal to the main threshold) and it collapses to the old two-tier behaviour, so
+    every existing config keeps its exact cadence.
     """
     e = cfg["evaluation"]
     thr = e.get("eval_every_steps_epoch_threshold")
-    if thr:
-        key = "eval_every_steps_after" if epoch >= int(thr) else "eval_every_steps_before"
-        return int(e.get(key) or 0)
-    return int(e.get("eval_every_steps") or 0)
+    if not thr:
+        return int(e.get("eval_every_steps") or 0)
+    thr = int(thr)
+    mid = e.get("eval_every_steps_epoch_mid_threshold")
+    mid_rate = e.get("eval_every_steps_mid")
+    if mid and mid_rate and int(mid) < thr and epoch >= int(mid) and epoch < thr:
+        return int(mid_rate or 0)
+    key = "eval_every_steps_after" if epoch >= thr else "eval_every_steps_before"
+    return int(e.get(key) or 0)
 
 
 @torch.no_grad()                                   # no gradients: eval only, saves memory

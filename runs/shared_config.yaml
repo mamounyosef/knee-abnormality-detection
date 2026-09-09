@@ -128,9 +128,14 @@ evaluation:
   # validation cadence is driven by the GLOBAL STEP, not the epoch. The epoch only
   # picks which interval applies - early epochs move fast and are not worth scoring
   # often, later ones are where the best checkpoint usually appears.
-  eval_every_steps_before: 400            # epochs 1..(threshold-1)
-  eval_every_steps_after: 100             # from `threshold` onward
-  eval_every_steps_epoch_threshold: 6     # first epoch that uses the "after" rate
+  # THREE tiers, coarse to fine. Early epochs move fast and are not worth scoring often;
+  # the best checkpoint almost always turns up late, so that is where the resolution goes.
+  # Set eval_every_steps_epoch_mid_threshold to null to collapse back to two tiers.
+  eval_every_steps_before: 400            # epochs 1..4
+  eval_every_steps_mid: 200               # epochs 5..6
+  eval_every_steps_epoch_mid_threshold: 5 # first epoch on the "mid" rate
+  eval_every_steps_after: 100             # epoch 7 onward
+  eval_every_steps_epoch_threshold: 7     # first epoch on the "after" rate
   eval_every_epochs: null                 # null = no extra epoch-end validation
   audit:
     enable: true                    # report-only, never drives best.pt (58 studies, +/-0.05)
