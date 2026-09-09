@@ -3658,6 +3658,75 @@ def make_plots(cfg: dict, results_dir, out_subdir: str = "plots",
         ax.set_title(f"{name} - {title}"); ax.legend(fontsize=8); ax.grid(True, alpha=0.3)
         _save(fig, fname)
 
+    # 2b) the SAME macro metric, but read like a table: every validation point gets a
+    #     tick carrying its exact global step and epoch, a dropline down to the axis so
+    #     the eye can trace it, and its value printed on the marker.
+    def _plot_macro_detailed(col, title, fname, mode="max"):
+        if va is None or col not in va.columns:
+            return
+        # x is the POSITION of a validation, not its step: evaluations get denser late in
+        # training, and on a linear step axis those points (and their labels) pile up
+        # into an unreadable smear. Even spacing gives every point the same room.
+        pts = []
+        for r in runs:
+            v = _run_slice(va, r)
+            if v is None:
+                continue
+            eps = v["epoch"].values if "epoch" in v.columns else v["step"].values
+            for st, ep in zip(v["step"].values, eps):
+                pts.append((int(st), int(ep) if ep == ep else 0))
+        pts = sorted(set(pts))
+        if not pts:
+            return
+        pos = {st: i for i, (st, _) in enumerate(pts)}
+        n = len(pts)
+        fig, ax = plt.subplots(figsize=(max(11.0, 0.42 * n), 7.5))
+
+        lo, hi = np.inf, -np.inf
+        for r in runs:
+            v = _run_slice(va, r)
+            if v is not None and not np.all(np.isnan(v[col].values.astype(float))):
+                y = v[col].values.astype(float)
+                lo = min(lo, np.nanmin(y)); hi = max(hi, np.nanmax(y))
+        if not np.isfinite(lo):
+            return
+        span = max(hi - lo, 0.004)
+        floor = lo - span * 0.18                 # droplines stop below every marker
+        ax.set_ylim(floor, hi + span * 0.30)     # headroom for the rotated value labels
+
+        for r in runs:
+            v = _run_slice(va, r)
+            if v is None:
+                continue
+            c = cmap[r]
+            x = np.array([pos[int(st)] for st in v["step"].values], dtype=float)
+            y = v[col].values.astype(float)
+            ax.vlines(x, floor, y, color=c, alpha=0.25, lw=1.0, zorder=1)
+            ax.plot(x, y, color=c, marker="o", ms=5, lw=1.8, label=_lbl(r), zorder=3)
+            best = int(np.nanargmax(y)) if mode == "max" else int(np.nanargmin(y))
+            for i, (xi, yi) in enumerate(zip(x, y)):
+                if yi != yi:
+                    continue
+                ax.annotate("%.4f" % yi, (xi, yi), textcoords="offset points",
+                            xytext=(0, 8), ha="center", va="bottom",
+                            fontsize=7.5, rotation=90,
+                            color="crimson" if i == best else c,
+                            fontweight="bold" if i == best else "normal", zorder=5)
+            if not np.all(np.isnan(y)):
+                ax.scatter([x[best]], [y[best]], marker="*", s=220, color="crimson",
+                           zorder=6)
+
+        ax.set_xlim(-0.7, n - 0.3)
+        ax.set_xticks(range(n))
+        ax.set_xticklabels(["%d\nep %d" % (st, ep) for st, ep in pts],
+                           fontsize=7)
+        ax.set_xlabel("global step (and epoch) at each validation")
+        ax.set_ylabel(col)
+        ax.set_title("%s - %s (every validation point, evenly spaced)" % (name, title))
+        ax.legend(fontsize=8, loc="lower right")
+        ax.grid(True, axis="y", alpha=0.3)
+        _save(fig, fname)
+
     # 3) per-task small multiples, one panel per finding, one line per run
     def _plot_per_task(prefix, title, fname):
         if va is None:
@@ -3865,6 +3934,8 @@ def make_plots(cfg: dict, results_dir, out_subdir: str = "plots",
     _safe("plot:loss", _plot_loss)
     _safe("plot:macro_auroc", _plot_macro, "val_macro_auroc", "validation macro AUROC",
           "macro_auroc.png", "max", "audit_macro_auroc")
+    _safe("plot:macro_auroc_detailed", _plot_macro_detailed, "val_macro_auroc",
+          "validation macro AUROC", "macro_auroc_detailed.png", "max")
     _safe("plot:macro_auprc", _plot_macro, "val_macro_auprc", "validation macro AUPRC",
           "macro_auprc.png", "max")
     _safe("plot:per_task_auroc", _plot_per_task, "auroc", "per-finding AUROC",
