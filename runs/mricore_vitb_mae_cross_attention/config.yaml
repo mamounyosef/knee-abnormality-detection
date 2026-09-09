@@ -159,7 +159,3 @@ modal:
   memory_gb: 56
   timeout_hours: 10                 # ViT-B at 512 is slower per step than ConvNeXt-Small;
                                     # 8h was already close for the baseline
-evaluation:
-  eval_every_steps_before: 400
-  eval_every_steps_after: 120
-  eval_every_steps_epoch_threshold: 4
