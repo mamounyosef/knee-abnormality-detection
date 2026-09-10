@@ -18,12 +18,12 @@ from pathlib import Path
 
 # ============================ CONFIG (edit here) ============================
 SET             = "val"        # split to score: "val" (704, LLM labels) | "audit" (58, panel)
-WEIGHTS         = "search"       # "flat" = equal average | "search" = fit per-class weights
+WEIGHTS         = "flat"       # "flat" = equal average | "search" = fit per-class weights
                                # now and save them | a saved fit to reuse ("best_val",
                                # a folder name, or a path)
 COMBINE_SPACE   = "logit"      # blend space: "logit" (the .npz hold logits, so lossless)
                                # | "prob" | "rank" (rank kills F1/P/R/Spec)
-RUN_TAG         = "W-hier"           # appended to the output folder name
+RUN_TAG         = "6-with-mae"           # appended to the output folder name
 BEST_METRIC     = "oof_mean_auroc"   # what ranks a search run; "oof_mean_auroc"
                                # ranks on the held-out estimate instead
 
@@ -32,11 +32,11 @@ BEST_METRIC     = "oof_mean_auroc"   # what ranks a search run; "oof_mean_auroc"
 # ("run", 3200)             -> its step-3200 validation
 # [("r", 3200), ("r", 4000)] -> LIST = sub-ensemble, averaged first, ONE vote above
 FULL_MODELS = [
-    "convnext_small_relabel",
-    "convnext_large",
-    ["convnext_base_relabel", "convnext_base_seed1337"],
+    "convnext_base_relabel",
     "mricore_vitb_cross_attention",
+    "mricore_vitb_mae_cross_attention",
     "dinov3_convnext_base",
+    "convnext_large",
     "swinv2_base_in22k",
 ]
 AUTO_TOP_N      = 1            # expand a bare run name into its N best validations
