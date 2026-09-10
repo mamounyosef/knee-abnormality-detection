@@ -45,11 +45,16 @@ training:
   optimizer:
     name: "adamw"
     weight_decay: 0.05
-    lr: 2.5e-5                      # HALVED from Base's 5e-5. Larger transformers are less
-                                    # stable at a given lr, and the usual scaling is to lower
-                                    # it as width grows. Base sits at 5e-5 because SigLIP is
-                                    # further out-of-domain than ImageNet, not closer.
-    backbone_lr_mult: 0.5           # head = 5e-5
+    lr: 5.0e-5                      # SAME as the Base arm, deliberately. Halving it "because
+                                    # the model is bigger" is convention, not evidence, and
+                                    # both our data and the theory say otherwise: convnext_large
+                                    # kept convnext_base's 5e-5 and became our best single model
+                                    # at 0.9061, and width scaling (lr ~ 1/sqrt(width), 768 ->
+                                    # 1024) would justify 4.3e-5 at most, not 2.5e-5. Holding it
+                                    # equal also makes Base vs Large a ONE-variable test of
+                                    # capacity. Stability comes from warmup 0.15, drop_path 0.2
+                                    # and grad_clip 3.0.
+    backbone_lr_mult: 0.5           # head = 1e-4
     layer_decay: null
   scheduler:
     name: "cosine"
