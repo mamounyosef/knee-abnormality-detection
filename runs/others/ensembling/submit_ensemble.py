@@ -50,9 +50,23 @@ from pathlib import Path
 #      correlated pair in the pool and only one earns a slot.
 #   2. PER-CLASS WEIGHTS instead of a flat average, fitted 5-fold and ranked on the
 #      held-out estimate. Weighted beat flat by ~+0.002 OOF on every combination tried.
+#
+# THIS submission adds four members to the 0.929 five, for val 0.9147 -> 0.9160:
+#   1. mricore_vitb_mae_cross_attention, the cross-attention config rebuilt on the
+#      MAE-pretrained trunk. It ADDS rather than replaces its non-MAE twin: swapping
+#      ties at 0.9147, adding gives 0.9156. Its logits correlate only 0.873 with that
+#      twin, where two SEEDS of one config sit at 0.952 - changing the pretraining
+#      objective decorrelates a model more than changing the seed does.
+#   2-4. convnext_base_{trauma,wear,fluid}, the task-group branches. Each predicts only
+#      its own findings, so they are NOT four more full models: with the parent they
+#      form one vote, weighted below. Standalone they were a negative; fused they pay.
 MEMBERS = [
     ("convnext_base_relabel", "best"),
+    ("convnext_base_trauma", "best"),
+    ("convnext_base_wear", "best"),
+    ("convnext_base_fluid", "best"),
     ("mricore_vitb_cross_attention", "best"),
+    ("mricore_vitb_mae_cross_attention", "best"),
     ("dinov3_convnext_base", "best"),
     ("convnext_large", "best"),
     ("swinv2_base_in22k", "best"),
@@ -69,20 +83,25 @@ MEMBERS = [
 # worse than the one measured, including the 6-member that scored 0.922. Fixed: best.pt
 # is now step 2600 and its `score` matches val_log's peak. ALWAYS check that before a
 # submission - it is silent otherwise.
-BLEND_WEIGHTS = None           # FLAT. With swinv2 in, the search buys +0.0001 OOF
-                               # against +0.0006 without it, while in-sample climbs
-                               # to 0.9190 - the weights are fitting noise now.
+BLEND_WEIGHTS = "branch_group_weights.json"
+                               # NOT a fitted search: the search is still fitting noise
+                               # (+0.0001 OOF with swinv2 in). These weights just express
+                               # the NESTED construct flat - the four convnext runs share
+                               # one 1/6 vote, each standalone model holds 1/6. Regenerate
+                               # with make_branch_group_weights.py; verified identical to
+                               # the nesting by check_partial_head_blend.py.
 PUBLISH      = True
 WAIT_FOR_RUN = True
-SUBMIT       = True           # False = run the kernel and stop. Kernel runs are FREE;
+SUBMIT       = False          # MEASUREMENT RUN: the kernel writes timing.json and stops.
+                              # False = run the kernel and stop. Kernel runs are FREE;
                               # only the submit costs one of the day's 5. Use it to see
                               # the notebook's real output before spending one.
 KAGGLE_USER  = "mamounhussam"
-SLUG         = "knee-ensemble-5-swinv2-flat"
-NOTE         = ("5-model FLAT ensemble, PRIZE-ELIGIBLE (no RadImageNet): convnext_base + "
-                "mricore_vitb_cross_attention + dinov3 + convnext_large + swinv2_base_in22k "
-                "| flat val 0.9147 vs 0.9134 for the 0.928 four | no fitted weights "
-                "| Built with DINOv3")
+SLUG         = "knee-ensemble-9-branchgroup-mae"
+NOTE         = ("9-model ensemble, PRIZE-ELIGIBLE (no RadImageNet): the 0.929 five plus "
+                "mricore_vitb_mae_cross_attention and the three task-group branches "
+                "(trauma/wear/fluid, fused with convnext_base_relabel into one vote) "
+                "| val 0.9160 vs 0.9147 for the five | Built with DINOv3")
 # ===========================================================================
 
 PKG_ROOT = Path(__file__).resolve().parent.parent.parent      # <repo>/runs

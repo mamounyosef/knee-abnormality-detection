@@ -1,0 +1,148 @@
+{
+ "members": [
+  "convnext_base_relabel",
+  "convnext_base_trauma",
+  "convnext_base_wear",
+  "convnext_base_fluid",
+  "mricore_vitb_cross_attention",
+  "mricore_vitb_mae_cross_attention",
+  "dinov3_convnext_base",
+  "convnext_large",
+  "swinv2_base_in22k"
+ ],
+ "weights_per_class": {
+  "ACL": {
+   "convnext_base_relabel": 0.08333333333333333,
+   "convnext_base_trauma": 0.08333333333333333,
+   "convnext_base_wear": 0.0,
+   "convnext_base_fluid": 0.0,
+   "mricore_vitb_cross_attention": 0.16666666666666666,
+   "mricore_vitb_mae_cross_attention": 0.16666666666666666,
+   "dinov3_convnext_base": 0.16666666666666666,
+   "convnext_large": 0.16666666666666666,
+   "swinv2_base_in22k": 0.16666666666666666
+  },
+  "MCL": {
+   "convnext_base_relabel": 0.08333333333333333,
+   "convnext_base_trauma": 0.08333333333333333,
+   "convnext_base_wear": 0.0,
+   "convnext_base_fluid": 0.0,
+   "mricore_vitb_cross_attention": 0.16666666666666666,
+   "mricore_vitb_mae_cross_attention": 0.16666666666666666,
+   "dinov3_convnext_base": 0.16666666666666666,
+   "convnext_large": 0.16666666666666666,
+   "swinv2_base_in22k": 0.16666666666666666
+  },
+  "Medial Meniscus": {
+   "convnext_base_relabel": 0.08333333333333333,
+   "convnext_base_trauma": 0.0,
+   "convnext_base_wear": 0.08333333333333333,
+   "convnext_base_fluid": 0.0,
+   "mricore_vitb_cross_attention": 0.16666666666666666,
+   "mricore_vitb_mae_cross_attention": 0.16666666666666666,
+   "dinov3_convnext_base": 0.16666666666666666,
+   "convnext_large": 0.16666666666666666,
+   "swinv2_base_in22k": 0.16666666666666666
+  },
+  "Lateral Meniscus": {
+   "convnext_base_relabel": 0.08333333333333333,
+   "convnext_base_trauma": 0.0,
+   "convnext_base_wear": 0.08333333333333333,
+   "convnext_base_fluid": 0.0,
+   "mricore_vitb_cross_attention": 0.16666666666666666,
+   "mricore_vitb_mae_cross_attention": 0.16666666666666666,
+   "dinov3_convnext_base": 0.16666666666666666,
+   "convnext_large": 0.16666666666666666,
+   "swinv2_base_in22k": 0.16666666666666666
+  },
+  "Medial OA": {
+   "convnext_base_relabel": 0.08333333333333333,
+   "convnext_base_trauma": 0.0,
+   "convnext_base_wear": 0.08333333333333333,
+   "convnext_base_fluid": 0.0,
+   "mricore_vitb_cross_attention": 0.16666666666666666,
+   "mricore_vitb_mae_cross_attention": 0.16666666666666666,
+   "dinov3_convnext_base": 0.16666666666666666,
+   "convnext_large": 0.16666666666666666,
+   "swinv2_base_in22k": 0.16666666666666666
+  },
+  "Lateral OA": {
+   "convnext_base_relabel": 0.08333333333333333,
+   "convnext_base_trauma": 0.0,
+   "convnext_base_wear": 0.08333333333333333,
+   "convnext_base_fluid": 0.0,
+   "mricore_vitb_cross_attention": 0.16666666666666666,
+   "mricore_vitb_mae_cross_attention": 0.16666666666666666,
+   "dinov3_convnext_base": 0.16666666666666666,
+   "convnext_large": 0.16666666666666666,
+   "swinv2_base_in22k": 0.16666666666666666
+  },
+  "PF OA": {
+   "convnext_base_relabel": 0.08333333333333333,
+   "convnext_base_trauma": 0.0,
+   "convnext_base_wear": 0.08333333333333333,
+   "convnext_base_fluid": 0.0,
+   "mricore_vitb_cross_attention": 0.16666666666666666,
+   "mricore_vitb_mae_cross_attention": 0.16666666666666666,
+   "dinov3_convnext_base": 0.16666666666666666,
+   "convnext_large": 0.16666666666666666,
+   "swinv2_base_in22k": 0.16666666666666666
+  },
+  "Effusion": {
+   "convnext_base_relabel": 0.08333333333333333,
+   "convnext_base_trauma": 0.0,
+   "convnext_base_wear": 0.0,
+   "convnext_base_fluid": 0.08333333333333333,
+   "mricore_vitb_cross_attention": 0.16666666666666666,
+   "mricore_vitb_mae_cross_attention": 0.16666666666666666,
+   "dinov3_convnext_base": 0.16666666666666666,
+   "convnext_large": 0.16666666666666666,
+   "swinv2_base_in22k": 0.16666666666666666
+  },
+  "Synovitis": {
+   "convnext_base_relabel": 0.08333333333333333,
+   "convnext_base_trauma": 0.0,
+   "convnext_base_wear": 0.0,
+   "convnext_base_fluid": 0.08333333333333333,
+   "mricore_vitb_cross_attention": 0.16666666666666666,
+   "mricore_vitb_mae_cross_attention": 0.16666666666666666,
+   "dinov3_convnext_base": 0.16666666666666666,
+   "convnext_large": 0.16666666666666666,
+   "swinv2_base_in22k": 0.16666666666666666
+  },
+  "Baker's": {
+   "convnext_base_relabel": 0.08333333333333333,
+   "convnext_base_trauma": 0.0,
+   "convnext_base_wear": 0.08333333333333333,
+   "convnext_base_fluid": 0.0,
+   "mricore_vitb_cross_attention": 0.16666666666666666,
+   "mricore_vitb_mae_cross_attention": 0.16666666666666666,
+   "dinov3_convnext_base": 0.16666666666666666,
+   "convnext_large": 0.16666666666666666,
+   "swinv2_base_in22k": 0.16666666666666666
+  },
+  "Contusion": {
+   "convnext_base_relabel": 0.08333333333333333,
+   "convnext_base_trauma": 0.08333333333333333,
+   "convnext_base_wear": 0.0,
+   "convnext_base_fluid": 0.0,
+   "mricore_vitb_cross_attention": 0.16666666666666666,
+   "mricore_vitb_mae_cross_attention": 0.16666666666666666,
+   "dinov3_convnext_base": 0.16666666666666666,
+   "convnext_large": 0.16666666666666666,
+   "swinv2_base_in22k": 0.16666666666666666
+  },
+  "Fracture": {
+   "convnext_base_relabel": 0.08333333333333333,
+   "convnext_base_trauma": 0.08333333333333333,
+   "convnext_base_wear": 0.0,
+   "convnext_base_fluid": 0.0,
+   "mricore_vitb_cross_attention": 0.16666666666666666,
+   "mricore_vitb_mae_cross_attention": 0.16666666666666666,
+   "dinov3_convnext_base": 0.16666666666666666,
+   "convnext_large": 0.16666666666666666,
+   "swinv2_base_in22k": 0.16666666666666666
+  }
+ },
+ "note": "the nested branch-group construct written flat: the four convnext runs share one 1/6 vote, each standalone model holds 1/6"
+}

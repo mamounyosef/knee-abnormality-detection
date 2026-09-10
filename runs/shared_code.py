@@ -5162,6 +5162,28 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
     nw = num_workers if num_workers is not None else min(4, (os.cpu_count() or 2))
     cfg0, tasks = cfgs[0], cfgs[0]["tasks"]
 
+    # Which of the head task list each member actually predicts. A task-group branch
+    # (convnext_base_trauma / _wear / _fluid) carries only its own group, so its logits
+    # have to land in the right columns instead of being assumed to be all 12.
+    COLS, PRESENT = [], torch.zeros(len(models), len(tasks))
+    for i, c in enumerate(cfgs):
+        mt = list(c["tasks"])
+        unknown = [t for t in mt if t not in tasks]
+        if unknown:
+            raise ValueError(f"member {i} ({c['experiment']['name']}) predicts "
+                             f"{unknown}, which member 0 does not - it cannot join")
+        idx = [tasks.index(t) for t in mt]
+        COLS.append(torch.as_tensor(idx, device=device, dtype=torch.long))
+        PRESENT[i, idx] = 1.0
+    if not torch.all(PRESENT.sum(dim=0) > 0):
+        gap = [t for j, t in enumerate(tasks) if PRESENT[:, j].sum() == 0]
+        raise ValueError(f"no member predicts {gap} - the ensemble cannot score them")
+    partial = [c["experiment"]["name"] for i, c in enumerate(cfgs)
+               if len(c["tasks"]) != len(tasks)]
+    if partial:
+        print(f"  \U0001f9e9 partial-head members, averaged only on their own findings: "
+              f"{', '.join(partial)}")
+
     # A silently mis-shaped or mis-ordered weight matrix would blend the wrong member into
     # the wrong finding and still produce a plausible submission, so check it loudly here
     # rather than trusting the caller.
@@ -5171,6 +5193,7 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
         if W.shape != (len(models), len(tasks)):
             raise ValueError(f"weights must be (n_members, n_tasks) = "
                              f"({len(models)}, {len(tasks)}), got {tuple(W.shape)}")
+        W = W * PRESENT                           # a member cannot vote on what it lacks
         col = W.sum(dim=0)
         if not torch.all(col > 0):
             raise ValueError(f"every task needs a non-zero weight column, got sums {col}")
@@ -5228,7 +5251,12 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
             """One batch through every member, freeing each input as we go. With five
             members resident the allocator fragments, and study 2 can die where study 1
             was fine."""
-            lg = []
+            # NaN means "this member has no opinion on this finding". The task-group
+            # branches predict only their own group (4, 6 and 2 of the 12), so their
+            # output is narrower than the head task list and has to be scattered into
+            # the right columns rather than stacked as-is.
+            stacked = torch.full((len(models), x.shape[0], len(tasks)),
+                                 float("nan"), device=device)
             for _mi, (c, m) in enumerate(zip(cfgs, models)):
                 amp = c["training"]["amp"] and device.type == "cuda"
                 _tm = time.perf_counter()
@@ -5239,15 +5267,16 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
                 if device.type == "cuda":
                     torch.cuda.synchronize()           # else we time the launch, not the work
                 timing["member_s"][_mi] += time.perf_counter() - _tm
-                lg.append(o)
-            stacked = torch.stack(lg)                  # (n_members, batch, n_tasks)
-            del lg
+                stacked[_mi][:, COLS[_mi]] = o
             if W is None:
-                avg = stacked.mean(dim=0)              # logit space, as measured offline
+                # nanmean, so each finding is averaged over exactly the members that
+                # predict it. With every member full-width this is the plain mean.
+                avg = torch.nanmean(stacked, dim=0)    # logit space, as measured offline
             else:
                 # W is (n_members, n_tasks) -> unsqueeze the batch axis so each finding
-                # gets its own weighting across members
-                avg = (stacked * W[:, None, :]).sum(dim=0)
+                # gets its own weighting across members. Absent members are already
+                # zero-weighted and the remaining column renormalised, above.
+                avg = torch.nan_to_num(stacked, nan=0.0).mul(W[:, None, :]).sum(dim=0)
             r = torch.sigmoid(avg).cpu().numpy()
             del stacked, avg
             return r
