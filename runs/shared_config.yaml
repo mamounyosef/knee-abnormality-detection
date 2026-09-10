@@ -84,6 +84,21 @@ training:
   # clip_pct column in train_log.csv before trusting a comparison between two runs.
   grad_clip: 3.0
 
+  # LP-FT = Linear Probing then Fine-Tuning. Epochs 1..N train ONLY the head on frozen
+  # features; from N+1 the backbone unfreezes and everything trains normally.
+  #
+  # OFF by default (0) because every run so far trained without it and their numbers must
+  # stay comparable. Turn it on for a backbone whose FROZEN features are good but whose
+  # fine-tune misbehaves - that pattern is Kumar et al. ICLR 2022 (arXiv 2202.10054): a
+  # randomly initialised head back-propagates noise into a good trunk and destroys the
+  # features before it has learned to use them, so full fine-tuning ends up BELOW a frozen
+  # linear probe. We hit it exactly with siglip2_vitb_512: frozen probe 0.7016, the best
+  # backbone we own, but fine-tuned it stalled at 0.6325.
+  #
+  # Check runs/others/frozen_probe.py before reaching for this - if the frozen features
+  # probe near chance, LP-FT will not help and the backbone is simply wrong for the task.
+  lp_ft_epochs: 0
+
   # log10(update / weight) per weight tensor, written to ud_ratio.csv and plotted with
   # the rest. It measures whether each layer is ACTUALLY moving, instead of trusting that
   # the configured learning rate reached it - a frozen trunk and a throttled one look

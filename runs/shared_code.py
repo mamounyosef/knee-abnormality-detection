@@ -2206,6 +2206,55 @@ def print_data_summary(loaders: dict, cfg: dict, plan: dict | None = None):
                 for sl in cfg["input"]["slots"]], "\U0001F9E9")
 
 
+def set_lp_ft_phase(cfg: dict, model: nn.Module, epoch: int) -> None:
+    """LP-FT: freeze the backbone for the first N epochs, then unfreeze it.
+
+    LP-FT is Linear Probing then Fine-Tuning. Phase 1 trains ONLY the head on frozen
+    features; phase 2 unfreezes everything and fine-tunes normally.
+
+    WHY IT EXISTS HERE. Kumar et al., ICLR 2022 (arXiv 2202.10054) show that when the
+    pretrained features are good and the domain shift is large, fine-tuning from a
+    RANDOMLY INITIALISED head is worse than a frozen linear probe: the head is still noise
+    while it back-propagates into the trunk, so the first updates destroy the very features
+    that made the backbone worth choosing. Their fix is to let the head converge first.
+
+    We hit exactly that with siglip2_vitb_512. Its FROZEN features probe at 0.7016 macro
+    AUROC, the best of any backbone we own and above convnext_base's 0.6832 - yet
+    fine-tuned end-to-end it stalled at 0.6325, the worst first validations in the project,
+    with a training loss that did not move for 1,100 steps. Good features, ruined by the
+    fine-tune. Web photos to grayscale knee MRI is about as large a shift as exists.
+
+    Off by default: every existing run trained without it and their numbers must not move.
+
+        training:
+          lp_ft_epochs: 1      # epochs 1..N train the head alone, N+1 onward everything
+
+    The optimizer keeps both param groups throughout; freezing is done with requires_grad,
+    so the backbone's AdamW moments stay intact across the switch and the lr schedule is
+    untouched. Frozen parameters also skip their backward pass, so phase 1 is cheaper.
+    """
+    n = int(cfg.get("training", {}).get("lp_ft_epochs") or 0)
+    if n <= 0:
+        return
+    bb = getattr(_uncompiled(model), "backbone", None)
+    if bb is None:
+        print("  ⚠️  lp_ft_epochs set but the model has no .backbone - ignored")
+        return
+    freeze = epoch <= n
+    already = not next(bb.parameters()).requires_grad
+    if freeze == already and epoch != 1:
+        return                                   # nothing to change this epoch
+    for p in bb.parameters():
+        p.requires_grad_(not freeze)
+    n_bb = sum(p.numel() for p in bb.parameters()) / 1e6
+    if freeze:
+        print(f"  \U0001F9CA LP-FT phase 1: backbone FROZEN ({n_bb:.1f}M params), head only "
+              f"- epochs 1..{n}")
+    else:
+        print(f"  \U0001F525 LP-FT phase 2: backbone UNFROZEN ({n_bb:.1f}M params) from "
+              f"epoch {epoch}")
+
+
 def check_normalization(cfg: dict, model: nn.Module) -> None:
     """Fail fast when the config's pixel normalisation contradicts the backbone's own.
 
@@ -2955,6 +3004,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                 # the lr - both halves of libauc's stagewise step, not just an lr drop
                 opt.update_regularizer(decay_factor=float(_pe.get("decay_factor", 10)))
         _EPOCH.value = epoch          # workers seed their augmentation off this
+        set_lp_ft_phase(cfg, model, epoch)
         skip = resume_skip if epoch == start_epoch else 0
         smp = getattr(loaders["train"], "sampler", None)
         if hasattr(smp, "set_epoch"):

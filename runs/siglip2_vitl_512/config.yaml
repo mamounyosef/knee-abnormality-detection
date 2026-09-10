@@ -23,7 +23,11 @@ paths:
   val_csv:   "05_val_qwen24t-med.csv"
 
 model:
-  name: "vit_large_patch16_siglip_512.v2_webli"
+  name: "vit_large_patch16_siglip_gap_512.v2_webli"
+  # the GAP variant: plain average over patch tokens instead of SigLIP's MAP
+  # head, a learned probe trained to emit a CAPTION-aligned vector. Frozen, gap
+  # probes 0.7016 against map's 0.6710 on 300 of our studies - the caption probe
+  # discards knee signal the trunk clearly has.
   pretrained: true                  # ~316M params, Apache-2.0, ungated
   pool: "mean"
   drop_rate: 0.1
@@ -42,6 +46,16 @@ input:
 training:
   epochs: 16
   grad_clip: 3.0
+  lp_ft_epochs: 2                 # LP-FT: epochs 1-2 train the HEAD ALONE on frozen
+                                  # features, then the backbone unfreezes. The first
+                                  # attempt at this run fine-tuned end to end from step 0
+                                  # and stalled at 0.6325 - the worst first validations in
+                                  # the project - while a FROZEN probe of the same trunk
+                                  # scored 0.7016, the best backbone we own. Good features
+                                  # ruined by the fine-tune is Kumar et al. ICLR 2022
+                                  # (arXiv 2202.10054): a random head back-propagates noise
+                                  # into a good trunk before it can use it. Their fix is
+                                  # exactly this, worth ~10% out-of-distribution.
   optimizer:
     name: "adamw"
     weight_decay: 0.05
