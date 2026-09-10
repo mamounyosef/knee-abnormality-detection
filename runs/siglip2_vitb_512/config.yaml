@@ -54,10 +54,16 @@ training:
   optimizer:
     name: "adamw"
     weight_decay: 0.05
-    lr: 3.0e-5                      # BACKBONE lr, matching mricore_vitb_relabel: same
-                                    # architecture class at the same resolution, so its
-                                    # tuning is the best prior we have
-    backbone_lr_mult: 0.5           # head = 6e-5
+    lr: 5.0e-5                      # BACKBONE lr, matching the CONVNEXT runs, not
+                                    # mricore_vitb_relabel's 3e-5. That run lowered it on the
+                                    # explicit grounds that "this trunk is already in-domain,
+                                    # so it needs less moving than an ImageNet one did" - and
+                                    # that argument inverts here. SigLIP has never seen a
+                                    # grayscale medical image; it is FURTHER out-of-domain
+                                    # than ImageNet, not closer, so it needs at least as much
+                                    # adaptation. Stability is handled by warmup 0.10 and
+                                    # grad_clip 3.0, not by starving the learning rate.
+    backbone_lr_mult: 0.5           # head = 1e-4
     layer_decay: null
   scheduler:
     name: "cosine"
@@ -75,7 +81,7 @@ training:
     enable: true
     monitor: "val_macro_auroc"
     mode: "max"
-    patience: 4                     # VALIDATIONS without improvement, not epochs
+    patience: 12                     # VALIDATIONS without improvement, not epochs
 
 dataloader:
   batch_size: 4                     # 4 studies x 96 images = 384 @512. Same token count per
