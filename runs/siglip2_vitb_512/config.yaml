@@ -1,0 +1,98 @@
+# SigLIP 2 ViT-B/16, pretrained NATIVELY at 512x512 on WebLI.
+#
+# WHY THIS BACKBONE. Members earn an ensemble slot by being decorrelated, not by scoring
+# well alone: dinov3_convnext_base LOSES solo (0.9011 vs 0.9050) and was the largest
+# ensemble gain of the project. This differs from everything in the pool on two axes at
+# once:
+#   1. OBJECTIVE. It learned from LANGUAGE - image/caption pairs scored with a sigmoid
+#      "do these belong together" loss - where our ConvNeXts learned from ImageNet class
+#      labels, dinov3 from matching two crops of one photo, and MRI-CORE from filling in
+#      masked patches. Nothing we have has ever seen text.
+#   2. RESOLUTION. It is pretrained at 512, exactly what we train at. convnext_base is
+#      pretrained at 224 and swinv2 at 384, so both have their position information
+#      stretched to fit; this one does not. That stretching is a low-pass smoothing, and
+#      thin structures (a meniscal tear is a few pixels wide) are what it costs.
+# The bet is the opposite of MRI-CORE's: ~10B general web images instead of 6M MRI slices.
+#
+# Only the IMAGE tower is loaded. SigLIP's text tower is a pretraining teacher and is
+# discarded - verified, the timm model contains no text module.
+#
+# Baseline to beat: mricore_vitb_relabel 0.8970 (the plain-ViT reference), and
+# convnext_base_relabel 0.9050 (best single overall).
+
+experiment:
+  name: "siglip2_vitb_512"
+
+paths:
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+
+model:
+  name: "vit_base_patch16_siglip_512.v2_webli"
+  pretrained: true                  # 93.5M params, Apache-2.0, ungated - timm fetches it
+  pool: "mean"                      # over SLICES. Unchanged from every other run so that
+                                    # the backbone is the only variable. Note the backbone
+                                    # already pools its own patches with a learned attention
+                                    # head (timm calls it `map`), which is a change from
+                                    # MRI-CORE's CLS token, but that is intrinsic to the
+                                    # checkpoint, not a knob we are turning.
+  drop_rate: 0.1
+  drop_path_rate: 0.1               # stochastic depth - ViTs overfit small data without it
+  grad_checkpointing: false         # ViT-B/16 at 512 is 1024 tokens, same as MRI-CORE's,
+                                    # which measured 0.36 GB of activations per image. Batch
+                                    # 4 lands near 128 GB of the H200's 141.
+
+input:
+  # SigLIP normalises to mean 0.5 / std 0.5, NOT ImageNet. Read off the checkpoint's own
+  # pretrained_cfg, not assumed. check_normalization enforces this at startup.
+  norm_mean: [0.5, 0.5, 0.5]
+  norm_std:  [0.5, 0.5, 0.5]
+
+training:
+  epochs: 16
+  grad_clip: 3.0
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 3.0e-5                      # BACKBONE lr, matching mricore_vitb_relabel: same
+                                    # architecture class at the same resolution, so its
+                                    # tuning is the best prior we have
+    backbone_lr_mult: 0.5           # head = 6e-5
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.10               # ViT training is fragile in the first few hundred steps
+    min_lr_mult: 0.01
+  loss:
+    name: "bce"
+    pos_weight: "auto_clamped"
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  extend:
+    enable: false
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 4                     # VALIDATIONS without improvement, not epochs
+
+dataloader:
+  batch_size: 4                     # 4 studies x 96 images = 384 @512. Same token count per
+                                    # image as mricore_vitb_relabel, which measured ~128 GB
+                                    # here, and this backbone timed 0.90x its cost.
+  accum_steps: 2                    # effective 8 studies per update - IDENTICAL to every
+                                    # other run, which keeps the comparison honest
+  val_batch_size: 8
+  num_workers: 24
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+modal:
+  gpu: "H200"
+  cpu: 16.0
+  memory_gb: 56
+  timeout_hours: 10

@@ -1,0 +1,91 @@
+# SigLIP 2 ViT-L/16, pretrained NATIVELY at 512x512 on WebLI.
+#
+# The capacity arm of siglip2_vitb_512. Everything is held fixed except the backbone size,
+# and the two knobs that size forces (batch and gradient checkpointing), so the comparison
+# reads as capacity alone.
+#
+# WHY BOTHER, given that capacity has paid nothing since ConvNeXt-Small. Base -> Large was
+# +0.0008, Small -> Base +0.0011, and convnext_large lost on audit despite 4x the params.
+# Two reasons this arm is still worth one run:
+#   1. every one of those was SUPERVISED ImageNet pretraining, where the ceiling is the
+#      label set. This is language-supervised on ~10B pairs, where the supervision signal
+#      is far richer and larger models have more to absorb.
+#   2. SigLIP 2's own scaling holds cleanly from B to L to SO400M on general benchmarks.
+# If it also flattens here, that is a genuine result about our data, not about ImageNet.
+#
+# Run AFTER the Base arm, so its result informs whether this is worth the compute.
+
+experiment:
+  name: "siglip2_vitl_512"
+
+paths:
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+
+model:
+  name: "vit_large_patch16_siglip_512.v2_webli"
+  pretrained: true                  # ~316M params, Apache-2.0, ungated
+  pool: "mean"
+  drop_rate: 0.1
+  drop_path_rate: 0.2               # RAISED from Base's 0.1: 3.4x the parameters on the
+                                    # same 3,639 studies, so more stochastic depth
+  grad_checkpointing: true          # REQUIRED here. ViT-L is 24 blocks of width 1024 over
+                                    # 1024 tokens; without recompute a single study's
+                                    # activations do not leave room for a second. Costs
+                                    # ~30% speed and buys the run.
+
+input:
+  # SigLIP normalises to mean 0.5 / std 0.5, NOT ImageNet. check_normalization enforces it.
+  norm_mean: [0.5, 0.5, 0.5]
+  norm_std:  [0.5, 0.5, 0.5]
+
+training:
+  epochs: 16
+  grad_clip: 3.0
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 1.5e-5                      # HALVED from Base's 3e-5. Larger transformers are less
+                                    # stable at a given lr, and the usual scaling is to
+                                    # lower it as width grows.
+    backbone_lr_mult: 0.5           # head = 3e-5
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.15               # longer than Base's 0.10 - depth makes the first steps
+                                    # more fragile, not less
+    min_lr_mult: 0.01
+  loss:
+    name: "bce"
+    pos_weight: "auto_clamped"
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  extend:
+    enable: false
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 4
+
+dataloader:
+  batch_size: 1                     # 96 images @512 per step. With checkpointing on, ViT-L
+                                    # should sit well inside the H200; raise to 2 only after
+                                    # seeing the first gpu_mem(peak) print.
+  accum_steps: 8                    # effective 8 studies per update - the SAME as every
+                                    # other run, so the step count and lr schedule still
+                                    # line up despite the smaller batch
+  val_batch_size: 2
+  num_workers: 24
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+modal:
+  gpu: "H200"
+  cpu: 16.0
+  memory_gb: 56
+  timeout_hours: 12                 # ~3.5x Base's per-step cost, plus checkpointing
