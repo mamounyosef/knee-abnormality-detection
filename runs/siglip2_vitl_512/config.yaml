@@ -72,8 +72,14 @@ training:
     layer_decay: null
   scheduler:
     name: "cosine"
-    warmup_frac: 0.15               # longer than Base's 0.10 - depth makes the first steps
-                                    # more fragile, not less
+    warmup_frac: 0.04               # ~291 steps, under two thirds of an epoch. NOT the usual 0.10:
+                                    # that is ~728 steps = 1.6 epochs, which would overlap
+                                    # almost the whole of LP-FT phase 1 (2 epochs = 910
+                                    # steps) and leave the head still ramping up when the
+                                    # backbone unfreezes - defeating the point of probing
+                                    # first. Warmup exists to protect the pretrained TRUNK
+                                    # from early noise, and in phase 1 the trunk is frozen,
+                                    # so there is nothing to protect.
     min_lr_mult: 0.01
   loss:
     name: "bce"
