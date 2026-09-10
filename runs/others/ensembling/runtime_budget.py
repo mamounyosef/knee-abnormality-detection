@@ -30,6 +30,7 @@ leaderboard rerun's are not. So:
     hidden test size  <- solved for, from an OBSERVED rerun wall time you read off the
                          Kaggle submission page
 
+    python runs/others/ensembling/runtime_budget.py watch <kernel-slug>
     python runs/others/ensembling/runtime_budget.py fetch <kernel-slug>
     python runs/others/ensembling/runtime_budget.py observe <kernel-slug> <hours>
     python runs/others/ensembling/runtime_budget.py calibrate <hours> <run> <run> ...
@@ -48,6 +49,7 @@ HERE = Path(__file__).resolve().parent
 LEDGER = HERE / "runtime_ledger.json"
 CAP_HOURS = 9.0
 KAGGLE_USER = "mamounhussam"
+COMPETITION = "rsna-knee-abnormality-detection"
 # Under 25% margin is not worth the risk: the rates come from a handful of studies on a
 # shared machine, and a timeout forfeits the whole submission rather than scoring badly.
 SAFE_MARGIN = 0.25
@@ -206,11 +208,67 @@ def show():
                  ("%.2f" % obs) if obs is not None else "-"))
 
 
+def watch(slug, poll_s=120):
+    """Time a leaderboard rerun by polling, so nobody has to read a web page.
+
+    Kaggle's API exposes a submission's submit time and its status, but never its
+    duration. Polling closes that gap: the newest submission's `date` is when the rerun
+    was queued, and the moment `status` leaves PENDING the rerun is done, so the
+    difference is its wall time. That includes queue wait, which makes this an UPPER
+    bound - a conservative direction for a cap we must not breach.
+
+    Records the result and re-solves the hidden test set size if the rates are known.
+    """
+    import datetime as _dt
+    import time as _time
+
+    import requests
+    from requests.auth import HTTPBasicAuth
+
+    cred = json.loads((Path.home() / ".kaggle" / "kaggle.json").read_text())
+    auth = HTTPBasicAuth(cred["username"], cred["key"])
+    env = _ca_env()
+    ca = env.get("REQUESTS_CA_BUNDLE", True)
+
+    def newest():
+        r = requests.get("https://www.kaggle.com/api/v1/competitions/submissions/list",
+                         params={"id": COMPETITION, "page": 1}, auth=auth,
+                         verify=ca, timeout=60)
+        r.raise_for_status()
+        rows = r.json()
+        return rows[0] if rows else None
+
+    sub = newest()
+    if sub is None:
+        raise SystemExit("no submissions found")
+    started = _dt.datetime.fromisoformat(sub["date"].replace("Z", "+00:00"))
+    print("watching submission %s queued %s" % (sub.get("ref"), started))
+    while True:
+        st = str(sub.get("status", ""))
+        el = (_dt.datetime.now(_dt.timezone.utc) - started).total_seconds() / 3600.0
+        print("  %5.2f h  %s" % (el, st), flush=True)
+        if "PENDING" not in st.upper():
+            break
+        _time.sleep(poll_s)
+        sub = newest()
+    hours = (_dt.datetime.now(_dt.timezone.utc) - started).total_seconds() / 3600.0
+    print("done in ~%.2f h (queue included), score %s"
+          % (hours, sub.get("publicScore")))
+    d = _load()
+    row = d["runs"].setdefault(slug, {})
+    row["observed_rerun_hours"] = hours
+    row["public_score"] = sub.get("publicScore")
+    _save(d)
+    observe(slug, hours)
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         raise SystemExit(__doc__)
     cmd, args = sys.argv[1], sys.argv[2:]
-    if cmd == "fetch":
+    if cmd == "watch":
+        watch(args[0], int(args[1]) if len(args) > 1 else 120)
+    elif cmd == "fetch":
         fetch(args[0])
     elif cmd == "observe":
         observe(args[0], float(args[1]))
