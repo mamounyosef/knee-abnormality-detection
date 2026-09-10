@@ -24,7 +24,7 @@ WEIGHTS         = "flat"       # "flat" = equal average | "search" = fit per-cla
                                # a folder name, or a path)
 COMBINE_SPACE   = "logit"      # blend space: "logit" (the .npz hold logits, so lossless)
                                # | "prob" | "rank" (rank kills F1/P/R/Spec)
-RUN_TAG         = "Q-branchgrp-mae"           # appended to the output folder name
+RUN_TAG         = "X"           # appended to the output folder name
 BEST_METRIC     = "oof_mean_auroc"   # what ranks a search run; "oof_mean_auroc"
                                # ranks on the held-out estimate instead
 
@@ -37,7 +37,6 @@ FULL_MODELS = [
     "mricore_vitb_cross_attention",
     "mricore_vitb_mae_cross_attention",
     "dinov3_convnext_base",
-    "convnext_large",
     "swinv2_base_in22k",
 ]
 AUTO_TOP_N      = 1            # expand a bare run name into its N best validations
