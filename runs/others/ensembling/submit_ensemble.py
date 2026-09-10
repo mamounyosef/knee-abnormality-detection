@@ -90,6 +90,9 @@ BLEND_WEIGHTS = "branch_group_weights.json"
                                # one 1/6 vote, each standalone model holds 1/6. Regenerate
                                # with make_branch_group_weights.py; verified identical to
                                # the nesting by check_partial_head_blend.py.
+STRESS       = 60             # >0 = MEASUREMENT run: repeat the 3 public studies this
+                              # many times to get a marginal per-study rate, and write
+                              # no submission.csv. Use with SUBMIT = False.
 PUBLISH      = True
 WAIT_FOR_RUN = True
 SUBMIT       = False          # MEASUREMENT RUN: the kernel writes timing.json and stops.
@@ -150,7 +153,18 @@ def main():
     out = sc.build_kaggle_ensemble_assets(
         members, Path(__file__).resolve().parent / "kaggle", KAGGLE_USER,
         SLUG, f"{SLUG}-submit", title=f"knee ensemble {len(members)}",
-        blend_weights=blend)
+        blend_weights=blend, stress=STRESS)
+
+    # A name the notebook uses but never defines parses fine, uploads fine, and fails on
+    # Kaggle minutes later with the traceback swallowed by IPython's own formatter. Catch
+    # it here instead: one second against a full push cycle.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from lint_notebook import lint
+    bad = lint(out / "notebook" / "submit.ipynb")
+    if bad:
+        raise SystemExit("the generated notebook would crash on Kaggle:\n  "
+                         + "\n  ".join(bad))
+    print("  ✅ notebook lint: no undefined names")
 
     if not PUBLISH:
         print("PUBLISH is False - assets built, nothing uploaded")

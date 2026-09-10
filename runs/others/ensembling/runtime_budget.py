@@ -15,11 +15,13 @@ Three parts, and they scale differently. Keeping them apart is the whole point:
 
     fixed     model load and DICOM index build. Paid once, negligible on a big test set.
     decode_s  per STUDY. Paid ONCE however many members ride along, because every member
-              scores the same decoded batch. Historically ~75-90% of the bill.
+              scores the same decoded batch. MEASURED at 3.3s/study on a T4, which is
+              only ~15% of a nine-member run: adding members really does cost.
     gpu_s     per study PER MEMBER. The ONLY part that grows when a member is added.
 
-This is why "1.5x the models means 1.5x the time" is wrong, and badly wrong: if decode is
-80% of the cost, going from 5 members to 9 costs +16%, not +54%.
+Measured, the split is decode 3.3s/study against 18.1s/study of GPU across nine members,
+so GPU dominates and member count really is close to proportional. Do not assume decode
+carries the run: measure it.
 
 WHERE THE NUMBERS COME FROM
 Every kernel run writes timing.json (shared_code._write_timing_json) holding the measured
@@ -89,8 +91,12 @@ def fetch(slug):
                 "    Re-push the notebook to get it.")
         t = json.loads(f.read_text(encoding="utf-8"))
     d = _load()
-    row = d["runs"].setdefault(slug, {})
+    # keyed by study count too: a 3-study commit run and a 60-study STRESS run of the same
+    # kernel measure different things and both are worth keeping
+    key = "%s@%d" % (slug, t["n_studies"])
+    row = d["runs"].setdefault(key, {})
     row.update({"n_studies_measured": t["n_studies"], "gpu": t.get("gpu", ""),
+                "slug": slug, "stress": t["n_studies"] > 10,
                 "decode_s_per_study": t["decode_s_per_study"],
                 "members": {m["name"]: m["gpu_s_per_study"] for m in t["members"]}})
     _save(d)
@@ -150,7 +156,15 @@ def calibrate(hours, members):
 
 
 def _rates(d):
-    """(decode_s_per_study, {member: gpu_s_per_study}) pooled over every measured run."""
+    """(decode_s_per_study, {member: gpu_s_per_study}), taking the WORST seen of each.
+
+    Not the average. A short commit run measures decode honestly but inflates GPU with
+    one-time warm-up; a STRESS run measures GPU honestly (warm, and throttled the way a
+    real multi-hour run will be) but reads the same few studies repeatedly, so its decode
+    comes out of the page cache and is fiction. The maximum per stage keeps whichever run
+    saw the true cost and errs high, which is the safe direction for a cap that forfeits
+    the submission when breached.
+    """
     dec, mem = [], {}
     for row in d["runs"].values():
         if "decode_s_per_study" in row:
@@ -159,7 +173,7 @@ def _rates(d):
                 mem.setdefault(k, []).append(v)
     if not dec:
         raise SystemExit("nothing measured yet - run `fetch <slug>` on a finished kernel")
-    return sum(dec) / len(dec), dict((k, sum(v) / len(v)) for k, v in mem.items())
+    return max(dec), dict((k, max(v)) for k, v in mem.items())
 
 
 def predict(members):

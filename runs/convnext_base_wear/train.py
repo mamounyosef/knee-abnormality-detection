@@ -88,7 +88,13 @@ def _branch_init(model, cfg):
             src = c
             break
     if src is None:
-        raise FileNotFoundError(f"parent checkpoint not found: {BRANCH_FROM}")
+        # Seeding only matters when TRAINING starts. At inference (Kaggle, where the
+        # parent checkpoint does not ship) this model is immediately overwritten by the
+        # branch's own weights, so a missing parent is not an error there.
+        print(f"  \U0001F33F no parent checkpoint ({BRANCH_FROM}) - skipping the branch "
+              f"seed; fine for inference, WRONG if this is a fresh training run",
+              flush=True)
+        return model
 
     sd = torch.load(src, map_location="cpu", weights_only=False)["model"]
     keep = [PARENT_TASKS.index(t) for t in cfg["tasks"]]     # row numbers to carry over

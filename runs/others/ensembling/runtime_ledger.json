@@ -1,0 +1,53 @@
+{
+ "runs": {
+  "knee-ensemble-9-branchgroup-mae-submit@60": {
+   "n_studies_measured": 60,
+   "gpu": "Tesla T4",
+   "slug": "knee-ensemble-9-branchgroup-mae-submit",
+   "stress": true,
+   "decode_s_per_study": 0.18822988248333747,
+   "members": {
+    "convnext_base_relabel": 2.104510364800014,
+    "convnext_base_trauma": 1.8256045201499982,
+    "convnext_base_wear": 1.8263771906833086,
+    "convnext_base_fluid": 1.8285071561500008,
+    "mricore_vitb_cross_attention": 1.7623759550167013,
+    "mricore_vitb_mae_cross_attention": 1.7692178294500063,
+    "dinov3_convnext_base": 1.839997762016689,
+    "convnext_large": 3.487764901666649,
+    "swinv2_base_in22k": 4.695538540266657
+   }
+  },
+  "knee-ensemble-9-branchgroup-mae-submit@3": {
+   "n_studies_measured": 3,
+   "gpu": "Tesla T4",
+   "slug": "knee-ensemble-9-branchgroup-mae-submit",
+   "stress": false,
+   "note": "commit run, 3 public studies. DECODE is the honest one here (cold, once each); the GPU times are warm-up inflated and superseded by the 60-study STRESS row.",
+   "decode_s_per_study": 3.31,
+   "members": {
+    "convnext_base_relabel": 3.7,
+    "convnext_base_trauma": 1.5,
+    "convnext_base_wear": 1.5,
+    "convnext_base_fluid": 1.51,
+    "mricore_vitb_cross_attention": 1.41,
+    "mricore_vitb_mae_cross_attention": 1.42,
+    "dinov3_convnext_base": 1.53,
+    "convnext_large": 2.65,
+    "swinv2_base_in22k": 2.85
+   }
+  }
+ },
+ "n_test_studies": 957.667012886146,
+ "calibration": {
+  "hours": 5.0,
+  "members": [
+   "convnext_base_relabel",
+   "mricore_vitb_cross_attention",
+   "dinov3_convnext_base",
+   "convnext_large",
+   "swinv2_base_in22k"
+  ],
+  "s_per_study": 18.795677158966697
+ }
+}

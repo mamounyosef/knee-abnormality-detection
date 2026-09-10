@@ -4579,7 +4579,7 @@ def verify_dicom_path(cfg: dict, dicom_root, series_csv: pd.DataFrame,
 
 def build_kaggle_ensemble_assets(members: list, out_dir, kaggle_user: str,
                                  dataset_slug: str, notebook_slug: str, title: str = "",
-                                 blend_weights: dict | None = None):
+                                 blend_weights: dict | None = None, stress: int = 0):
     """Bundle SEVERAL runs into one Kaggle dataset + a notebook that averages them.
 
     members: [(name, cfg, exp_dir, checkpoint_path), ...] - member 0 owns the loader.
@@ -4808,6 +4808,15 @@ def _load_def(i):
     spec.loader.exec_module(mod)
     return mod
 
+# Load weights whichever side of torch.compile they were saved from. The notebook does
+# not import shared_code, so this mirrors its helper: strip a leading '_orig_mod.' (left
+# by a checkpoint written from a compiled model) and load into the unwrapped module.
+def _load_model_state(model, sd):
+    if any(k.startswith('_orig_mod.') for k in sd):
+        sd = {(k[len('_orig_mod.'):] if k.startswith('_orig_mod.') else k): v
+              for k, v in sd.items()}
+    return getattr(model, '_orig_mod', model).load_state_dict(sd)
+
 try:
     MODELS = []
     for m, cfg in zip(MEMBERS, CFGS):
@@ -4819,8 +4828,11 @@ try:
         print('m%d %-30s epoch %s score %s' % (i, m['name'], ck.get('epoch'), ck.get('score')))
 except Exception:
     bail('model load failed'); raise SystemExit(0)""",
-        r"""# STRESS repeats the public studies to imitate the hidden set's size. 0 = a normal run.
-STRESS = 0
+        r"""# STRESS repeats the public studies to imitate the hidden set's size, so the
+# per-study rate is MARGINAL rather than dominated by one-time warm-up. It also
+# suppresses submission.csv, because the repeated rows are not a real submission.
+# 0 = a normal run.
+STRESS = __STRESS__
 
 todo = sub[['StudyInstanceUID']]
 if STRESS:
@@ -4870,6 +4882,7 @@ except Exception:
     bail('inference failed')
 pd.read_csv('submission.csv').head()""",
     ]
+    cells = [c.replace("__STRESS__", str(int(stress))) for c in cells]
     _cells = [{"cell_type": "code", "metadata": {}, "source": c.splitlines(True),
                "outputs": [], "execution_count": None} for c in cells]
     if _notice_cell:                      # first cell, so it is the first thing seen
@@ -5023,7 +5036,13 @@ except Exception:
     from model_def import build_model
     model = build_model(cfg)
     ck = torch.load(W / 'model.pt', map_location='cpu', weights_only=False)
-    model.load_state_dict(ck['model'])
+    _sd = ck['model']
+    # a checkpoint written from a torch.compile-wrapped model carries an '_orig_mod.'
+    # prefix on every key; strip it so either kind of checkpoint loads
+    if any(k.startswith('_orig_mod.') for k in _sd):
+        _sd = {(k[len('_orig_mod.'):] if k.startswith('_orig_mod.') else k): v
+               for k, v in _sd.items()}
+    model.load_state_dict(_sd)
     print('loaded epoch', ck.get('epoch'), 'score', ck.get('score'))
 except Exception:
     bail('model load failed'); raise SystemExit(0)''',
