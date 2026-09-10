@@ -14,6 +14,7 @@ Run:  python runs/others/ensembling/ensemble.py
 """
 
 import sys
+import warnings
 from pathlib import Path
 
 # ============================ CONFIG (edit here) ============================
@@ -23,7 +24,7 @@ WEIGHTS         = "flat"       # "flat" = equal average | "search" = fit per-cla
                                # a folder name, or a path)
 COMBINE_SPACE   = "logit"      # blend space: "logit" (the .npz hold logits, so lossless)
                                # | "prob" | "rank" (rank kills F1/P/R/Spec)
-RUN_TAG         = "6-with-mae"           # appended to the output folder name
+RUN_TAG         = "Q-branchgrp-mae"           # appended to the output folder name
 BEST_METRIC     = "oof_mean_auroc"   # what ranks a search run; "oof_mean_auroc"
                                # ranks on the held-out estimate instead
 
@@ -32,7 +33,7 @@ BEST_METRIC     = "oof_mean_auroc"   # what ranks a search run; "oof_mean_auroc"
 # ("run", 3200)             -> its step-3200 validation
 # [("r", 3200), ("r", 4000)] -> LIST = sub-ensemble, averaged first, ONE vote above
 FULL_MODELS = [
-    "convnext_base_relabel",
+    ["convnext_base_relabel", "convnext_base_trauma", "convnext_base_wear", "convnext_base_fluid"],
     "mricore_vitb_cross_attention",
     "mricore_vitb_mae_cross_attention",
     "dinov3_convnext_base",
@@ -219,6 +220,7 @@ sc = _Metrics()
 # Every validation of every run wrote results/predictions/<run_id>_<split>_s<step>.npz
 # holding logits, targets, study_ids and tasks. That file IS the member: no checkpoint
 # is opened, no model is built, nothing touches a GPU.
+_CANON_TASKS = {}    # split -> the finding names, in canonical order
 _INDEX = {}          # run -> {split -> {step -> path}}
 _SCORES = {}         # run -> {step -> val score recorded at that validation}
 
@@ -597,6 +599,34 @@ def _node_label(node) -> str:
     return run if ckpt is None else _ckpt_member_label(run, ckpt)
 
 
+def _canonical_tasks(split: str):
+    """The 12 findings, in the order the first top-level member reports them."""
+    if split not in _CANON_TASKS:
+        run, step = _leaf_spec(next(iter(_node_leaves(_top_nodes()[0]))))
+        step = _default_step(run, split) if step is None else int(step)
+        _lg, _y, _ids, tasks = _load_npz(run, step, split)
+        _CANON_TASKS[split] = [str(t) for t in tasks]
+    return _CANON_TASKS[split]
+
+
+def _widen(mat, mtasks, tasks):
+    """Place a member's columns into the canonical finding order, NaN for the rest.
+
+    The task-group branches (convnext_base_trauma / _wear / _fluid) each predict only
+    their own group - 4, 6 and 2 of the 12 - so their matrices are narrower than the
+    parent's and cannot be stacked with it. Widening to a common 12 columns lets a
+    branch sit in a sub-ensemble beside a full model, with NaN meaning "no opinion".
+    """
+    mtasks = [str(t) for t in mtasks]
+    if mtasks == list(tasks):
+        return mat
+    out = np.full((mat.shape[0], len(tasks)), np.nan, dtype=float)
+    for j, t in enumerate(mtasks):
+        if t in tasks:
+            out[:, tasks.index(t)] = mat[:, j]
+    return out
+
+
 def _node_probs(node, load_cfg, ckpt_path_of, df, device, cache_dir, depth: int = 0):
     """(N, T) probabilities for one member-tree node.
 
@@ -612,7 +642,12 @@ def _node_probs(node, load_cfg, ckpt_path_of, df, device, cache_dir, depth: int 
                 for c in _group_children(node)]
         space = _group_space(node)
         stack = _to_space(np.stack(subs, axis=0), space)
-        avg = _from_space(stack.mean(axis=0), space)
+        # nanmean, not mean: a task-group branch predicts only its own findings and
+        # arrives NaN elsewhere, so each column is averaged over the children that
+        # actually have an opinion on it. All-real columns are unaffected.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)   # all-NaN column
+            avg = _from_space(np.nanmean(stack, axis=0), space)
         print(f"{pad}[group] -> averaged {len(subs)} member(s) in {space} space", flush=True)
         return avg
     run, ckpt = _leaf_spec(node)
@@ -621,8 +656,8 @@ def _node_probs(node, load_cfg, ckpt_path_of, df, device, cache_dir, depth: int 
     # sigmoid here so everything downstream still sees PROBABILITIES, exactly as
     # in the script this came from. COMBINE_SPACE='logit' then maps straight back
     # to the numbers on disk, so the default path is lossless.
-    lg, _tasks = _member_matrix(run, ckpt, SET)
-    return 1.0 / (1.0 + np.exp(-lg))
+    lg, mtasks = _member_matrix(run, ckpt, SET)
+    return _widen(1.0 / (1.0 + np.exp(-lg)), mtasks, _canonical_tasks(SET))
 
 
 def _gather(load_cfg, ckpt_path_of, df, device, cache_dir, tasks):
