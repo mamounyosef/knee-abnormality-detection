@@ -36,6 +36,21 @@
     "convnext_large": 2.65,
     "swinv2_base_in22k": 2.85
    }
+  },
+  "knee-ensemble-6-mae-flat-submit@3": {
+   "n_studies_measured": 3,
+   "gpu": "Tesla T4",
+   "slug": "knee-ensemble-6-mae-flat-submit",
+   "stress": false,
+   "decode_s_per_study": 3.949571067666701,
+   "members": {
+    "convnext_base_relabel": 3.709685762333303,
+    "mricore_vitb_cross_attention": 1.3997686933333096,
+    "mricore_vitb_mae_cross_attention": 1.4079637703332917,
+    "dinov3_convnext_base": 1.541215828000001,
+    "convnext_large": 3.9625867230000344,
+    "swinv2_base_in22k": 4.310809957999974
+   }
   }
  },
  "n_test_studies": 957.667012886146,

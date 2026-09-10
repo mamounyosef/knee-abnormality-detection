@@ -51,20 +51,19 @@ from pathlib import Path
 #   2. PER-CLASS WEIGHTS instead of a flat average, fitted 5-fold and ranked on the
 #      held-out estimate. Weighted beat flat by ~+0.002 OOF on every combination tried.
 #
-# THIS submission adds four members to the 0.929 five, for val 0.9147 -> 0.9160:
-#   1. mricore_vitb_mae_cross_attention, the cross-attention config rebuilt on the
-#      MAE-pretrained trunk. It ADDS rather than replaces its non-MAE twin: swapping
-#      ties at 0.9147, adding gives 0.9156. Its logits correlate only 0.873 with that
-#      twin, where two SEEDS of one config sit at 0.952 - changing the pretraining
-#      objective decorrelates a model more than changing the seed does.
-#   2-4. convnext_base_{trauma,wear,fluid}, the task-group branches. Each predicts only
-#      its own findings, so they are NOT four more full models: with the parent they
-#      form one vote, weighted below. Standalone they were a negative; fused they pay.
+# THIS submission adds ONE member to the 0.929 five, for val 0.9147 -> 0.9156:
+# mricore_vitb_mae_cross_attention, the cross-attention config rebuilt on the
+# MAE-pretrained trunk. It ADDS rather than replaces its non-MAE twin: swapping ties at
+# 0.9147, adding gives 0.9156. Its logits correlate only 0.873 with that twin, where two
+# SEEDS of one config sit at 0.952 - changing the pretraining objective decorrelates a
+# model more than changing the seed does.
+#
+# The 9-member set (these six plus convnext_base_{trauma,wear,fluid} fused with the parent
+# into one vote) scores 0.9160, but is NOT shipped: measured on Kaggle's T4 it prices at
+# 6.9-8.3 h of the 9 h cap against 5.5-6.6 h for these six, and +0.0004 val is well inside
+# the 0.0055 noise. A timeout forfeits the run, so the cap decides. See runtime_budget.py.
 MEMBERS = [
     ("convnext_base_relabel", "best"),
-    ("convnext_base_trauma", "best"),
-    ("convnext_base_wear", "best"),
-    ("convnext_base_fluid", "best"),
     ("mricore_vitb_cross_attention", "best"),
     ("mricore_vitb_mae_cross_attention", "best"),
     ("dinov3_convnext_base", "best"),
@@ -83,28 +82,31 @@ MEMBERS = [
 # worse than the one measured, including the 6-member that scored 0.922. Fixed: best.pt
 # is now step 2600 and its `score` matches val_log's peak. ALWAYS check that before a
 # submission - it is silent otherwise.
-BLEND_WEIGHTS = "branch_group_weights.json"
-                               # NOT a fitted search: the search is still fitting noise
-                               # (+0.0001 OOF with swinv2 in). These weights just express
-                               # the NESTED construct flat - the four convnext runs share
-                               # one 1/6 vote, each standalone model holds 1/6. Regenerate
-                               # with make_branch_group_weights.py; verified identical to
-                               # the nesting by check_partial_head_blend.py.
-STRESS       = 60             # >0 = MEASUREMENT run: repeat the 3 public studies this
+BLEND_WEIGHTS = None           # FLAT. The per-class search is fitting noise now: its
+                               # out-of-fold estimate is 0.9152 against flat's 0.9156.
+                               # For the 9-member branch-group construct instead, set this
+                               # to "branch_group_weights.json" (make_branch_group_weights.py
+                               # writes it; check_partial_head_blend.py verifies it).
+STRESS       = 0              # >0 = MEASUREMENT run: repeat the 3 public studies this
                               # many times to get a marginal per-study rate, and write
                               # no submission.csv. Use with SUBMIT = False.
 PUBLISH      = True
 WAIT_FOR_RUN = True
-SUBMIT       = False          # MEASUREMENT RUN: the kernel writes timing.json and stops.
+SUBMIT       = True           # REAL SUBMISSION: costs one of the day's 5.
                               # False = run the kernel and stop. Kernel runs are FREE;
                               # only the submit costs one of the day's 5. Use it to see
                               # the notebook's real output before spending one.
 KAGGLE_USER  = "mamounhussam"
-SLUG         = "knee-ensemble-9-branchgroup-mae"
-NOTE         = ("9-model ensemble, PRIZE-ELIGIBLE (no RadImageNet): the 0.929 five plus "
-                "mricore_vitb_mae_cross_attention and the three task-group branches "
-                "(trauma/wear/fluid, fused with convnext_base_relabel into one vote) "
-                "| val 0.9160 vs 0.9147 for the five | Built with DINOv3")
+SLUG         = "knee-ensemble-6-mae-flat"
+NOTE         = ("6-model FLAT ensemble, PRIZE-ELIGIBLE (no RadImageNet): the 0.929 five "
+                "plus mricore_vitb_mae_cross_attention, the cross-attention config "
+                "rebuilt on the MAE-pretrained MRI-CORE trunk. It ADDS rather than "
+                "replaces its non-MAE twin (swapping ties at 0.9147, adding gives "
+                "0.9156): its logits correlate 0.873 with that twin where two SEEDS "
+                "of one config sit at 0.952. Chosen over the 9-member 0.9160 set on "
+                "RUNTIME - measured on a T4, the nine price at 6.9-8.3 h of the 9 h "
+                "cap while this fits in 5.5-6.6 h, for 0.0004 val, inside noise. "
+                "| val 0.9156 vs 0.9147 for the five | Built with DINOv3")
 # ===========================================================================
 
 PKG_ROOT = Path(__file__).resolve().parent.parent.parent      # <repo>/runs

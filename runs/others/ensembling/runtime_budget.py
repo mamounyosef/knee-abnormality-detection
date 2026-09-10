@@ -245,8 +245,9 @@ def watch(slug, poll_s=120):
     ca = env.get("REQUESTS_CA_BUNDLE", True)
 
     def newest():
-        r = requests.get("https://www.kaggle.com/api/v1/competitions/submissions/list",
-                         params={"id": COMPETITION, "page": 1}, auth=auth,
+        # the competition is a PATH segment here, not a query parameter
+        r = requests.get("https://www.kaggle.com/api/v1/competitions/submissions/list/"
+                         + COMPETITION, params={"page": 1}, auth=auth,
                          verify=ca, timeout=60)
         r.raise_for_status()
         rows = r.json()
