@@ -45,15 +45,42 @@ import shared_code as sc  # noqa: E402
 # engine's check_normalization now guards against, and it would invalidate this comparison.
 IMAGENET = ((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
 HALF = ((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+ZERO_ONE = ((0.0, 0.0, 0.0), (1.0, 1.0, 1.0))
 DEFAULT_MODELS = [
     ("vit_base_patch16_siglip_512.v2_webli", *HALF, "SigLIP 2, MAP pool - the suspect"),
     ("vit_base_patch16_siglip_gap_512.v2_webli", *HALF, "SigLIP 2, avg pool - same trunk"),
     ("convnext_base.fb_in22k_ft_in1k", *IMAGENET, "our best backbone, reference"),
+    ("convnext_base.dinov3_lvd1689m", *IMAGENET, "DINOv3, self-supervised on 1.7B photos"),
     ("vit_base_patch16_224.augreg_in21k", *HALF, "plain ViT-B, shape control"),
-    ("swinv2_base_window12to24_192to384.ms_in22k_ft_in1k", *IMAGENET, "in the ensemble"),
+    # MRI-CORE is not a timm checkpoint: it is a DINO teacher whose keys need rewriting,
+    # so it is loaded through mricore_vitb_relabel's own loader. Its normalisation is
+    # [0,1], NOT ImageNet - the trunk was trained on min-max scaled slices.
+    ("MRI-CORE:vit_base_patch16_224", *ZERO_ONE, "MRI-CORE, DINO on 6M MRI slices"),
 ]
 
 EXP_DIR = PKG_ROOT / "mricore_vitb_relabel"      # borrow a ViT config: 4 slots x 24 slices
+
+
+def _mri_core(skeleton, cfg):
+    """MRI-CORE's DINO teacher, loaded into a timm ViT skeleton.
+
+    Reuses mricore_vitb_relabel's loader rather than reimplementing the key rewriting
+    (strip 'backbone.', unchunk the block indices, resample pos_embed), so this probe
+    measures exactly the trunk those runs trained from.
+    """
+    import importlib.util
+    import timm
+
+    exp = PKG_ROOT / "mricore_vitb_relabel"
+    spec = importlib.util.spec_from_file_location("mricore_train", exp / "train.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    size = cfg["input"]["size"]
+    m = timm.create_model(skeleton, pretrained=False, num_classes=0, img_size=size)
+    mcfg = sc.load_config(exp, verbose=False)
+    mcfg = sc.remote_cfg(mcfg) if Path("/root/runs").exists() else mcfg
+    mod._load_mri_core(m, mod._weights_path(mcfg), size // m.patch_embed.patch_size[0])
+    return m
 
 
 def _features(m, batches, mu, sd, per_study, device):
@@ -113,11 +140,14 @@ def _probe(cfg, models, n_studies, batch_size):
         # one backbone failing to build must not cost the whole comparison: SwinV2 in
         # particular refuses input sizes its window partitioning does not divide
         try:
-            try:
-                m = timm.create_model(name, pretrained=True, num_classes=0,
-                                      img_size=cfg["input"]["size"])
-            except TypeError:                   # convnext and friends take no img_size
-                m = timm.create_model(name, pretrained=True, num_classes=0)
+            if name.startswith("MRI-CORE:"):
+                m = _mri_core(name.split(":", 1)[1], cfg)
+            else:
+                try:
+                    m = timm.create_model(name, pretrained=True, num_classes=0,
+                                          img_size=cfg["input"]["size"])
+                except TypeError:               # convnext and friends take no img_size
+                    m = timm.create_model(name, pretrained=True, num_classes=0)
         except Exception as e:
             print(f"[probe] SKIPPED {name}: {type(e).__name__}: {str(e)[:90]}", flush=True)
             continue
