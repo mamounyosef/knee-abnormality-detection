@@ -4853,6 +4853,13 @@ try:
     _rate = _el / max(len(todo), 1)
     print('INFERENCE  %.1f s for %d studies  =  %.2f s/study  |  9h cap fits ~%d studies'
           % (_el, len(todo), _rate, int(9 * 3600 / max(_rate, 1e-9))))
+    # timing.json is written by predict_dicom_ensemble and holds the decode/per-member
+    # split. Echo it so it is in the log too, then leave the file as a kernel output for
+    # runtime_budget.py to ingest.
+    try:
+        print('TIMING ' + open('timing.json').read().replace(chr(10), ' '))
+    except Exception:
+        pass
     if not STRESS:
         out = sub[['StudyInstanceUID']].merge(pred, on='StudyInstanceUID', how='left')
         out[TASKS] = out[TASKS].astype(float).fillna(0.5).clip(0, 1)
@@ -5070,6 +5077,62 @@ pd.read_csv('submission.csv').head()''',
     return out
 
 
+# ---------------------------------------------------------------- runtime budget --
+# The competition caps a submission at 9 hours on the hidden test set, and the ensemble
+# is now large enough that the cap, not the score, decides what can ship. Guessing the
+# cost from training throughput was wrong by a factor of ten once already, so every run
+# measures itself and writes the numbers down.
+#
+# The cost has exactly two parts and they scale differently:
+#   FIXED    model load, DICOM index build - paid once, invisible on a big test set
+#   DECODE   per STUDY, paid once however many members ride along
+#   GPU      per study PER MEMBER - the only part that grows when a member is added
+# Lumping decode into a single "seconds per study" makes every member look far more
+# expensive than it is, which is what makes an 8-member ensemble look unaffordable.
+TIMING_JSON = "timing.json"
+
+
+def _timing_report(timing: dict, n_studies: int) -> str:
+    """The per-stage breakdown, as text for inference_log.txt."""
+    n = max(n_studies, 1)
+    lines = ["", "runtime breakdown (seconds per study)",
+             f"  decode  {timing['decode_s'] / n:8.3f}   paid once per study, "
+             f"however many members"]
+    for name, sec in zip(timing["members"], timing["member_s"]):
+        lines.append(f"  gpu     {sec / n:8.3f}   {name}")
+    gpu = sum(timing["member_s"]) / n
+    lines.append(f"  ---")
+    lines.append(f"  total   {timing['decode_s'] / n + gpu:8.3f}   "
+                 f"({timing['decode_s'] / n / max(timing['decode_s'] / n + gpu, 1e-9) * 100:.0f}% decode)")
+    return chr(10).join(lines)
+
+
+def _write_timing_json(timing: dict, n_studies: int, device) -> None:
+    """Machine-readable timings, so runtime_budget.py can predict the next ensemble.
+
+    Written as a kernel OUTPUT file: the rerun's stdout is not downloadable, but the
+    commit run's outputs are, and the per-study rates measured there are the ones that
+    extrapolate.
+    """
+    n = max(n_studies, 1)
+    gpu_name = ""
+    try:
+        if device is not None and getattr(device, "type", "") == "cuda":
+            gpu_name = torch.cuda.get_device_name(0)
+    except Exception:
+        pass
+    payload = {
+        "n_studies": int(n_studies),
+        "gpu": gpu_name,
+        "decode_s_per_study": timing["decode_s"] / n,
+        "members": [{"name": nm, "gpu_s_per_study": sec / n}
+                    for nm, sec in zip(timing["members"], timing["member_s"])],
+        "total_s_per_study": (timing["decode_s"] + sum(timing["member_s"])) / n,
+    }
+    Path(TIMING_JSON).write_text(json.dumps(payload, indent=1), encoding="utf-8")
+    print(f"  ⏱️  timings -> {TIMING_JSON}")
+
+
 @torch.no_grad()
 def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, plan: dict,
                            index: pd.DataFrame, files_by_series: dict, device=None,
@@ -5137,8 +5200,16 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
 
     out, done, t0, failed = [], 0, time.time(), 0
     notes = []
+    # Runtime accounting, because the 9h cap is the binding constraint as the ensemble
+    # grows. Two costs behave completely differently and must never be lumped together:
+    # DECODE is paid once per study no matter how many members ride along, while GPU is
+    # paid per member per study. Predicting the cost of adding a member needs them apart.
+    timing = {"decode_s": 0.0, "gpu_s": 0.0,
+              "member_s": [0.0] * len(models),
+              "members": [c["experiment"]["name"] for c in cfgs]}
     it = iter(loader)
     while True:
+        _tdec = time.perf_counter()
         try:
             x, _ = next(it)
         except StopIteration:
@@ -5150,6 +5221,7 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
             out.append(np.full((left, len(tasks)), 0.5, np.float32))
             failed += left
             break
+        timing["decode_s"] += time.perf_counter() - _tdec
         k = x.shape[0]
 
         def _score_batch():
@@ -5157,12 +5229,16 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
             members resident the allocator fragments, and study 2 can die where study 1
             was fine."""
             lg = []
-            for c, m in zip(cfgs, models):
+            for _mi, (c, m) in enumerate(zip(cfgs, models)):
                 amp = c["training"]["amp"] and device.type == "cuda"
+                _tm = time.perf_counter()
                 with torch.autocast("cuda", enabled=amp):
                     xb = prepare_batch(x, c, device)
                     o = m(xb).float()
                 del xb                                 # the (96, 3, 512, 512) input
+                if device.type == "cuda":
+                    torch.cuda.synchronize()           # else we time the launch, not the work
+                timing["member_s"][_mi] += time.perf_counter() - _tm
                 lg.append(o)
             stacked = torch.stack(lg)                  # (n_members, batch, n_tasks)
             del lg
@@ -5176,6 +5252,7 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
             del stacked, avg
             return r
 
+        _tgpu = time.perf_counter()
         try:
             try:
                 out.append(_score_batch())
@@ -5192,6 +5269,7 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
             print(f"  ⚠️  {msg}", flush=True)
             notes.append(msg)
             out.append(np.full((k, len(tasks)), 0.5, np.float32))
+        timing["gpu_s"] += time.perf_counter() - _tgpu
         if device.type == "cuda":
             torch.cuda.empty_cache()               # next study starts on a clean heap
         done += k
@@ -5207,10 +5285,15 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
     # the kernel's stdout is not downloadable, so leave the diagnosis in a file that
     # `kaggle kernels output` can fetch - otherwise a Kaggle-only failure is invisible
     try:
-        Path("inference_log.txt").write_text(summary + chr(10) + chr(10).join(notes),
+        Path("inference_log.txt").write_text(summary + chr(10) + chr(10).join(notes)
+                                             + chr(10) + _timing_report(timing, len(probs)),
                                              encoding="utf-8")
     except Exception:
         pass
+    try:
+        _write_timing_json(timing, len(probs), device)
+    except Exception as e:
+        print(f"  (timing not recorded: {type(e).__name__}: {e})")
     res = pd.DataFrame(probs, columns=tasks)
     res.insert(0, "StudyInstanceUID", studies_df["StudyInstanceUID"].values)
     return res
