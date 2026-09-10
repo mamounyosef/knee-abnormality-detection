@@ -51,18 +51,23 @@
     "convnext_large": 3.9625867230000344,
     "swinv2_base_in22k": 4.310809957999974
    }
+  },
+  "knee-ensemble-6-mae-flat-submit": {
+   "observed_rerun_hours": 5.7,
+   "public_score": "0.931"
   }
  },
- "n_test_studies": 957.667012886146,
+ "n_test_studies": 946.1028604134741,
  "calibration": {
-  "hours": 5.0,
+  "hours": 5.7,
   "members": [
    "convnext_base_relabel",
    "mricore_vitb_cross_attention",
+   "mricore_vitb_mae_cross_attention",
    "dinov3_convnext_base",
    "convnext_large",
    "swinv2_base_in22k"
   ],
-  "s_per_study": 18.795677158966697
+  "s_per_study": 21.688973639750092
  }
 }

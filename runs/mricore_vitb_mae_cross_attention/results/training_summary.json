@@ -76,15 +76,15 @@
   },
   "elapsed": "3h56m25s",
   "submission": {
-    "submitted": null,
-    "public_score": null,
+    "submitted": "2026-09-10",
+    "public_score": 0.931,
     "private_score": null,
-    "runtime_seconds": null,
-    "runtime": null,
-    "kernel": null,
-    "kernel_version": null,
+    "runtime_seconds": 20520,
+    "runtime": "5.70 h of the 9 h cap on the hidden test set, timed by polling",
+    "kernel": "mamounhussam/knee-ensemble-6-mae-flat-submit",
+    "kernel_version": 1,
     "submission_ref": null,
-    "checkpoint": null,
-    "notes": null
+    "checkpoint": "best.pt (step 4900)",
+    "notes": "Not solo: this run's contribution as the 6th member of the flat ensemble convnext_base_relabel + mricore_vitb_cross_attention + this + dinov3_convnext_base + convnext_large + swinv2_base_in22k. 0.929 -> 0.931, the project's best leaderboard score."
   }
 }
