@@ -1,0 +1,5 @@
+epoch,step,param,log10_ud
+1,200,head.weight,-2.973900447807594
+1,400,head.weight,-2.9750747790186702
+2,600,head.weight,-3.073730002160631
+2,800,head.weight,-2.965979396564826

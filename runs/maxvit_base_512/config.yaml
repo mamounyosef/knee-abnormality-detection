@@ -1,0 +1,107 @@
+# MaxViT-Base at NATIVE 512x512, ImageNet-21k -> ImageNet-1k supervised.
+#
+# WHY THIS BACKBONE. Two patterns hold across every run in this project:
+#   1. SOLO score tracks supervised ImageNet-22k pretraining. Every top single model is
+#      supervised: convnext_large 0.9061, swinv2 0.9053, convnext_base 0.9050. Every
+#      self-supervised trunk loses solo: dinov3 0.9011, mricore_vitb_relabel 0.8970.
+#   2. ENSEMBLE value comes from a different architecture or objective, not a better solo
+#      score - dinov3 LOSES solo and was the largest ensemble gain of the project.
+# MaxViT is the only candidate that scores on both at once. It carries the supervised
+# ImageNet recipe that produces our best solo numbers, in a topology nothing in the pool
+# has: each stage interleaves an MBConv (depthwise convolution) with BLOCK-LOCAL attention
+# and DILATED-GRID attention. Our pool is pure convolution (ConvNeXt), pure isotropic
+# attention (MRI-CORE ViT) or windowed attention (SwinV2). This is the hybrid, and its
+# mistakes should not look like any of them.
+#
+# It is also pretrained NATIVELY at 512, the resolution we train at. convnext_base is
+# pretrained at 224 and swinv2 at 384, so both have their position information stretched;
+# MaxViT's grid partitions divide 512 exactly.
+#
+# Cost, measured not guessed: 2.65x convnext_base per study on Kaggle's T4, the most
+# expensive member we would own. That does not decide whether to BUILD it, but it will
+# decide whether it SHIPS as an addition or a swap - see runs/others/runtime_budget.py.
+#
+# Beat: convnext_base_relabel 0.9050 (best single), convnext_large 0.9061 (best overall).
+
+experiment:
+  name: "maxvit_base_512"
+
+paths:
+  # Byte-identical split membership to convnext_base_relabel, so the backbone is the only
+  # variable. audit_csv stays 05_audit58.csv - the panel labels never change.
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+
+model:
+  name: "maxvit_base_tf_512.in21k_ft_in1k"   # 119.1M params, 768 features, Apache-2.0
+  pretrained: true
+  pool: "mean"                      # over SLICES, unchanged from every other run
+  drop_rate: 0.1                    # dropout in the head
+  drop_path_rate: 0.2               # stochastic depth. HIGHER than the ConvNeXt runs' 0.0:
+                                    # MaxViT's attention halves overfit small data the way
+                                    # every transformer does, and 0.2 is the value its own
+                                    # authors use for the Base model.
+
+input:
+  # MaxViT's TensorFlow-ported checkpoints normalise to mean 0.5 / std 0.5, NOT ImageNet.
+  # Read off the checkpoint's own pretrained_cfg, not assumed - the ConvNeXt template this
+  # was copied from inherits ImageNet statistics from shared_config, which would be wrong
+  # here and would fail silently. check_normalization enforces it at startup.
+  norm_mean: [0.5, 0.5, 0.5]
+  norm_std:  [0.5, 0.5, 0.5]
+
+training:
+  epochs: 12
+  grad_clip: 3.0                    # 3.0, never 1.0: the parent ran at 1.0 and clipped
+                                    # 100% of its steps, which silently throttles the lr
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-5                      # BACKBONE lr, identical to convnext_base_relabel. Same
+                                    # supervised-ImageNet starting point, same distance to
+                                    # travel, so its tuning is the right prior.
+    backbone_lr_mult: 0.5           # head = 1.0e-4
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05
+    min_lr_mult: 0.01
+  loss:
+    name: "bce"
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  # LP-FT is deliberately OFF. It exists for a backbone whose frozen features are good but
+  # whose fine-tune misbehaves, which was SigLIP's problem. MaxViT starts from the same
+  # supervised ImageNet distribution as convnext_base, which fine-tunes cleanly from step 0,
+  # so turning it on here would add an unexplained variable to the comparison.
+  lp_ft_epochs: 0
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 12                    # VALIDATIONS without improvement, not epochs
+
+dataloader:
+  batch_size: 2                     # 2 studies x 96 images = 192 @512. MaxViT-Base is 119M
+                                    # against ConvNeXt-Base's 88M and carries attention
+                                    # activations the ConvNeXt does not, so it starts where
+                                    # convnext_base_relabel sat (~125 GB of the H200's 141)
+                                    # rather than above it. Raise only after reading the
+                                    # first gpu_mem(peak) print.
+  accum_steps: 4                    # effective 8 studies per update - IDENTICAL to every
+                                    # other run, so step counts and lr schedules compare
+  val_batch_size: 4
+  num_workers: 26
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+modal:
+  gpu: "H200"
+  cpu: 20.0
+  memory_gb: 64
+  timeout_hours: 12                 # 2.65x convnext_base per image; 12 epochs needs room
