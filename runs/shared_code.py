@@ -2206,6 +2206,61 @@ def print_data_summary(loaders: dict, cfg: dict, plan: dict | None = None):
                 for sl in cfg["input"]["slots"]], "\U0001F9E9")
 
 
+def check_normalization(cfg: dict, model: nn.Module) -> None:
+    """Fail fast when the config's pixel normalisation contradicts the backbone's own.
+
+    Every pretrained backbone was trained on pixels scaled a particular way, and it expects
+    the same scaling at fine-tune time. Getting this wrong is SILENT: the run trains, the
+    loss falls, and the model is simply worse than it should be. It cost us a whole
+    mricore_vitb_mae pretraining run, which inherited ImageNet statistics while every other
+    MRI-CORE run used [0, 1], and nothing anywhere complained.
+
+    timm records the right values on each model's `pretrained_cfg`, so this compares the
+    config against the backbone and refuses to start on a mismatch.
+
+    To deviate DELIBERATELY - which is legitimate, e.g. MRI-CORE's weights are not timm's
+    so timm's defaults do not describe them - set:
+
+        input:
+          norm_mismatch_ok: true   # and say WHY in a comment
+
+    Only the backbone is inspected. A model with no timm backbone is skipped silently.
+    """
+    inp = cfg.get("input", {})
+    want_m, want_s = inp.get("norm_mean"), inp.get("norm_std")
+    if want_m is None or want_s is None:
+        return
+    # the backbone may be nested (SliceModel.backbone) or be the model itself
+    for m in (getattr(_uncompiled(model), "backbone", None), _uncompiled(model)):
+        pcfg = getattr(m, "pretrained_cfg", None)
+        if isinstance(pcfg, dict) and pcfg.get("mean") and pcfg.get("std"):
+            break
+    else:
+        return
+    got_m, got_s = list(pcfg["mean"]), list(pcfg["std"])
+    close = (len(got_m) == len(want_m[:len(got_m)])
+             and all(abs(a - b) < 1e-3 for a, b in zip(got_m, want_m))
+             and all(abs(a - b) < 1e-3 for a, b in zip(got_s, want_s)))
+    name = cfg.get("model", {}).get("name", "?")
+    if close:
+        print(f"[norm] OK: config matches {name}'s pretrained_cfg "
+              f"(mean {got_m}, std {got_s})")
+        return
+    msg = (f"normalisation mismatch for backbone {name!r}:\n"
+           f"    config    mean {list(want_m)}  std {list(want_s)}\n"
+           f"    backbone  mean {got_m}  std {got_s}\n"
+           f"  The backbone was pretrained on the second pair. Training on the first is a "
+           f"SILENT error:\n"
+           f"  the run will converge and simply score worse.\n"
+           f"  Fix input.norm_mean / input.norm_std, or set input.norm_mismatch_ok: true "
+           f"if the deviation\n"
+           f"  is deliberate (say why in a comment).")
+    if inp.get("norm_mismatch_ok"):
+        print(f"[norm] DELIBERATE MISMATCH, allowed by input.norm_mismatch_ok\n  {msg}")
+        return
+    raise SystemExit("[norm] " + msg)
+
+
 def run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None, log_fn=None):
     """Public entry: tee the whole console into results/train_config/<timestamp>.txt,
     then train. Streams are restored even if the run crashes, traceback included."""
@@ -2326,6 +2381,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
           f"deterministic={cfg['reproducibility']['deterministic']}")
     print_environment(cfg)
     print_config(cfg)
+    check_normalization(cfg, model)
 
     out = Path(out_dir) / cfg["output"]["run_dir"]
     ckpt_dir = out / cfg["output"]["checkpoints_dir"]

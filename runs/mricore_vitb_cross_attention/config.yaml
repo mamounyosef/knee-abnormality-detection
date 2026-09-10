@@ -73,6 +73,10 @@ input:
   # Feeding it ImageNet-standardised input would shift every activation off distribution.
   norm_mean: [0.0, 0.0, 0.0]
   norm_std:  [1.0, 1.0, 1.0]
+  norm_mismatch_ok: true          # DELIBERATE: timm's pretrained_cfg describes the
+                                  # vit_base_patch16_224 SKELETON (ImageNet stats), but
+                                  # the weights loaded over it are MRI-CORE's, trained on
+                                  # slices min-max normalised to [0,1]. [0,1] is correct.
 
 training:
   epochs: 16
