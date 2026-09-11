@@ -44,7 +44,7 @@ class SliceModel(nn.Module):
         # position embeddings sized for its native grid, and timm builds/resamples both at
         # construction. We pass 448, its native size, so nothing is interpolated at all.
         self.backbone = timm.create_model(m["name"], pretrained=m.get("pretrained", True),
-                                          num_classes=0, img_size=cfg["input"]["size"],
+                                          num_classes=0, img_size=sc.model_input_size(cfg),
                                           drop_rate=m.get("drop_rate", 0.0),
                                           drop_path_rate=m.get("drop_path_rate", 0.0))
         feat = self.backbone.num_features

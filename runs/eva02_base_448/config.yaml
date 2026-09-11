@@ -43,16 +43,20 @@ model:
                                     # masked-modelling pretraining.
 
 input:
-  # 448, NOT 512. EVA-02 uses patch 14, and 512/14 is not an integer, so 512 would force a
-  # resampled position grid. 448 = 32 x 14 exactly, its native pretraining size, so both
-  # the learned position embeddings and the rotary embeddings are used as trained.
-  size: 448
-  # mm_per_px is re-derived so the FIELD OF VIEW is unchanged, which is the part that
-  # actually matters medically: 0.40 x 512 = 204.8 mm of knee in frame. 204.8 / 448 =
-  # 0.4571. Leaving it at 0.40 would have cropped the frame to 179 mm and silently cut
-  # anatomy off the edges, since _fit centre-crops to size. Same anatomy, sampled ~14%
-  # coarser.
-  mm_per_px: 0.4571
+  # The LOADER stays at 512 @ 0.40 mm/px, byte-identical to every other run, so this member
+  # can share the ensemble's single DICOM decode pass instead of paying ~0.85 h for a second
+  # one. prepare_batch then shrinks 512 -> 448 on GPU, on the SAME code path for training,
+  # validation and inference, so there is no train/test mismatch anywhere.
+  #
+  # Why 448 and not 512: EVA-02 uses patch 14, and 512/14 is not an integer. 448 = 32 x 14
+  # exactly, and it is the model's native pretraining size, so its learned position
+  # embeddings and its rotary embeddings are both used exactly as trained.
+  #
+  # The field of view is unchanged at 0.40 x 512 = 204.8 mm of knee, so the 448 image is
+  # genuinely just the 512 image shrunk: same anatomy, same framing, ~14% coarser sampling.
+  size: 512
+  mm_per_px: 0.40
+  resize_to: 448
 
   # EVA-02 normalises with CLIP's statistics, not ImageNet's and not 0.5/0.5. Read off the
   # checkpoint's own pretrained_cfg, not assumed - the template inherits ImageNet values

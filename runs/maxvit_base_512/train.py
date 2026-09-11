@@ -44,7 +44,7 @@ class SliceModel(nn.Module):
         # PARTITIONS the feature map, and the partition sizes are fixed at construction, so
         # the model must be built for the resolution it will actually see.
         self.backbone = timm.create_model(m["name"], pretrained=m.get("pretrained", True),
-                                          num_classes=0, img_size=cfg["input"]["size"],
+                                          num_classes=0, img_size=sc.model_input_size(cfg),
                                           drop_rate=m.get("drop_rate", 0.0),
                                           drop_path_rate=m.get("drop_path_rate", 0.0))
         feat = self.backbone.num_features

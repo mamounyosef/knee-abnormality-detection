@@ -40,6 +40,17 @@ input:
   # scanners differ up to 5x in zoom; rescale so a knee is the same pixel size everywhere
   mm_per_px: 0.40                   # null = skip physical resampling
   size: 512                         # 0.40 x 512 = 205 mm, full anatomy in frame
+  resize_to: null                   # null = feed the backbone `size` unchanged. Set it to
+                                    # a smaller side and prepare_batch downscales on GPU,
+                                    # once, on the SAME code path for training, validation
+                                    # and inference - so there is no train/test mismatch.
+                                    # It exists so a backbone that cannot take `size` (a
+                                    # patch-14 ViT: 512/14 is not an integer) still shares
+                                    # the ensemble's single DICOM decode pass, which the
+                                    # geometry check in predict_dicom_ensemble would
+                                    # otherwise forbid. Keep `mm_per_px` at the shared 0.40
+                                    # so the FIELD OF VIEW is unchanged and the smaller
+                                    # image really is just this one shrunk.
   interpolation: "area"
 
   # shards were stored with a wide 0.1-99.9 window, which leaves tissue in the bottom

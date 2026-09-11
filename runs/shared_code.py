@@ -204,7 +204,8 @@ def print_config(cfg: dict):
 
     _kv("geometry & intensity", [
         ("images per study", f"{len(i['slots'])} slots x {i['n_slices']} slices = {n_img}"),
-        ("resolution", f"{i['size']} x {i['size']} px @ {i['mm_per_px']} mm/px "
+        ("resolution", (f"{i['size']}->{i['resize_to']} px" if i.get("resize_to")
+                        else f"{i['size']} x {i['size']} px") + f" @ {i['mm_per_px']} mm/px "
                        f"= {field:.0f} mm field"),
         ("slice sampling", f"train={i['train_slice_sampling']}  eval={i['slice_sampling']}  "
                            f"margin={i.get('slice_margin', 0)}"),
@@ -819,6 +820,15 @@ class KneeShardDataset(Dataset):
         return x, y
 
 
+def model_input_size(cfg: dict) -> int:
+    """The side length the BACKBONE sees, which is not always the loader's.
+
+    input.size is the decoded image; input.resize_to, when set, is what prepare_batch
+    shrinks it to on GPU. Build models against this, never against input.size directly.
+    """
+    return int(cfg["input"].get("resize_to") or cfg["input"]["size"])
+
+
 def prepare_batch(x: torch.Tensor, cfg: dict, device) -> torch.Tensor:
     """uint8 (B, slots, D, H, W) -> normalized float (B*slots*D, C, H, W)."""
     # ship uint8 to the GPU (4x smaller transfer), normalize there
@@ -832,6 +842,14 @@ def prepare_batch(x: torch.Tensor, cfg: dict, device) -> torch.Tensor:
         x = x.view(b * s * d, 1, h, w)             # every slice becomes its own 2D image
         if c > 1:
             x = x.expand(-1, c, -1, -1)            # grey copied to 3 channels for ImageNet backbones
+    # Optional single downscale for a backbone whose resolution is not the loader's.
+    # It sits HERE, after the flatten and before normalisation, because prepare_batch is
+    # the one function training, validation and every inference path share - so a member
+    # can never be trained at one size and scored at another. "area" matches the loader's
+    # own interpolation, and the field of view is unchanged, so this is a pure resample.
+    r = cfg["input"].get("resize_to")
+    if r and x.shape[-1] != int(r):
+        x = F.interpolate(x, size=(int(r), int(r)), mode="area")
     mean = torch.tensor(cfg["input"]["norm_mean"][:c], device=device).view(1, c, 1, 1)
     std = torch.tensor(cfg["input"]["norm_std"][:c], device=device).view(1, c, 1, 1)
     return (x - mean) / std
@@ -5329,6 +5347,9 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
     # slice_context is a LOADER setting (KneeShardDataset._load fills the RGB channels
     # with neighbours), not a prepare_batch one, so a 2.5D member cannot ride along on a
     # duplicate-channel decode pass - it would silently score the wrong pixels.
+    # resize_to is deliberately ABSENT: it is applied per member inside prepare_batch, from
+    # each member's own cfg, so members may disagree on it and still share one decode pass.
+    # That is the whole point of the setting.
     geo = ("slots", "n_slices", "size", "mm_per_px", "window", "window_pct", "channels",
            "slice_context", "slice_context_stride")
     for i, c in enumerate(cfgs[1:], 1):
