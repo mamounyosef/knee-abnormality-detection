@@ -52,6 +52,12 @@ input:
 
 training:
   epochs: 12
+  grad_checkpointing: true          # REQUIRED here, not optional. One study is 96 images at
+                                    # 512x512, and MaxViT keeps attention activations at
+                                    # every stage that ConvNeXt has none of: at batch 1 that
+                                    # still overflows the H200's 141 GB. Recomputing
+                                    # activations in the backward pass costs ~30-40% step
+                                    # time and drops activation memory by close to 10x.
   grad_clip: 3.0                    # 3.0, never 1.0: the parent ran at 1.0 and clipped
                                     # 100% of its steps, which silently throttles the lr
   optimizer:
@@ -84,12 +90,11 @@ training:
     patience: 12                    # VALIDATIONS without improvement, not epochs
 
 dataloader:
-  batch_size: 2                     # 2 studies x 96 images = 192 @512. MaxViT-Base is 119M
-                                    # against ConvNeXt-Base's 88M and carries attention
-                                    # activations the ConvNeXt does not, so it starts where
-                                    # convnext_base_relabel sat (~125 GB of the H200's 141)
-                                    # rather than above it. Raise only after reading the
-                                    # first gpu_mem(peak) print.
+  batch_size: 2                     # 2 studies x 96 images = 192 @512, same as every other
+                                    # run. Batch 1 alone did NOT fit (OOM); what fixes it is
+                                    # grad_checkpointing above, and with that on the memory
+                                    # is roughly linear in batch again. Raise only after
+                                    # reading the first gpu_mem(peak) print.
   accum_steps: 4                    # effective 8 studies per update - IDENTICAL to every
                                     # other run, so step counts and lr schedules compare
   val_batch_size: 4
@@ -104,4 +109,5 @@ modal:
   gpu: "H200"
   cpu: 20.0
   memory_gb: 64
-  timeout_hours: 12                 # 2.65x convnext_base per image; 12 epochs needs room
+  timeout_hours: 18                 # 2.65x convnext_base per image, plus ~35% for gradient
+                                    # checkpointing; 12 epochs needs the room

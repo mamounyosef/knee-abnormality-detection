@@ -1,0 +1,116 @@
+# EVA-02 Base at NATIVE 448x448. Masked image modelling against CLIP features, then
+# ImageNet-21k -> ImageNet-1k supervised fine-tuning.
+#
+# WHY THIS BACKBONE, after siglip2_vitb_512 was cut and maxvit_base_512 proved expensive:
+#   1. Best Base-class model that exists on ImageNet, 88.6% top-1, against BEiT-Base 86.8%
+#      and convnext_base 85.8%. Every top SOLO run in this project has had a supervised
+#      ImageNet-21k stage, and EVA-02 has one.
+#   2. An objective nothing in the pool has. Its pretraining reconstructs masked patches
+#      as EVA-CLIP FEATURES, not raw pixels (MRI-CORE's MAE) and not a discrete codebook
+#      (BEiT). So it inherits language-grounded semantics WITHOUT the contrastive trunk
+#      that made SigLIP untrainable here.
+#   3. Cheap. patch 14 at 448 is 32x32 = 1024 tokens, the SAME token count as SigLIP's
+#      ViT-B/16 at 512, which measured 0.90x convnext_base. Allow ~1.2x for its SwiGLU
+#      feed-forward and extra norms: roughly a FIFTH of maxvit_base_512's 2.65x, and it
+#      needs no gradient checkpointing.
+#   4. MIT weights (checked separately from the code licence), ungated, in timm 1.0.27.
+#
+# THE ONE COST, stated plainly: this is the project's first run at a resolution other than
+# 512, because patch 14 does not divide 512. predict_dicom_ensemble REFUSES to share a
+# decode pass between members that disagree on input.size or mm_per_px, so if this member
+# ships it needs its OWN decode pass, adding roughly +0.85 h to a submission. That is a
+# submission-assembly problem, not a reason to skip the model.
+#
+# Beat: convnext_base_relabel 0.9050 (best single), convnext_large 0.9061 (best overall).
+
+experiment:
+  name: "eva02_base_448"
+
+paths:
+  # Byte-identical split membership to convnext_base_relabel, so the backbone is the only
+  # variable. audit_csv stays 05_audit58.csv - the panel labels never change.
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+
+model:
+  name: "eva02_base_patch14_448.mim_in22k_ft_in22k_in1k"   # 87M params, MIT weights
+  pretrained: true
+  pool: "mean"                      # over SLICES, unchanged from every other run
+  drop_rate: 0.1                    # dropout in the head
+  drop_path_rate: 0.1               # stochastic depth, the value EVA-02's own authors use
+                                    # for Base fine-tuning. Lower than maxvit's 0.2: EVA-02
+                                    # is 87M against 119M and already regularised by its
+                                    # masked-modelling pretraining.
+
+input:
+  # 448, NOT 512. EVA-02 uses patch 14, and 512/14 is not an integer, so 512 would force a
+  # resampled position grid. 448 = 32 x 14 exactly, its native pretraining size, so both
+  # the learned position embeddings and the rotary embeddings are used as trained.
+  size: 448
+  # mm_per_px is re-derived so the FIELD OF VIEW is unchanged, which is the part that
+  # actually matters medically: 0.40 x 512 = 204.8 mm of knee in frame. 204.8 / 448 =
+  # 0.4571. Leaving it at 0.40 would have cropped the frame to 179 mm and silently cut
+  # anatomy off the edges, since _fit centre-crops to size. Same anatomy, sampled ~14%
+  # coarser.
+  mm_per_px: 0.4571
+
+  # EVA-02 normalises with CLIP's statistics, not ImageNet's and not 0.5/0.5. Read off the
+  # checkpoint's own pretrained_cfg, not assumed - the template inherits ImageNet values
+  # from shared_config, which would be wrong here and would fail silently.
+  # check_normalization enforces it at startup.
+  norm_mean: [0.48145466, 0.4578275, 0.40821073]
+  norm_std:  [0.26862954, 0.26130258, 0.27577711]
+
+training:
+  epochs: 12
+  grad_clip: 3.0                    # 3.0, never 1.0: 1.0 clips every step and silently
+                                    # throttles the effective learning rate
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-5                      # BACKBONE lr, identical to convnext_base_relabel and
+                                    # convnext_large. Same supervised-ImageNet starting
+                                    # point, same distance to travel.
+    backbone_lr_mult: 0.5           # head = 1.0e-4
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05
+    min_lr_mult: 0.01
+  loss:
+    name: "bce"
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  # LP-FT is deliberately OFF. It exists for a backbone whose frozen features are good but
+  # whose fine-tune misbehaves, which was SigLIP's problem - and even there it did not
+  # help. EVA-02 ends on a supervised ImageNet-21k stage, the same place convnext_base
+  # starts from, and that fine-tunes cleanly from step 0.
+  lp_ft_epochs: 0
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 12                    # VALIDATIONS without improvement, not epochs
+
+dataloader:
+  batch_size: 2                     # 2 studies x 96 images = 192 @448. siglip2_vitb_512
+                                    # ran 4 at the same 1024 tokens, but EVA-02's SwiGLU
+                                    # feed-forward is wider, so start at 2 and raise after
+                                    # reading the first gpu_mem(peak) print.
+  accum_steps: 4                    # effective 8 studies per update - IDENTICAL to every
+                                    # other run, so step counts and lr schedules compare
+  val_batch_size: 8
+  num_workers: 24
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+modal:
+  gpu: "H200"
+  cpu: 20.0
+  memory_gb: 56
+  timeout_hours: 10
