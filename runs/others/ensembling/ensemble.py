@@ -19,7 +19,7 @@ from pathlib import Path
 
 # ============================ CONFIG (edit here) ============================
 SET             = "val"        # split to score: "val" (704, LLM labels) | "audit" (58, panel)
-WEIGHTS         = "flat"       # "flat" = equal average | "search" = fit per-class weights
+WEIGHTS         = "search"       # "flat" = equal average | "search" = fit per-class weights
                                # now and save them | a saved fit to reuse ("best_val",
                                # a folder name, or a path)
 COMBINE_SPACE   = "logit"      # blend space: "logit" (the .npz hold logits, so lossless)
@@ -33,12 +33,18 @@ BEST_METRIC     = "oof_mean_auroc"   # what ranks a search run; "oof_mean_auroc"
 # ("run", 3200)             -> its step-3200 validation
 # [("r", 3200), ("r", 4000)] -> LIST = sub-ensemble, averaged first, ONE vote above
 FULL_MODELS = [
-    ["convnext_base_relabel", "convnext_base_trauma", "convnext_base_wear", "convnext_base_fluid"],
+    # ["convnext_base_relabel", "convnext_base_trauma", "convnext_base_wear", "convnext_base_fluid"],
+    "convnext_base_relabel",
     "mricore_vitb_cross_attention",
     "mricore_vitb_mae_cross_attention",
     "dinov3_convnext_base",
     "swinv2_base_in22k",
+    # "convnext_large",
+    "eva02_base_448",
 ]
+
+
+
 AUTO_TOP_N      = 1            # expand a bare run name into its N best validations
 AUTO_MIN_GAP    = 400          # min steps between them, so they aren't near-duplicates
 
@@ -47,7 +53,7 @@ AUTO_MIN_GAP    = 400          # min steps between them, so they aren't near-dup
 # overfits whatever the CV says — fit on val, then read the audit number it reports.
 SEARCH_MODE = "greedy"         # "greedy" (forward selection) | "grid" (exhaustive)
 GRID_STEP   = 0.1              # weights snap to multiples of this, summing to 1
-N_FOLDS     = 5                # CV folds
+N_FOLDS     = 4                # CV folds
 SEED        = 42               # KFold shuffle seed
 TIE_EPS     = 1e-9             # AUROC ties within this go to the most uniform weights
 SEARCH_WORKERS = 4             # CPU threads; 0 -> half this PC's cores

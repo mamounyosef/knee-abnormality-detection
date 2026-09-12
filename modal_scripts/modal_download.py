@@ -168,6 +168,60 @@ def verify():
     return {"ok": True, "bytes": size, "members": len(names), "studies": studies}
 
 
+@app.function(image=image, volumes={MOUNT: vol}, timeout=60 * 60 * 3, memory=8192, cpu=4.0)
+def verify_deep(sample: int = 400, seed: int = 0):
+    """CRC-check a random SAMPLE of members, which `verify` cannot do.
+
+    verify() only reads the central directory at the tail of the file. That catches a
+    truncated download, but not bytes corrupted in the MIDDLE - the exact risk after a
+    download that crashed and resumed several times. Every zip member carries its own
+    CRC-32, so decompressing one and comparing is a real integrity test.
+
+    Sampling, not testzip(): a full check decompresses all 247 GiB. A few hundred members
+    spread across the archive costs minutes and would catch any damage large enough to
+    matter, since a resume fault corrupts a contiguous span, not one isolated file.
+    """
+    import random
+    import zipfile
+
+    if not os.path.exists(ARCHIVE):
+        print(f"[deep] MISSING {ARCHIVE}")
+        return {"ok": False}
+
+    with zipfile.ZipFile(ARCHIVE) as zf:
+        infos = [i for i in zf.infolist() if not i.is_dir()]
+        print(f"[deep] {len(infos)} members, {os.path.getsize(ARCHIVE) / 1024**3:.2f} GiB",
+              flush=True)
+
+        # sort by position in the file, then take an EVEN stride, so the sample spans the
+        # whole archive instead of clustering wherever random happens to land
+        infos.sort(key=lambda i: i.header_offset)
+        step = max(1, len(infos) // max(1, sample))
+        picked = infos[::step][:sample]
+        rnd = random.Random(seed)
+        picked += rnd.sample(infos, min(sample // 4, len(infos)))   # plus a random handful
+
+        bad, done = [], 0
+        for i in picked:
+            try:
+                with zf.open(i) as fh:                 # zipfile raises on a CRC mismatch
+                    while fh.read(1 << 20):
+                        pass
+            except Exception as exc:
+                bad.append((i.filename, f"{type(exc).__name__}: {exc}"))
+            done += 1
+            if done % 100 == 0:
+                print(f"[deep] {done}/{len(picked)} checked, {len(bad)} bad", flush=True)
+
+    if bad:
+        print(f"[deep] FAILED: {len(bad)}/{len(picked)} members are corrupt")
+        for n, e in bad[:10]:
+            print(f"        {n}  {e}")
+        return {"ok": False, "checked": len(picked), "bad": len(bad)}
+    print(f"[deep] OK: {len(picked)} members spread across the archive all pass CRC")
+    return {"ok": True, "checked": len(picked), "bad": 0}
+
+
 @app.local_entrypoint()
 def main(csvs_only: bool = False, skip_csvs: bool = False):
     print("[launch] modal")
