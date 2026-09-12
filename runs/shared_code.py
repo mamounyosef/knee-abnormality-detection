@@ -2953,7 +2953,8 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     # is logged on its own rather than hidden inside the total
     _ax = (cfg.get("training", {}).get("aux_report") or {})
     aux_w = float(_ax.get("weight", 0.0) or 0.0) if _ax.get("enable") else 0.0
-    aux_run = [0.0, 0]
+    # [aligned loss sum, n, shuffled loss sum, in-batch top-1 sum, n_pairs]
+    aux_run = [0.0, 0, 0.0, 0.0, 0]
     clip_vals = deque(maxlen=4000)     # finite gnorms, for the distribution below
 
     stop_now = [False]            # raised the moment patience runs out, so the step
@@ -3195,6 +3196,27 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                     loss = loss + aux_w * aux_loss
                     aux_run[0] += float(aux_loss.detach())
                     aux_run[1] += 1
+                    # THE diagnostic that matters, and the one aux_cos_loss cannot give.
+                    # Most knee reports resemble each other, so a head that simply predicts
+                    # the DATASET MEAN vector scores a good cosine while learning nothing
+                    # about the individual study - and aux_cos_loss would fall and look
+                    # healthy the whole time. Compare each prediction against a MISMATCHED
+                    # report from the same batch: if aligned and shuffled are equal, the
+                    # head learned the average report and this whole idea is doing nothing.
+                    with torch.no_grad():
+                        if tgt.shape[0] > 1:
+                            roll = torch.roll(tgt, 1, dims=0)
+                            cos_s = F.cosine_similarity(aux_p.float(), roll.float(), dim=1)
+                            aux_run[2] += float(((1.0 - cos_s) * has_report.squeeze(1)).sum()
+                                                / denom)
+                            # in-batch retrieval: is a study's OWN report its nearest of
+                            # the batch? 1/B is chance, 1.0 is perfect
+                            sim = F.normalize(aux_p.float(), dim=1) @ \
+                                F.normalize(tgt.float(), dim=1).T
+                            hit = (sim.argmax(dim=1) == torch.arange(sim.shape[0],
+                                                                     device=sim.device))
+                            aux_run[3] += float(hit.float().mean())
+                            aux_run[4] += 1
                 loss = loss / accum
             scaler.scale(loss).backward()
             seen += imgs_per_batch
@@ -3274,11 +3296,22 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                     # update, not assign: _extra may already hold the gate rows
                     _extra.update(loss_fn.stats(cfg["tasks"]))   # AUC-M duals a / b / alpha
                 if aux_run[1]:
-                    # the auxiliary term on its own: 1 - cosine, so 1.0 is "no better than
-                    # orthogonal" and a value that never falls means the head is not
-                    # learning the report and the whole idea is dead
+                    # aux_cos_loss  1 - cosine to the CORRECT report. 1.0 is orthogonal.
+                    # aux_cos_shuf  the same against a MISMATCHED report from the batch.
+                    # aux_gap       shuffled minus aligned. THIS is the real signal: it is
+                    #               how much of the head's skill is study-SPECIFIC rather
+                    #               than the dataset-average report. A falling aux_cos_loss
+                    #               with a gap near 0 means the head learned the average
+                    #               and the auxiliary supervision is doing nothing.
+                    # aux_top1      in-batch retrieval: does a study's own report come out
+                    #               nearest? chance is 1/batch_size.
                     _extra["aux_cos_loss"] = round(aux_run[0] / aux_run[1], 5)
-                    aux_run[0], aux_run[1] = 0.0, 0
+                    if aux_run[4]:
+                        shuf = aux_run[2] / aux_run[4]
+                        _extra["aux_cos_shuf"] = round(shuf, 5)
+                        _extra["aux_gap"] = round(shuf - aux_run[0] / aux_run[1], 5)
+                        _extra["aux_top1"] = round(aux_run[3] / aux_run[4], 4)
+                    aux_run[:] = [0.0, 0, 0.0, 0.0, 0]
                 train_log.log({**_extra, **ScaleProbe.row(_pb),
                                "epoch": epoch, "epoch_step": it // accum,
                                "global_step": gstep, "loss": round(l, 6), "lr": lr,
@@ -4202,6 +4235,48 @@ def make_plots(cfg: dict, results_dir, out_subdir: str = "plots",
             ax.legend(fontsize=7, ncol=3, loc="best")
         _save(fig, "aucm_internals.png")
 
+    def _plot_aux_report():
+        """Is the auxiliary report head learning the STUDY, or just the average report?
+
+        Left: the auxiliary loss against the correct report and against a mismatched one.
+        The vertical distance between them is the whole result. Most knee reports look
+        alike, so a head that predicts the dataset mean drives the aligned curve down while
+        the two lines stay together - which is a null result dressed up as progress.
+
+        Right: in-batch retrieval, whether a study's own report is its nearest. Chance is
+        1/batch_size, drawn as the dashed line.
+        """
+        if tr is None or "aux_cos_loss" not in tr.columns:
+            return
+        d = tr[tr["aux_cos_loss"].notna()]
+        if d.empty:
+            return
+        fig, (ax, ax2) = plt.subplots(1, 2, figsize=(13, 4.5))
+        ax.plot(d["global_step"], d["aux_cos_loss"], color="crimson", lw=1.6,
+                label="1 - cos to the CORRECT report")
+        if "aux_cos_shuf" in d.columns and d["aux_cos_shuf"].notna().any():
+            ax.plot(d["global_step"], d["aux_cos_shuf"], color="0.55", lw=1.4, ls="--",
+                    label="1 - cos to a MISMATCHED report")
+            ax.fill_between(d["global_step"], d["aux_cos_loss"], d["aux_cos_shuf"],
+                            color="crimson", alpha=0.12,
+                            label="gap = study-specific skill")
+        ax.set_xlabel("global step"); ax.set_ylabel("1 - cosine")
+        ax.set_title("auxiliary report loss (a gap of ~0 means it learned the average)")
+        ax.legend(fontsize=8, loc="best"); ax.grid(True, alpha=0.3); _vlines(ax, bsteps)
+
+        if "aux_top1" in d.columns and d["aux_top1"].notna().any():
+            ax2.plot(d["global_step"], d["aux_top1"], color="steelblue", lw=1.6)
+            bs = int(cfg["dataloader"]["batch_size"]) or 1
+            ax2.axhline(1.0 / bs, color="k", ls="--", lw=1.2,
+                        label=f"chance = 1/{bs}")
+            ax2.set_ylim(0, 1.02)
+            ax2.legend(fontsize=8, loc="best")
+        ax2.set_xlabel("global step"); ax2.set_ylabel("in-batch top-1")
+        ax2.set_title("does a study's own report come out nearest?")
+        ax2.grid(True, alpha=0.3); _vlines(ax2, bsteps)
+        _save(fig, "aux_report.png")
+
+    _safe("plot:aux_report", _plot_aux_report)
     _safe("plot:loss", _plot_loss)
     _safe("plot:macro_auroc", _plot_macro, "val_macro_auroc", "validation macro AUROC",
           "macro_auroc.png", "max", "audit_macro_auroc")
