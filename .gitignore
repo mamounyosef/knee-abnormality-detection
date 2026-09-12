@@ -294,3 +294,6 @@ runs/others/**/*.npz
 runs/others/ensembling/ensemble_results/
 other_md/runs_timeline.md
 temp.txt
+
+# derived report-embedding target: 32 MB, regenerate with runs/others/encode_reports.py
+data/11_report_emb.npz
