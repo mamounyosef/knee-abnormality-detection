@@ -3304,7 +3304,10 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                     #               with a gap near 0 means the head learned the average
                     #               and the auxiliary supervision is doing nothing.
                     # aux_top1      in-batch retrieval: does a study's own report come out
-                    #               nearest? chance is 1/batch_size.
+                    #               nearest? chance is 1/batch_size - and at our batch of 2
+                    #               that chance is 50%, so top1 is WEAK here and aux_gap is
+                    #               the metric to trust. top1 becomes informative only on a
+                    #               run with a genuinely large batch.
                     _extra["aux_cos_loss"] = round(aux_run[0] / aux_run[1], 5)
                     if aux_run[4]:
                         shuf = aux_run[2] / aux_run[4]
@@ -3402,6 +3405,22 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                     print(f"     loss={l:.4f}{d}  {lr_s}  gnorm={gnorm:.2f}{_gs}  "
                           f"elapsed={fmt(el)}  ETA={fmt(eta)}  gpu_mem(peak)={mem:.2f}GB"
                           f"{_since}")
+                    if "aux_cos_loss" in _extra:
+                        # gap is the one to watch: aligned falling with gap ~0 means the
+                        # head learned the AVERAGE report, not this study's. top1 is
+                        # in-batch retrieval against a chance of 1/batch_size.
+                        _bs = int(cfg["dataloader"]["batch_size"]) or 1
+                        _gp = _extra.get("aux_gap")
+                        _t1 = _extra.get("aux_top1")
+                        _verdict = ""
+                        if _gp is not None:
+                            _verdict = ("  <- learning the AVERAGE report, not the study"
+                                        if _gp < 0.02 else "  <- study-specific")
+                        print(f"     \U0001F4DD aux report: 1-cos={_extra['aux_cos_loss']:.4f}"
+                              f"  shuffled={_extra.get('aux_cos_shuf', float('nan')):.4f}"
+                              f"  gap={_gp if _gp is not None else float('nan'):+.4f}"
+                              f"  top1={_t1 if _t1 is not None else float('nan'):.3f}"
+                              f" (chance {1.0 / _bs:.3f}){_verdict}")
                     print()                      # split what the model is doing from how fast
                     print(f"     throughput: {ips:.0f} img/s compute | {real_ips:.0f} img/s real "
                           f"({len(roll)}-step) | data-wait {wait_pct:.0f}%")
