@@ -33,7 +33,26 @@ CANDIDATES = [
     ("Qwen/Qwen3-Embedding-4B", "apache-2.0", "4B"),
     ("Qwen/Qwen3-Embedding-8B", "apache-2.0", "8B, top of MTEB at release"),
     ("Alibaba-NLP/gte-Qwen2-7B-instruct", "apache-2.0", "7B"),
+    # from the MTEB leaderboard, not from memory. Qwen3-8B is #2 overall (70.58); these
+    # are the models above or beside it that are not API-only.
+    ("tencent/KaLM-Embedding-Gemma3-12B-2511", "tencent-comm",
+     "11.8B, MTEB #1 at 72.32 - LICENCE NEEDS CHECKING before use"),
+    ("nvidia/llama-3.2-nemoretriever-300m-embed-v1", "nvidia-open", "300M"),
+    ("intfloat/multilingual-e5-large-instruct", "mit", "560M, MTEB #9, the best MIT option"),
 ]
+
+def _hf_secret():
+    """The local Hugging Face token, as a Modal secret. Needed for gated repos.
+
+    Read from the file the huggingface CLI already wrote; never printed or committed.
+    Returns an empty secret when there is no token, so ungated models still run.
+    """
+    import modal as _m
+    t = Path.home() / ".cache" / "huggingface" / "token"
+    tok = t.read_text().strip() if t.exists() else ""
+    return _m.Secret.from_dict({"HF_TOKEN": tok, "HUGGING_FACE_HUB_TOKEN": tok,
+                                "HF_HUB_DISABLE_TELEMETRY": "1"})
+
 
 try:
     import modal
@@ -50,8 +69,8 @@ if modal is not None:
     app = modal.App("report-encoder-bench")
 
     @app.function(image=image, gpu="H100", timeout=60 * 45,
-                  secrets=[modal.Secret.from_dict({"HF_HUB_DISABLE_TELEMETRY": "1"})])
-    def bench_one(spec, n_studies: int):
+                  secrets=[_hf_secret()])
+    def bench_one(spec, n_studies: int, common_dim: int):
         """ONE encoder, in its own container.
 
         Isolation is not tidiness: a CUDA device-side assert poisons the whole context, so
@@ -61,12 +80,12 @@ if modal is not None:
         """
         name, lic, note = spec
         try:
-            return (name, lic, note) + _run_one(name, n_studies)
+            return (name, lic, note) + _run_one(name, n_studies, common_dim)
         except Exception as e:
             print(f"[bench] FAILED {name}: {type(e).__name__}: {str(e)[:160]}", flush=True)
-            return (name, lic, note, None, 0)
+            return (name, lic, note, None, 0, None)
 
-    def _run_one(name, n_studies):
+    def _run_one(name, n_studies, common_dim):
         import numpy as np
         import pandas as pd
         import torch
@@ -113,25 +132,40 @@ if modal is not None:
                      normalize_embeddings=True, show_progress_bar=False)
         del m
         torch.cuda.empty_cache()
-        macro = probe(E.astype(np.float32))
-        print(f"[bench] {macro:.4f}  {name}  dim={E.shape[1]}", flush=True)
-        return macro, int(E.shape[1])
+        E = E.astype(np.float32)
+        macro = probe(E)
+
+        # DIMENSION CONTROL. A linear probe with 4,096 features on 2,500 samples has more
+        # room to fit than one with 768, so a wider encoder can win on width rather than on
+        # content. Reduce every candidate to the SAME width and probe again: if the ranking
+        # survives, the margin is real.
+        red = macro
+        if common_dim and E.shape[1] > common_dim:
+            X = E - E.mean(0)
+            # randomised SVD would do; full is fine at this size and is deterministic
+            U, S, Vt = np.linalg.svd(X, full_matrices=False)
+            red = probe(U[:, :common_dim] * S[:common_dim])
+        print(f"[bench] {macro:.4f} (full dim={E.shape[1]})  "
+              f"{red:.4f} (at {min(common_dim, E.shape[1])}d)  {name}", flush=True)
+        return macro, int(E.shape[1]), red
 
     @app.local_entrypoint()
-    def main(models: str = "", n_studies: int = 2500):
+    def main(models: str = "", n_studies: int = 2500, common_dim: int = 768):
         chosen = CANDIDATES
         if models:
             want = [s.strip() for s in models.split(",") if s.strip()]
             chosen = [c for c in CANDIDATES if c[0] in want]
             chosen += [(w, "?", "requested") for w in want
                        if not any(c[0] == w for c in chosen)]
-        rows = list(bench_one.starmap([(c, n_studies) for c in chosen]))
+        rows = list(bench_one.starmap([(c, n_studies, common_dim) for c in chosen]))
         ok = [r for r in rows if r[3] is not None]
         print("\n" + "=" * 88)
         print("RECOVERING THE 12 FINDINGS FROM THE REPORT EMBEDDING (4-fold)")
-        for name, lic, note, macro, dim in sorted(ok, key=lambda r: -r[3]):
-            print("  %.4f  %-44s dim=%-5d %-11s %s" % (macro, name, dim, lic, note))
-        for name, lic, note, macro, dim in rows:
+        print("  %-9s %-9s %-44s %-6s %-11s" % ("full", "@%dd" % common_dim, "model", "dim", "licence"))
+        for name, lic, note, macro, dim, red in sorted(ok, key=lambda r: -r[3]):
+            print("  %-9.4f %-9.4f %-44s %-6d %-11s %s"
+                  % (macro, red if red is not None else macro, name, dim, lic, note))
+        for name, lic, note, macro, dim, red in rows:
             if macro is None:
                 print("  FAILED    %-44s %s" % (name, note))
         print("=" * 88)

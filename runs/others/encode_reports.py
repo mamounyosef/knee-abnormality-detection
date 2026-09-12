@@ -42,9 +42,15 @@ def encode(model_name: str, batch_size: int):
     from sentence_transformers import SentenceTransformer
 
     R = pd.read_csv("/data_local/02_reports_en.csv")
-    R = R[R.Report_en.notna()].copy()
     R["StudyInstanceUID"] = R.StudyInstanceUID.astype(str)
-    text = R.Report_en.astype(str).tolist()
+    # Two studies have an EMPTY Report_en because the translation step skipped reports that
+    # were already in English, leaving the text only in Report. Dropping them would silently
+    # cost two studies their target, so fall back to the original.
+    n_fallback = int(R.Report_en.isna().sum())
+    R["_text"] = R.Report_en.fillna(R.Report)
+    R = R[R._text.notna()].copy()
+    text = R._text.astype(str).tolist()
+    print(f"[enc] {n_fallback} report(s) fell back to the untranslated original", flush=True)
     ids = R.StudyInstanceUID.to_numpy()
     print(f"[enc] {len(text)} reports, median {int(R.Report_en.str.len().median())} chars",
           flush=True)
