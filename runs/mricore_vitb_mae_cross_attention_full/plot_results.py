@@ -4,15 +4,15 @@ plot_results.py — redraw this run's plots from the CSVs, no retraining.
 Handy after a sync pulls in new rows, or after tweaking a
 plot in shared_code.py.
 
-    python runs/mricore_vitb_mae_cross6/plot_results.py
-    python runs/mricore_vitb_mae_cross6/plot_results.py --results /runs/mricore_vitb_mae_cross6/results
+    python runs/mricore_vitb_mae_cross_attention_full/plot_results.py
+    python runs/mricore_vitb_mae_cross_attention_full/plot_results.py --results /runs/mricore_vitb_mae_cross_attention_full/results
 """
 
 import argparse
 import sys
 from pathlib import Path
 
-EXP_NAME = "mricore_vitb_mae_cross6"
+EXP_NAME = "mricore_vitb_mae_cross_attention_full"
 
 
 def _pkg_root() -> Path:

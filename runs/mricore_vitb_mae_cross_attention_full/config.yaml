@@ -19,7 +19,7 @@
 # Beat: mricore_vitb_mae_cross_attention 0.9007 solo, and its ensemble slot.
 
 experiment:
-  name: "mricore_vitb_mae_cross6"
+  name: "mricore_vitb_mae_cross_attention_full"
 
 paths:
   # Same --like split as convnext_small_relabel: byte-identical train/val MEMBERSHIP to

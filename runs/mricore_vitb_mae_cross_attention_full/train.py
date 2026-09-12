@@ -1,12 +1,12 @@
 """
-train.py — mricore_vitb_mae_cross6
+train.py — mricore_vitb_mae_cross_attention_full
 
 MRI-CORE ViT-B/16, self-supervised (DINO) on 6M MRI slices, in place of the
 ImageNet ConvNeXt trunk. Thin entry point: load config, build the model, hand
 off to the engine.
 
-Local:  python runs/mricore_vitb_mae_cross6/train.py
-Modal:  modal run runs/mricore_vitb_mae_cross6/train.py
+Local:  python runs/mricore_vitb_mae_cross_attention_full/train.py
+Modal:  modal run runs/mricore_vitb_mae_cross_attention_full/train.py
 """
 
 import re
@@ -17,7 +17,7 @@ import timm
 import torch
 import torch.nn as nn
 
-EXP_NAME = "mricore_vitb_mae_cross6"
+EXP_NAME = "mricore_vitb_mae_cross_attention_full"
 
 
 def _pkg_root() -> Path:
@@ -104,7 +104,7 @@ class CrossSliceBlock(nn.Module):
     as the identity. That was a trap. The gradient reaching the branch's OWN weights is
     scaled by gamma, so at 1e-3 the attention trained ~1000x too slowly, while gamma's own
     gradient was measured on a branch that was still random noise - the gate closed, which
-    kept the branch untrained, which kept the gate closed. mricore_vitb_mae_cross6_ft
+    kept the branch untrained, which kept the gate closed. mricore_vitb_mae_cross_attention_full_ft
     rode that loop the whole way down: |gamma| 9.1e-4 -> 4.0e-4 over 600 steps, channels
     open 296 -> 52, val pinned at 0.8936 against a 0.8970 init. The gate is gone entirely.
 

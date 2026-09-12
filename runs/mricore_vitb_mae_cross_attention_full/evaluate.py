@@ -5,10 +5,10 @@ Calibrates the per-task F1 thresholds automatically if results/thresholds.json
 is missing, then reuses that file on later runs (--recalibrate forces a refresh).
 AUROC never depends on a threshold; F1/precision/recall do.
 
-    python runs/mricore_vitb_mae_cross6/evaluate.py
-    python runs/mricore_vitb_mae_cross6/evaluate.py --checkpoint top1 --sets val audit
-    python runs/mricore_vitb_mae_cross6/evaluate.py --sets ../../data/05_val.csv
-    python runs/mricore_vitb_mae_cross6/evaluate.py --recalibrate
+    python runs/mricore_vitb_mae_cross_attention_full/evaluate.py
+    python runs/mricore_vitb_mae_cross_attention_full/evaluate.py --checkpoint top1 --sets val audit
+    python runs/mricore_vitb_mae_cross_attention_full/evaluate.py --sets ../../data/05_val.csv
+    python runs/mricore_vitb_mae_cross_attention_full/evaluate.py --recalibrate
 
 Writes into results/: <set>_predictions.csv, <set>_results.json, <set>_results.txt
 """
@@ -19,7 +19,7 @@ from pathlib import Path
 
 import torch
 
-EXP_NAME = "mricore_vitb_mae_cross6"
+EXP_NAME = "mricore_vitb_mae_cross_attention_full"
 
 
 def _pkg_root() -> Path:
