@@ -36,6 +36,7 @@ CSVS = ["train.csv", "train_series.csv", "test.csv", "test_series.csv",
 
 CHUNK = 32 * 1024 * 1024          # 32 MiB per write
 COMMIT_EVERY = 8 * 1024**3        # commit the volume every 8 GiB of progress
+STALE_AFTER_S = 15 * 60      # archive untouched this long = the lock holder is dead
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
@@ -110,13 +111,22 @@ def download_archive():
     if os.path.exists(DONE):
         print(f"[zip] {DONE} exists, archive already complete, refusing to touch it")
         return os.path.getsize(ARCHIVE)
+    # The lock must be STALE-AWARE. A killed container never runs its finally block, so
+    # a plain lock outlives the job holding it and then blocks every retry forever. That
+    # is not hypothetical: a client disconnect cancelled one job at 136 GiB and the
+    # orphaned lock killed all five of its retries. A live downloader always grows the
+    # archive, so "lock present AND the file grew recently" is the real liveness test.
+    vol.reload()
     if os.path.exists(LOCK):
         holder = Path(LOCK).read_text().strip()
-        raise RuntimeError(
-            f"[zip] lock held by {holder}. Another download job may still be running. "
-            f"If you're sure it's dead, delete {LOCK} on the volume and retry."
-        )
-    vol.reload()
+        age = time.time() - os.path.getmtime(ARCHIVE) if os.path.exists(ARCHIVE) else 1e9
+        if age < STALE_AFTER_S:
+            raise RuntimeError(
+                f"[zip] lock held by {holder} and the archive grew {age:.0f}s ago, so a "
+                f"download really is running. Refusing to start a second writer."
+            )
+        print(f"[zip] stale lock ({holder}); archive untouched for {age / 60:.0f} min, "
+              f"taking it over", flush=True)
     Path(LOCK).write_text(f"pid={os.getpid()} started={time.time()}")
     vol.commit()
 
