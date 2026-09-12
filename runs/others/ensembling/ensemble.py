@@ -35,12 +35,13 @@ BEST_METRIC     = "oof_mean_auroc"   # what ranks a search run; "oof_mean_auroc"
 FULL_MODELS = [
     ["convnext_base_relabel", "convnext_base_trauma", "convnext_base_wear", "convnext_base_fluid"],
     "mricore_vitb_cross_attention",
-    "mricore_vitb_mae_cross_attention",
+    # the 6-fusion child REPLACES its 3-fusion parent: same member count, same runtime,
+    # 0.9164 against 0.9160. The two tie solo at 0.9007 and correlate 0.9402, so this is a
+    # free swap rather than a real gain - but free is free.
+    "mricore_vitb_mae_cross_attention_full",
     "dinov3_convnext_base",
     "convnext_large",
     "swinv2_base_in22k",
-    "mricore_vitb_mae_cross_attention_full",
-    "eva02_base_448",
 ]
 
 
