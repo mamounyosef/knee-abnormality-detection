@@ -3177,11 +3177,21 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                 logits, aux_p = out if isinstance(out, tuple) else (out, None)
                 loss = loss_fn(logits, y)
                 if aux_p is not None and aux_t is not None:
+                    # Two different multipliers here, deliberately named apart:
+                    #   has_report  per-study 0/1 mask, inside the auxiliary mean
+                    #   aux_w       the scalar lambda from the config, applied ONCE to the
+                    #               whole auxiliary term
+                    # L = BCE(logits, y) + aux_w * mean_over_reported(1 - cos). Only the
+                    # RATIO of the two terms is meaningful: scaling the total loss just
+                    # rescales the gradient, which the learning rate already absorbs, so
+                    # the main term's coefficient is fixed at 1 and aux_w is the knob.
                     aux_t = aux_t.to(device, non_blocking=True)
-                    w, tgt = aux_t[:, :1], aux_t[:, 1:]     # w=0 for a study with no report
+                    has_report, tgt = aux_t[:, :1], aux_t[:, 1:]
                     cos = F.cosine_similarity(aux_p.float(), tgt.float(), dim=1)
-                    denom = w.sum().clamp(min=1.0)
-                    aux_loss = ((1.0 - cos) * w.squeeze(1)).sum() / denom
+                    # divide by the number of REAL reports, so a batch with a missing one
+                    # is not quietly scaled down toward zero
+                    denom = has_report.sum().clamp(min=1.0)
+                    aux_loss = ((1.0 - cos) * has_report.squeeze(1)).sum() / denom
                     loss = loss + aux_w * aux_loss
                     aux_run[0] += float(aux_loss.detach())
                     aux_run[1] += 1
