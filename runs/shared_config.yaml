@@ -110,6 +110,33 @@ training:
   # probe near chance, LP-FT will not help and the backbone is simply wrong for the task.
   lp_ft_epochs: 0
 
+  # Auxiliary supervision from the radiology REPORTS, not just the 12 labels.
+  #
+  # The 12 labels give one study at most 12 bits of gradient, across 3,638 training
+  # studies, to an 86M-parameter trunk. The reports those labels were WRITTEN FROM are a
+  # median 1,013 characters and carry laterality, location, severity and findings with no
+  # label column at all. runs/others/encode_reports.py turns each report into one vector
+  # with Qwen3-Embedding-8B (chosen by measurement: a linear model recovers the 12 findings
+  # from its vectors at 0.9634, against 0.9112 for bge-large and 0.9072 for all-mpnet).
+  #
+  # Training then adds  weight * (1 - cosine(aux_head(feature), report_vector)).
+  #
+  # It costs NOTHING at inference: the model returns (logits, aux_pred) in training mode
+  # and plain logits under eval(), so validation, the ensemble path and the Kaggle notebook
+  # are untouched, and no text is needed at submission time.
+  #
+  # The run's model must define the head and return the tuple; the engine only supplies the
+  # target and the loss term. `aux_cos_loss` is logged separately in train_log.csv - if it
+  # does not fall, the head is not learning the report and the idea is dead.
+  aux_report:
+    enable: false
+    path: "11_report_emb.npz"       # resolved like every other path, so data/<name>. The
+                                    # file already travels in the Modal image: modal_image()
+                                    # ships data/ minus shards, stats and the big formats,
+                                    # and 32 MB of npz is not on that ignore list.
+    weight: 0.3                     # relative to the BCE term. Untested; the first run
+                                    # should treat this as the main thing being tuned.
+
   # log10(update / weight) per weight tensor, written to ud_ratio.csv and plotted with
   # the rest. It measures whether each layer is ACTUALLY moving, instead of trusting that
   # the configured learning rate reached it - a frozen trunk and a throttled one look

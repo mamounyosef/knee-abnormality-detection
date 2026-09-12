@@ -634,6 +634,40 @@ def _retr_snapshot():
     return _RETR_IMGS.value, _RETR_BYTES.value, _RETR_NS.value
 
 
+def _load_report_targets(cfg: dict):
+    """{study_id: standardised report vector} for the auxiliary loss, or None when off.
+
+    WHY THIS EXISTS. The 12 labels give a study at most 12 bits of supervision. The reports
+    they were derived from are ~1,000 characters and carry laterality, location, severity
+    and findings with no label column at all. Encoding each report once turns that into a
+    dense target an auxiliary head can be trained against, at zero inference cost: the head
+    is dropped in eval mode.
+
+    STANDARDISATION IS NOT OPTIONAL. The findings live in LOWER-variance directions of the
+    embedding than report style does, so on the raw vector the auxiliary gradient would
+    chase writing style. The npz carries mean/std computed on the TRAIN split only, so
+    held-out reports never influence the scaling. Dead dimensions were already dropped when
+    the file was written; dividing a constant output by its ~0 sd would turn rounding noise
+    into a unit-variance target.
+    """
+    ax = (cfg.get("training", {}).get("aux_report") or {})
+    if not ax.get("enable"):
+        return None
+    path = resolve(ax.get("path", "11_report_emb.npz"), cfg)
+    if not Path(path).exists():
+        raise SystemExit(
+            f"[aux] aux_report.enable is true but {path} is missing. Build it with\n"
+            f"      modal run runs/others/encode_reports.py\n"
+            f"  then put it where the run can see it (locally data/, on Modal the runs "
+            f"volume).")
+    z = np.load(path, allow_pickle=True)
+    E = (z["emb"].astype(np.float32) - z["mean"]) / z["std"]
+    ids = [str(s) for s in z["study_ids"]]
+    print(f"  \U0001F4DD aux report target: {E.shape[0]} studies x {E.shape[1]} dims "
+          f"from {str(z['model'])}, standardised on the train split")
+    return {s: torch.from_numpy(E[i]) for i, s in enumerate(ids)}
+
+
 class KneeShardDataset(Dataset):
     """One item = one study: 4 slot volumes of n_slices each, plus its 12 labels."""
 
@@ -665,6 +699,12 @@ class KneeShardDataset(Dataset):
         # (index, {series: [files]}) at submission time: the same volumes come from
         # raw DICOM instead of a shard, everything downstream is identical
         self.dicom_files = None
+        # Auxiliary report-embedding target. Loaded ONLY for training splits and only when
+        # asked for: at submission time there are no reports, and the auxiliary head is
+        # dropped anyway, so inference must never depend on this.
+        self.aux = None
+        if train and dicom is None:
+            self.aux = _load_report_targets(cfg)
         if dicom is not None:
             dicom_index, self.dicom_files = dicom
             self.geo = dicom_index.set_index("series")[["pixel_spacing_c", "pixel_spacing_r"]]
@@ -817,7 +857,17 @@ class KneeShardDataset(Dataset):
         if self.cfg["target"]["mode"] == "hard":
             thr, ls = self.cfg["target"]["hard_threshold"], self.cfg["target"]["label_smoothing"]
             y = (y > thr).float() * (1 - ls) + ls / 2
-        return x, y
+        if self.aux is None:
+            return x, y                                  # unchanged for every existing run
+        # a study with no report gets a zero vector and a 0 weight, so it contributes
+        # nothing to the auxiliary loss instead of being trained toward the origin
+        a = self.aux.get(study)
+        if a is None:
+            a = torch.zeros(next(iter(self.aux.values())).shape, dtype=torch.float32)
+            w = torch.zeros(1)
+        else:
+            w = torch.ones(1)
+        return x, y, torch.cat([w, a])
 
 
 def model_input_size(cfg: dict) -> int:
@@ -2339,6 +2389,50 @@ def check_normalization(cfg: dict, model: nn.Module) -> None:
     raise SystemExit("[norm] " + msg)
 
 
+def check_aux_wiring(cfg: dict, model: nn.Module):
+    """aux_report.enable is only half the wiring: the MODEL must return the tuple.
+
+    The engine supplies the target and the loss term, but the auxiliary head belongs to the
+    run's model, because the optimizer is built from model.parameters(). If a config turns
+    the feature on and the model was copied from a run without a head, the engine sees plain
+    logits, adds nothing, and the run trains exactly like the baseline while its config
+    claims otherwise. That is a silent no-op of the worst kind: it looks like a negative
+    result. Fail loudly at startup instead.
+    """
+    ax = (cfg.get("training", {}).get("aux_report") or {})
+    if not ax.get("enable"):
+        return
+    if not float(ax.get("weight", 0) or 0):
+        raise SystemExit("[aux] aux_report.enable is true but weight is 0 - it would do "
+                         "nothing. Set a weight or disable it.")
+    m = _uncompiled(model)
+    was_training = m.training
+    m.train()
+    try:
+        with torch.no_grad():
+            i = cfg["input"]
+            n = len(i["slots"]) * i["n_slices"]
+            probe_in = torch.zeros(n, i["channels"], model_input_size(cfg),
+                                   model_input_size(cfg))
+            out = m(probe_in.to(next(m.parameters()).device))
+    except Exception as e:
+        print(f"  ⚠️  aux wiring check could not run a forward pass "
+              f"({type(e).__name__}: {e}); relying on the training loop instead")
+        m.train(was_training)
+        return
+    m.train(was_training)
+    if not isinstance(out, tuple):
+        raise SystemExit(
+            "[aux] aux_report.enable is true but the model returns plain logits in TRAINING "
+            "mode.\n"
+            "  The auxiliary head lives in the run's model, not the engine. Its forward must\n"
+            "  return (logits, aux_pred) when self.training, and plain logits otherwise.\n"
+            "  Without that the loss term is never added and the run silently trains as the\n"
+            "  baseline while the config claims report supervision.")
+    print(f"  ✅ aux wiring OK: model returns (logits {tuple(out[0].shape)}, "
+          f"aux {tuple(out[1].shape)}) in training mode, plain logits under eval()")
+
+
 def run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None, log_fn=None):
     """Public entry: tee the whole console into results/train_config/<timestamp>.txt,
     then train. Streams are restored even if the run crashes, traceback included."""
@@ -2460,6 +2554,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     print_environment(cfg)
     print_config(cfg)
     check_normalization(cfg, model)
+    check_aux_wiring(cfg, model)
 
     out = Path(out_dir) / cfg["output"]["run_dir"]
     ckpt_dir = out / cfg["output"]["checkpoints_dir"]
@@ -2854,6 +2949,11 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     # ImageNet trunk on the identical config was clipped on 16%. Counted here and
     # warned about below, so it can never again be found by hand after the fact.
     clip_seen, clip_hit, clip_warned = [0], [0], [False]
+    # auxiliary report-embedding loss: its weight, and a running (sum, count) so the term
+    # is logged on its own rather than hidden inside the total
+    _ax = (cfg.get("training", {}).get("aux_report") or {})
+    aux_w = float(_ax.get("weight", 0.0) or 0.0) if _ax.get("enable") else 0.0
+    aux_run = [0.0, 0]
     clip_vals = deque(maxlen=4000)     # finite gnorms, for the distribution below
 
     stop_now = [False]            # raised the moment patience runs out, so the step
@@ -3050,9 +3150,13 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         while True:
             _tf = time.time()
             try:
-                x, y = next(_train_it)
+                _batch = next(_train_it)
             except StopIteration:
                 break
+            # 2-tuple normally; 3-tuple when the auxiliary report target is enabled. Read
+            # it tolerantly so no existing run changes shape.
+            x, y = _batch[0], _batch[1]
+            aux_t = _batch[2] if len(_batch) > 2 else None
             data_dt = time.time() - _tf              # blocked purely on this batch
             it += 1
             if (it - 1) % accum == 0:                # fresh accumulation window
@@ -3065,7 +3169,23 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
             # reading before read() sees it, which is why the probe printed nothing.
             probe.arm(probe.active(gstep + 1) and it % accum == 0)
             with torch.autocast("cuda", enabled=scaler.is_enabled()):
-                loss = loss_fn(model(prepare_batch(x, cfg, device)), y) / accum
+                out = model(prepare_batch(x, cfg, device))
+                # A model with an auxiliary head returns (logits, aux_pred) IN TRAINING
+                # MODE ONLY, and plain logits under eval(). That is deliberate: validation,
+                # _predict_dataframe, the ensemble path and the Kaggle notebook then need
+                # no changes at all and cannot be broken by this feature.
+                logits, aux_p = out if isinstance(out, tuple) else (out, None)
+                loss = loss_fn(logits, y)
+                if aux_p is not None and aux_t is not None:
+                    aux_t = aux_t.to(device, non_blocking=True)
+                    w, tgt = aux_t[:, :1], aux_t[:, 1:]     # w=0 for a study with no report
+                    cos = F.cosine_similarity(aux_p.float(), tgt.float(), dim=1)
+                    denom = w.sum().clamp(min=1.0)
+                    aux_loss = ((1.0 - cos) * w.squeeze(1)).sum() / denom
+                    loss = loss + aux_w * aux_loss
+                    aux_run[0] += float(aux_loss.detach())
+                    aux_run[1] += 1
+                loss = loss / accum
             scaler.scale(loss).backward()
             seen += imgs_per_batch
             win_imgs += imgs_per_batch
@@ -3143,6 +3263,12 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                 if _pesg and hasattr(loss_fn, "stats"):
                     # update, not assign: _extra may already hold the gate rows
                     _extra.update(loss_fn.stats(cfg["tasks"]))   # AUC-M duals a / b / alpha
+                if aux_run[1]:
+                    # the auxiliary term on its own: 1 - cosine, so 1.0 is "no better than
+                    # orthogonal" and a value that never falls means the head is not
+                    # learning the report and the whole idea is dead
+                    _extra["aux_cos_loss"] = round(aux_run[0] / aux_run[1], 5)
+                    aux_run[0], aux_run[1] = 0.0, 0
                 train_log.log({**_extra, **ScaleProbe.row(_pb),
                                "epoch": epoch, "epoch_step": it // accum,
                                "global_step": gstep, "loss": round(l, 6), "lr": lr,
