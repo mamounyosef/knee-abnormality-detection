@@ -3170,12 +3170,15 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
             # reading before read() sees it, which is why the probe printed nothing.
             probe.arm(probe.active(gstep + 1) and it % accum == 0)
             with torch.autocast("cuda", enabled=scaler.is_enabled()):
-                out = model(prepare_batch(x, cfg, device))
+                # NOT `out`: that name is the run's OUTPUT DIRECTORY in this same scope,
+                # captured by the validation and checkpoint closure. Shadowing it would
+                # have crashed the first validation on `out / "ud_ratio.csv"`.
+                _fwd = model(prepare_batch(x, cfg, device))
                 # A model with an auxiliary head returns (logits, aux_pred) IN TRAINING
                 # MODE ONLY, and plain logits under eval(). That is deliberate: validation,
                 # _predict_dataframe, the ensemble path and the Kaggle notebook then need
                 # no changes at all and cannot be broken by this feature.
-                logits, aux_p = out if isinstance(out, tuple) else (out, None)
+                logits, aux_p = _fwd if isinstance(_fwd, tuple) else (_fwd, None)
                 loss = loss_fn(logits, y)
                 if aux_p is not None and aux_t is not None:
                     # Two different multipliers here, deliberately named apart:
@@ -3205,8 +3208,11 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                     # head learned the average report and this whole idea is doing nothing.
                     with torch.no_grad():
                         if tgt.shape[0] > 1:
-                            roll = torch.roll(tgt, 1, dims=0)
-                            cos_s = F.cosine_similarity(aux_p.float(), roll.float(), dim=1)
+                            # NOT `roll`: that name is the 20-step throughput deque in this
+                            # same scope, and shadowing it crashed the run at step 1
+                            _mismatched = torch.roll(tgt, 1, dims=0)
+                            cos_s = F.cosine_similarity(aux_p.float(),
+                                                        _mismatched.float(), dim=1)
                             aux_run[2] += float(((1.0 - cos_s) * has_report.squeeze(1)).sum()
                                                 / denom)
                             # in-batch retrieval: is a study's OWN report its nearest of

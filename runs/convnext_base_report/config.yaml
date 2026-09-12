@@ -54,7 +54,7 @@ training:
                                     # Too high and the trunk optimises report style over
                                     # the findings; too low and nothing changes.
   epochs: 12
-  grad_clip: 1.0                    # cap gradient size so one bad batch can't blow up training
+  grad_clip: 3.0                    # cap gradient size so one bad batch can't blow up training
   optimizer:
     name: "adamw"
     weight_decay: 0.05
@@ -78,7 +78,7 @@ training:
     enable: true
     monitor: "val_macro_auroc"
     mode: "max"
-    patience: 4                     # VALIDATIONS without improvement, not epochs.
+    patience: 6                     # VALIDATIONS without improvement, not epochs.
                                     # With eval_every_steps that is several per
                                     # epoch; the counter is only CHECKED at an
                                     # epoch boundary.
