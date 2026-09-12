@@ -2297,6 +2297,17 @@ def check_normalization(cfg: dict, model: nn.Module) -> None:
     want_m, want_s = inp.get("norm_mean"), inp.get("norm_std")
     if want_m is None or want_s is None:
         return
+    # A run that loads its OWN checkpoint (model.weights) uses the timm entry only as an
+    # empty skeleton - those pretrained weights are overwritten and never seen. Its
+    # pretrained_cfg then describes a checkpoint that is not in the model, so comparing
+    # against it is meaningless: the MRI-CORE runs load a trunk pretrained under ImageNet
+    # statistics into vit_base_patch16_224, whose cfg says 0.5/0.5. Only the config author
+    # knows what the real trunk saw, so say so and move on.
+    if cfg.get("model", {}).get("weights"):
+        print(f"[norm] skipped: model.weights={cfg['model']['weights']!r} replaces the timm "
+              f"weights, so its pretrained_cfg does not describe this trunk. "
+              f"Using config mean {list(want_m)}, std {list(want_s)}.")
+        return
     # the backbone may be nested (SliceModel.backbone) or be the model itself
     for m in (getattr(_uncompiled(model), "backbone", None), _uncompiled(model)):
         pcfg = getattr(m, "pretrained_cfg", None)
