@@ -95,10 +95,10 @@ def download_csvs():
 # -----------------------------------------------------------------------------
 @app.function(image=image, volumes={MOUNT: vol}, secrets=[KAGGLE_SECRET],
               timeout=60 * 60 * 24, cpu=2.0, memory=4096,
-              # 20, not 5: these workers get preempted repeatedly on some workspaces and
-              # each preemption costs one retry, so 5 does not survive a 247 GiB pull. Every
-              # retry resumes by HTTP Range from the committed size, so a retry is cheap.
-              retries=modal.Retries(max_retries=20, backoff_coefficient=1.0,
+              # 10, Modal's maximum, not the old 5: these workers get preempted repeatedly
+              # on some workspaces and each preemption costs one retry. Every retry resumes
+              # by HTTP Range from the committed size, so a retry is cheap.
+              retries=modal.Retries(max_retries=10, backoff_coefficient=1.0,
                                     initial_delay=60.0))
 def download_archive():
     """Stream the competition archive onto the volume, resuming if interrupted.
