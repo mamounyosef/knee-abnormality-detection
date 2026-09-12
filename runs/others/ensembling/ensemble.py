@@ -39,6 +39,7 @@ FULL_MODELS = [
     "dinov3_convnext_base",
     "convnext_large",
     "swinv2_base_in22k",
+    "mricore_vitb_mae_cross_attention_full",
     "eva02_base_448",
 ]
 
