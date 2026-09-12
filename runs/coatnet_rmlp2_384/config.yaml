@@ -1,0 +1,107 @@
+# CoAtNet-RMLP-2 at its native 384. The one architecture family in the public 0.941
+# notebook that this project has never tried.
+#
+# WHY. That notebook's ensemble is four families: RadImageNet ResNet-50 (we ran it, 0.8794,
+# and its weights are non-commercial so we cannot ship it), DINOv2-S (we ran the
+# DINOv3-distilled ConvNeXt-Base instead, 0.9011), assorted timm ViTs, and CoAtNet.
+# CoAtNet is the gap.
+#
+# WHAT IT IS. A convolution/attention hybrid: convolutional stages first, then
+# relative-position self-attention stages. Same family as maxvit_base_512, which we built
+# and shelved when it needed gradient checkpointing to fit at all - but at 72.9M and 384px
+# this pushes roughly a third of MaxViT's pixels per image and needs no checkpointing.
+#
+# RESOLUTION. The loader stays at the shared 512 @ 0.40 mm/px and `input.resize_to` shrinks
+# to 384 on GPU inside prepare_batch. Two things follow: this member SHARES the ensemble's
+# single DICOM decode pass (predict_dicom_ensemble refuses to mix loader geometries), and
+# there is no train/test mismatch, because prepare_batch is the one function training,
+# validation and every inference path go through. 384 is the checkpoint's native size, so
+# its relative-position tables are used exactly as trained.
+#
+# Apache-2.0, ungated, verified present in timm 1.0.27.
+#
+# Beat: convnext_base_relabel 0.9050 solo, and earn an ensemble slot on a topology the pool
+# does not currently have.
+
+experiment:
+  name: "coatnet_rmlp2_384"
+
+paths:
+  # Byte-identical split membership to convnext_base_relabel, so the backbone is the only
+  # variable. audit_csv stays 05_audit58.csv - the panel labels never change.
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+
+model:
+  name: "coatnet_rmlp_2_rw_384.sw_in12k_ft_in1k"   # 72.9M params, 1024 features, Apache-2.0
+  pretrained: true
+  pool: "mean"                      # over SLICES, unchanged from every other run
+  drop_rate: 0.1                    # dropout in the head
+  drop_path_rate: 0.2               # stochastic depth. The attention stages overfit small
+                                    # data the way every transformer does; 0.2 matches what
+                                    # this model's authors use at this size.
+
+input:
+  # Loader geometry byte-identical to convnext_base_relabel, so this shares the ensemble's
+  # decode pass. The BACKBONE sees 384 via a single GPU-side resize in prepare_batch.
+  size: 512
+  mm_per_px: 0.40
+  resize_to: 384
+
+  # TensorFlow-lineage checkpoint: normalises to 0.5/0.5, NOT ImageNet. Read off the
+  # checkpoint's own pretrained_cfg rather than assumed - the template this was copied from
+  # would otherwise inherit ImageNet statistics and fail silently. check_normalization
+  # enforces it at startup.
+  norm_mean: [0.5, 0.5, 0.5]
+  norm_std:  [0.5, 0.5, 0.5]
+
+training:
+  epochs: 12
+  grad_clip: 3.0                    # 3.0, never 1.0: 1.0 clips every step and silently
+                                    # throttles the effective learning rate
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-5                      # BACKBONE lr, identical to convnext_base_relabel. Same
+                                    # supervised ImageNet-12k -> 1k starting point, so its
+                                    # tuning is the right prior.
+    backbone_lr_mult: 0.5           # head = 1.0e-4
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05
+    min_lr_mult: 0.01
+  loss:
+    name: "bce"
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  lp_ft_epochs: 0                   # off: this starts from the same supervised ImageNet
+                                    # distribution convnext_base does, which fine-tunes
+                                    # cleanly from step 0
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 12                    # VALIDATIONS without improvement, not epochs
+
+dataloader:
+  batch_size: 2                     # 2 studies x 96 images = 192 @384, which is 0.56x the
+                                    # pixels of the same batch at 512. Raise only after
+                                    # reading the first gpu_mem(peak) print.
+  accum_steps: 4                    # effective 8 studies per update - IDENTICAL to every
+                                    # other run, so step counts and lr schedules compare
+  val_batch_size: 8
+  num_workers: 24
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+modal:
+  gpu: "H200"
+  cpu: 20.0
+  memory_gb: 56
+  timeout_hours: 10
