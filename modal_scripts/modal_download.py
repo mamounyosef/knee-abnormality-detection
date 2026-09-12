@@ -28,6 +28,8 @@ COMP = "rsna-knee-abnormality-detection"
 VOLUME_NAME = "knee-data"
 MOUNT = "/data"
 ARCHIVE = f"{MOUNT}/{COMP}.zip"
+LOCK = f"{MOUNT}/.download.lock"
+DONE = f"{MOUNT}/.download.done"
 CSV_DIR = f"{MOUNT}/csv"
 CSVS = ["train.csv", "train_series.csv", "test.csv", "test_series.csv",
         "sample_submission.csv"]
@@ -96,44 +98,78 @@ def download_archive():
     stopped instead of re-pulling hundreds of gigabytes. If the server answers
     200 instead of 206 it ignored the Range header and we start over.
     """
+    import time
+
     import requests
 
-    url = f"https://www.kaggle.com/api/v1/competitions/data/download-all/{COMP}"
-    auth = (os.environ["KAGGLE_USERNAME"], os.environ["KAGGLE_KEY"])
-
-    have = os.path.getsize(ARCHIVE) if os.path.exists(ARCHIVE) else 0
-    print(f"[zip] starting from {have / 1024**3:.2f} GiB", flush=True)
-
-    headers = {"Range": f"bytes={have}-"} if have else {}
-    with requests.get(url, auth=auth, headers=headers, stream=True,
-                      timeout=(30, 300), allow_redirects=True) as r:
-        r.raise_for_status()
-        if have and r.status_code != 206:
-            print(f"[zip] server ignored Range (status {r.status_code}); restarting", flush=True)
-            have = 0
-        total = int(r.headers.get("Content-Length", 0)) + have
-        mode = "ab" if have else "wb"
-        print(f"[zip] status={r.status_code} total={total / 1024**3:.2f} GiB", flush=True)
-
-        since_commit = 0
-        with open(ARCHIVE, mode) as fh:
-            for chunk in r.iter_content(chunk_size=CHUNK):
-                if not chunk:
-                    continue
-                fh.write(chunk)
-                have += len(chunk)
-                since_commit += len(chunk)
-                if since_commit >= COMMIT_EVERY:
-                    fh.flush()
-                    os.fsync(fh.fileno())
-                    vol.commit()
-                    since_commit = 0
-                    pct = f"{100 * have / total:.1f}%" if total else "?"
-                    print(f"[zip] {have / 1024**3:9.2f} GiB  ({pct})", flush=True)
-
+    # lock + done-sentinel: stops two --detach reruns from both appending to the
+    # same file at once. That's what silently corrupted an earlier download - the
+    # file shrank AFTER a run printed "done", which only happens if a second,
+    # still-alive writer touched it afterwards. Refuse to start if a lock is
+    # already there, and never resume into an archive already marked complete.
+    if os.path.exists(DONE):
+        print(f"[zip] {DONE} exists, archive already complete, refusing to touch it")
+        return os.path.getsize(ARCHIVE)
+    if os.path.exists(LOCK):
+        holder = Path(LOCK).read_text().strip()
+        raise RuntimeError(
+            f"[zip] lock held by {holder}. Another download job may still be running. "
+            f"If you're sure it's dead, delete {LOCK} on the volume and retry."
+        )
+    vol.reload()
+    Path(LOCK).write_text(f"pid={os.getpid()} started={time.time()}")
     vol.commit()
-    size = os.path.getsize(ARCHIVE)
-    print(f"[zip] done: {size / 1024**3:.2f} GiB at {ARCHIVE}", flush=True)
+
+    try:
+        url = f"https://www.kaggle.com/api/v1/competitions/data/download-all/{COMP}"
+        auth = (os.environ["KAGGLE_USERNAME"], os.environ["KAGGLE_KEY"])
+
+        have = os.path.getsize(ARCHIVE) if os.path.exists(ARCHIVE) else 0
+        print(f"[zip] starting from {have / 1024**3:.2f} GiB", flush=True)
+
+        headers = {"Range": f"bytes={have}-"} if have else {}
+        with requests.get(url, auth=auth, headers=headers, stream=True,
+                          timeout=(30, 300), allow_redirects=True) as r:
+            r.raise_for_status()
+            if have and r.status_code != 206:
+                print(f"[zip] server ignored Range (status {r.status_code}); restarting", flush=True)
+                have = 0
+            total = int(r.headers.get("Content-Length", 0)) + have
+            mode = "ab" if have else "wb"
+            print(f"[zip] status={r.status_code} total={total / 1024**3:.2f} GiB", flush=True)
+
+            since_commit = 0
+            with open(ARCHIVE, mode) as fh:
+                for chunk in r.iter_content(chunk_size=CHUNK):
+                    if not chunk:
+                        continue
+                    fh.write(chunk)
+                    have += len(chunk)
+                    since_commit += len(chunk)
+                    if since_commit >= COMMIT_EVERY:
+                        fh.flush()
+                        os.fsync(fh.fileno())
+                        vol.commit()
+                        since_commit = 0
+                        pct = f"{100 * have / total:.1f}%" if total else "?"
+                        print(f"[zip] {have / 1024**3:9.2f} GiB  ({pct})", flush=True)
+
+        vol.commit()
+        size = os.path.getsize(ARCHIVE)
+
+        # cheap integrity guard: just parsing the central directory (seconds, not the
+        # full-archive CRC pass that verify_deep does) catches a truncated/corrupt
+        # download right here instead of letting it silently print "done".
+        import zipfile
+        with zipfile.ZipFile(ARCHIVE) as zf:
+            n_members = len(zf.namelist())
+        print(f"[zip] done: {size / 1024**3:.2f} GiB, {n_members} members at {ARCHIVE}", flush=True)
+
+        Path(DONE).write_text(f"size={size} members={n_members} finished={time.time()}")
+    finally:
+        if os.path.exists(LOCK):
+            os.remove(LOCK)
+        vol.commit()
     return size
 
 

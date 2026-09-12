@@ -19,7 +19,7 @@ from pathlib import Path
 
 # ============================ CONFIG (edit here) ============================
 SET             = "val"        # split to score: "val" (704, LLM labels) | "audit" (58, panel)
-WEIGHTS         = "search"       # "flat" = equal average | "search" = fit per-class weights
+WEIGHTS         = "flat"       # "flat" = equal average | "search" = fit per-class weights
                                # now and save them | a saved fit to reuse ("best_val",
                                # a folder name, or a path)
 COMBINE_SPACE   = "logit"      # blend space: "logit" (the .npz hold logits, so lossless)
@@ -33,13 +33,12 @@ BEST_METRIC     = "oof_mean_auroc"   # what ranks a search run; "oof_mean_auroc"
 # ("run", 3200)             -> its step-3200 validation
 # [("r", 3200), ("r", 4000)] -> LIST = sub-ensemble, averaged first, ONE vote above
 FULL_MODELS = [
-    # ["convnext_base_relabel", "convnext_base_trauma", "convnext_base_wear", "convnext_base_fluid"],
-    "convnext_base_relabel",
+    ["convnext_base_relabel", "convnext_base_trauma", "convnext_base_wear", "convnext_base_fluid"],
     "mricore_vitb_cross_attention",
     "mricore_vitb_mae_cross_attention",
     "dinov3_convnext_base",
+    "convnext_large",
     "swinv2_base_in22k",
-    # "convnext_large",
     "eva02_base_448",
 ]
 
