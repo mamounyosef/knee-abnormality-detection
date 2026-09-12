@@ -36,7 +36,13 @@ CSVS = ["train.csv", "train_series.csv", "test.csv", "test_series.csv",
 
 CHUNK = 32 * 1024 * 1024          # 32 MiB per write
 COMMIT_EVERY = 8 * 1024**3        # commit the volume every 8 GiB of progress
-STALE_AFTER_S = 15 * 60      # archive untouched this long = the lock holder is dead
+STALE_AFTER_S = 8 * 60       # archive untouched this long = the lock holder is dead. A
+                             # live writer commits every 8 GiB, about 3.5 min, so 8 min
+                             # is comfortably clear of a healthy run. It was 15, which
+                             # was too patient: Modal preempts these workers ("Worker
+                             # disappeared"), and each retry that arrived before the
+                             # lock expired was REFUSED and burnt, so the download sat
+                             # idle for 15-25 min per preemption.
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
@@ -89,7 +95,10 @@ def download_csvs():
 # -----------------------------------------------------------------------------
 @app.function(image=image, volumes={MOUNT: vol}, secrets=[KAGGLE_SECRET],
               timeout=60 * 60 * 24, cpu=2.0, memory=4096,
-              retries=modal.Retries(max_retries=5, backoff_coefficient=1.0,
+              # 20, not 5: these workers get preempted repeatedly on some workspaces and
+              # each preemption costs one retry, so 5 does not survive a 247 GiB pull. Every
+              # retry resumes by HTTP Range from the committed size, so a retry is cheap.
+              retries=modal.Retries(max_retries=20, backoff_coefficient=1.0,
                                     initial_delay=60.0))
 def download_archive():
     """Stream the competition archive onto the volume, resuming if interrupted.
