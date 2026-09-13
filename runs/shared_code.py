@@ -883,10 +883,21 @@ def prepare_batch(x: torch.Tensor, cfg: dict, device) -> torch.Tensor:
     """uint8 (B, slots, D, H, W) -> normalized float (B*slots*D, C, H, W)."""
     # ship uint8 to the GPU (4x smaller transfer), normalize there
     c = cfg["input"]["channels"]
+    # slices_as_channels: the whole SLOT becomes ONE image whose channels are its slices,
+    # so a study costs 4 forward passes instead of 4 x 24 = 96. Measured at 336px that is
+    # 0.039x the compute of the per-slice layout, and unlike a 3-channel bottleneck it
+    # discards nothing: the backbone is built with in_chans=n_slices and timm adapts the
+    # pretrained stem filters to the wider input. The cost is that cross-slice reasoning
+    # must now happen inside the stem, and pooling collapses from 96 vectors to 4.
+    as_ch = bool(cfg["input"].get("slices_as_channels"))
     x = x.to(device, non_blocking=True).float().div_(255.0)
     if x.dim() == 6:                               # 2.5D: channels already hold neighbours
         b, s, d, ctx, h, w = x.shape
         x = x.reshape(b * s * d, ctx, h, w)
+    elif as_ch:
+        b, s, d, h, w = x.shape
+        x = x.reshape(b * s, d, h, w)              # one image per SLOT, slices as channels
+        c = d
     else:
         b, s, d, h, w = x.shape
         x = x.view(b * s * d, 1, h, w)             # every slice becomes its own 2D image
@@ -900,6 +911,14 @@ def prepare_batch(x: torch.Tensor, cfg: dict, device) -> torch.Tensor:
     r = cfg["input"].get("resize_to")
     if r and x.shape[-1] != int(r):
         x = F.interpolate(x, size=(int(r), int(r)), mode="area")
+    if as_ch:
+        # norm_mean/std describe three RGB channels; here every channel is the SAME
+        # grayscale modality, so one scalar applies to all of them. Averaging the three is
+        # the right reduction: it is what a grey pixel would have received anyway once it
+        # was copied into all three channels.
+        m = float(np.mean(cfg["input"]["norm_mean"]))
+        s_ = float(np.mean(cfg["input"]["norm_std"]))
+        return (x - m) / s_
     mean = torch.tensor(cfg["input"]["norm_mean"][:c], device=device).view(1, c, 1, 1)
     std = torch.tensor(cfg["input"]["norm_std"][:c], device=device).view(1, c, 1, 1)
     return (x - mean) / std
