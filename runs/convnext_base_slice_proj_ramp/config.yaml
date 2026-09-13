@@ -135,7 +135,7 @@ dataloader:
                                     # becomes the bottleneck here unless it scales too
   val_num_workers: null             # null = same as num_workers
 
-  prefetch_factor: 4                # batches queued per worker
+  prefetch_factor: 6                # batches queued per worker
   pin_memory: true                  # page-locked memory, faster CPU -> GPU copies
   persistent_workers: true          # don't respawn workers every epoch
   drop_last: false                  # keep the ragged final batch
@@ -145,7 +145,7 @@ modal:
                                   # images per step instead of 384, so 141 GB is
                                   # wasted. These runs are I/O bound on decode
                                   # anyway, so the slower card costs little.                       # 141GB, and ~1.7x the A100's throughput
-  cpu: 14.0                         # one core per dataloader worker, decoding npz is
+  cpu: 16.0                         # one core per dataloader worker, decoding npz is
                                     # CPU-bound and the GPU is now fast enough to notice
   memory_gb: 64                     # 24 workers x prefetch 4, and batch 2 doubles the
                                     # bytes each queued batch holds
