@@ -1,4 +1,4 @@
-# convnext_base_336px with the SLICES AS CHANNELS. One study becomes 4 images, not 96.
+# convnext_base_336px with SLICES AS CHANNELS, split 2 ways. A study becomes 8 images, not 96.
 #
 # THE PROBLEM. Every run in this project encodes each slice as its own image: 4 slots x 24
 # slices = 96 forward passes per study, whose 96 feature vectors are then averaged. That is
@@ -22,15 +22,17 @@
 # 60x. At that price a 47-member ensemble costs under half an hour of the 9 h cap.
 #
 # THE TWO REAL RISKS, both genuine:
-#   1. Pooling collapses from 96 vectors to 4. All cross-slice reasoning must now happen
+#   1. Pooling collapses from 96 vectors to 8. Most cross-slice reasoning must now happen
 #      inside the stem's channel mixing, where before it happened in a mean at the end.
+#      This is the SAFER of the two slicechan runs: convnext_base_slicechan uses one image
+#      of 24 channels and compresses the stem 3.0x; this uses two of 12 and compresses 1.5x.
 #   2. The stem starts further from its pretrained state than in any run we have done.
 #
 # Beat: convnext_base_336px, val 0.9044 / LB 0.917, which is itself tied with
 # convnext_base_relabel's 0.9050 / 0.918. One variable against a validated member.
 
 experiment:
-  name: "convnext_base_slicechan"
+  name: "convnext_base_slice_input_ch2"
 
 paths:
   # Same --like split as convnext_small_relabel: byte-identical train/val MEMBERSHIP to the
@@ -53,10 +55,11 @@ input:
   # 0.40 exactly 24.4% of series are upsampled (median 1.17x), the same as every run to date.
   # Only `size` moves, so the sole variable is how much knee is in frame.
   size: 336
-  # ONE image per slot, all 24 slices as channels. This is the aggressive variant: the
-  # stem compresses 24x16=384 -> 128 (3.0x), where the ordinary 3-channel layout EXPANDS
-  # 48 -> 128 (2.7x). convnext_base_slicechan2 is the same idea at 2 images of 12 (1.5x).
-  slices_as_channels: 1
+  # TWO images per slot, 12 channels each, instead of one image of 24. Same 24 slices,
+  # but the stem compresses 12x16=192 -> 128 (1.5x) rather than 384 -> 128 (3.0x). For
+  # reference the ordinary 3-channel layout EXPANDS 48 -> 128 (2.7x), so one image of 24
+  # is an 8x swing in the stem's information budget and this halves it.
+  slices_as_channels: 2
 
 training:
   epochs: 12
@@ -121,7 +124,10 @@ dataloader:
   drop_last: false                  # keep the ragged final batch
 
 modal:
-  gpu: "H200"                       # 141GB, and ~1.7x the A100's throughput
+  gpu: "A100-40GB"                 # not H200: one image per slot means 32-64
+                                  # images per step instead of 384, so 141 GB is
+                                  # wasted. These runs are I/O bound on decode
+                                  # anyway, so the slower card costs little.                       # 141GB, and ~1.7x the A100's throughput
   cpu: 20.0                         # one core per dataloader worker, decoding npz is
                                     # CPU-bound and the GPU is now fast enough to notice
   memory_gb: 64                     # 24 workers x prefetch 4, and batch 2 doubles the

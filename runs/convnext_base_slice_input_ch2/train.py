@@ -1,10 +1,10 @@
 """
-train.py — convnext_base_slicechan2
+train.py — convnext_base_slice_input_ch2
 
 Thin entry point: load config, build the model, hand off to the engine.
 
-Local:  python runs/convnext_base_slicechan2/train.py
-Modal:  modal run runs/convnext_base_slicechan2/train.py
+Local:  python runs/convnext_base_slice_input_ch2/train.py
+Modal:  modal run runs/convnext_base_slice_input_ch2/train.py
 """
 
 import sys
@@ -14,7 +14,7 @@ import timm
 import torch
 import torch.nn as nn
 
-EXP_NAME = "convnext_base_slicechan2"
+EXP_NAME = "convnext_base_slice_input_ch2"
 
 
 def _pkg_root() -> Path:

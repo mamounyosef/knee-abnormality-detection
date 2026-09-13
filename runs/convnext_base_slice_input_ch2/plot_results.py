@@ -4,15 +4,15 @@ plot_results.py — redraw this run's plots from the CSVs, no retraining.
 Handy after a sync pulls in new rows, or after tweaking a
 plot in shared_code.py.
 
-    python runs/convnext_base_slicechan2/plot_results.py
-    python runs/convnext_base_slicechan2/plot_results.py --results /runs/convnext_base_slicechan2/results
+    python runs/convnext_base_slice_input_ch2/plot_results.py
+    python runs/convnext_base_slice_input_ch2/plot_results.py --results /runs/convnext_base_slice_input_ch2/results
 """
 
 import argparse
 import sys
 from pathlib import Path
 
-EXP_NAME = "convnext_base_slicechan2"
+EXP_NAME = "convnext_base_slice_input_ch2"
 
 
 def _pkg_root() -> Path:
