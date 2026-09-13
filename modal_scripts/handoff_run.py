@@ -49,6 +49,19 @@ def modal(session, *args, quiet=True):
     return r
 
 
+def _newest_step_ckpt(session: int, run: str) -> str | None:
+    """Filename of the highest-numbered step<N>.pt in the run's checkpoints, or None.
+
+    Highest N rather than newest mtime: `modal volume ls` does not give a sortable
+    timestamp we can rely on, and the step number is monotonic anyway.
+    """
+    import re
+
+    r = modal(session, "volume", "ls", VOLUME, "/%s/results/checkpoints" % run)
+    steps = re.findall(r"step(\d+)\.pt", r.stdout + r.stderr)
+    return "step%s.pt" % max(steps, key=int) if steps else None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run")
@@ -58,8 +71,20 @@ def main():
 
     local = ROOT / "runs" / a.run
     print("=== pulling %s from session %d ===" % (a.run, a.src))
+
+    # last.pt is only written AT A VALIDATION, while a periodic step<N>.pt lands every
+    # checkpoint_every_steps. So last.pt routinely trails the real latest state by up to a
+    # whole eval interval, and _resolve_resume("last") picks the newest of BOTH by mtime.
+    # Carrying only last.pt therefore silently rewinds the run on every hand-off: moving
+    # convnext_base_336px lost step2700.pt and it resumed from 2600.
+    want = list(WANT)
+    newest = _newest_step_ckpt(a.src, a.run)
+    if newest:
+        want.insert(0, "results/checkpoints/" + newest)
+        print("   newest periodic checkpoint on source: %s" % newest)
+
     got = []
-    for rel in WANT:
+    for rel in want:
         dest = local / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         r = modal(a.src, "volume", "get", VOLUME, "%s/%s" % (a.run, rel), str(dest), "--force")
