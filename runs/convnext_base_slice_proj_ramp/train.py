@@ -55,59 +55,48 @@ class SliceModel(nn.Module):
         #   slice_input_ch2   2 x 12 -> stem   8 passes/study,  stem 1.5x
         #   this run          24 -> 12 -> stem 4 passes/study,  stem 1.5x, learned mixing
         # It gets ch2's stem budget at ch1's cost, paying for it with a learned layer.
-        # A RESIDUAL RAMP down the slice axis: 24 -> 16 -> GELU -> 8, added onto a fixed
-        # smooth resample of the same 24 slices to 8.
+        # A RAMP down the slice axis: 24 -> 16 -> GELU -> 8, then the stem.
         #
-        #     out = resample(x) + conv2(GELU(conv1(x)))         conv2 zero-initialised
+        # Ending at 8 is the point. ConvNeXt-Base's stem maps a 4x4 patch of in_chans to
+        # 128 outputs, so 8 channels is 8*16 = 128 -> 128, exactly 1.00x: no compression
+        # anywhere in the chain. 12 compresses 1.5x, 24 compresses 3.0x, and the ordinary
+        # 3-channel layout EXPANDS 48 -> 128.
         #
-        # Why residual rather than a plain two-layer ramp. Two 1x1 convs with NOTHING
-        # between them collapse to a single 1x1 conv, so a linear ramp is algebraically
-        # identical to a plain 24 -> 8 map and buys nothing. Adding a GELU fixes that but
-        # was MEASURED to shift the stem's input from (mean +0.22, std 0.74) to
-        # (mean +0.46, std 0.51) - a distribution the pretrained stem never saw. The
-        # residual form gets both: at step 0 the output is EXACTLY the smooth mean, so the
-        # "pretrained stem applied to averaged slices" property that makes in_chans work is
-        # preserved bit for bit, and the nonlinear path learns on top of it.
+        # The GELU is not decoration. Two 1x1 convs with nothing between them collapse to a
+        # single 1x1 conv, so a linear 24 -> 16 -> 8 ramp would be algebraically identical
+        # to a plain 24 -> 8 map. The nonlinearity is what makes the ramp a ramp.
         #
-        # This is NOT the gamma gate that deadlocked mricore_vitb_cross_attention_ft. That
-        # was a multiplicative scale on the branch, which also scaled the gradient reaching
-        # the branch's own weights, so it could never train its way open. Here conv2 starts
-        # at zero but nothing scales its gradient, so it moves on the first step.
+        # Both convs start as a SMOOTH RESAMPLE, not randomly: output j is the mean of the
+        # input channels that map onto it. timm's in_chans adaptation works precisely
+        # because the widened stem begins as the pretrained filter applied to the MEAN of
+        # its inputs (measured: tiling the RGB filters and scaling by 3/24 reproduces the
+        # 3-channel output to 1.3e-05), and a random projection in front would destroy that
+        # on step 1.
         #
-        # Ending at 8 is the point: the stem maps a 4x4 patch of in_chans to 128 outputs,
-        # so 8 channels is 8*16 = 128 -> 128, exactly 1.00x. No compression anywhere.
+        # KNOWN COST, measured and accepted: the GELU shifts the stem's input from
+        # (mean +0.22, std 0.74) to (mean +0.46, std 0.51). The pretrained stem was not
+        # trained on that. If this run underperforms the other slice_* runs, that shift is
+        # the first thing to suspect.
         stages = m.get("slice_proj")
         stages = [stages] if isinstance(stages, int) and stages else (stages or [])
         self.slice_proj = None
-        self.slice_resample = None
         if stages:
-            def _resample_w(src, dst):
-                """dst x src matrix: row j averages the src channels that map onto it."""
-                w = torch.zeros(dst, src, 1, 1)
-                edges = torch.linspace(0, src, dst + 1)
-                for o in range(dst):
-                    lo = int(edges[o].item())
-                    hi = max(int(edges[o + 1].item()), lo + 1)
-                    w[o, lo:hi, 0, 0] = 1.0 / (hi - lo)
-                return w
-
             layers, prev = [], in_ch
             for k, nxt in enumerate(stages):
                 conv = nn.Conv2d(prev, nxt, kernel_size=1, bias=False)
                 with torch.no_grad():
-                    if k == len(stages) - 1:
-                        conv.weight.zero_()          # last stage: branch starts silent
-                    else:
-                        conv.weight.copy_(_resample_w(prev, nxt))
+                    conv.weight.zero_()
+                    edges = torch.linspace(0, prev, nxt + 1)
+                    for o in range(nxt):
+                        lo = int(edges[o].item())
+                        hi = max(int(edges[o + 1].item()), lo + 1)
+                        conv.weight[o, lo:hi, 0, 0] = 1.0 / (hi - lo)
                 conv.is_fresh = True                 # -> optimizer.fresh_lr
                 layers.append(conv)
                 if k < len(stages) - 1:
                     layers.append(nn.GELU())
                 prev = nxt
             self.slice_proj = nn.Sequential(*layers)
-            # the skip: a FIXED mean-of-N resample, not learned, so the identity path can
-            # never drift and the branch is always learning a correction to it
-            self.register_buffer("_resample", _resample_w(in_ch, prev))
             in_ch = prev
         self.backbone = timm.create_model(m["name"], pretrained=m.get("pretrained", True),
                                           num_classes=0, in_chans=in_ch,
@@ -123,8 +112,7 @@ class SliceModel(nn.Module):
 
     def forward(self, x):                      # x: (B*slots*D, C, H, W)
         if self.slice_proj is not None:
-            # fixed smooth resample + learned nonlinear correction (zero at init)
-            x = F.conv2d(x, self._resample) + self.slice_proj(x)
+            x = self.slice_proj(x)             # (B*slots, 24, H, W) -> (B*slots, 8, H, W)
         f = self.backbone(x)                   # (B*slots*D, F)
         f = f.view(-1, self.per_study, f.shape[-1])   # regroup the flat images back per study
         if self.pool == "max":

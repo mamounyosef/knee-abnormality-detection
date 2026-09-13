@@ -13,25 +13,19 @@
 # the chain. 12 compresses 1.5x and 24 compresses 3.0x, against the 2.7x EXPANSION the
 # ordinary 3-channel layout enjoys.
 #
-# IT IS A RESIDUAL BRANCH, and that solves two problems at once:
+# THE GELU IS NOT DECORATION. Two 1x1 convolutions with nothing between them collapse to
+# a single 1x1 convolution, so a linear 24 -> 16 -> 8 ramp would be algebraically identical
+# to a plain 24 -> 8 map, just with more parameters.
 #
-#     out = resample(x) + conv2(GELU(conv1(x)))          conv2 zero-initialised
+# BOTH CONVS START AS A SMOOTH RESAMPLE, not randomly. Output j is the mean of the input
+# channels that map onto it, so the chain begins close to "pretrained stem applied to
+# averaged slices" - which is why timm's in_chans adaptation works at all (measured: tiling
+# the RGB filters and scaling by 3/24 reproduces the 3-channel output to 1.3e-05).
 #
-# Problem one: two 1x1 convs with NOTHING between them collapse to a single 1x1 conv, so a
-# linear 24 -> 16 -> 8 ramp is algebraically identical to a plain 24 -> 8 map and buys
-# nothing at all. A nonlinearity is what makes a ramp a ramp.
-#
-# Problem two: adding a GELU was MEASURED to shift the stem's input from (mean +0.22, std
-# 0.74) to (mean +0.46, std 0.51) - a distribution the pretrained stem never saw. The
-# residual form avoids that: at step 0 the output is EXACTLY the fixed smooth resample
-# (verified, max diff 3.6e-07 against a plain mean-of-3), so the "pretrained stem applied
-# to averaged slices" property that makes in_chans work is preserved bit for bit, and the
-# nonlinear path learns a correction on top.
-#
-# NOT the gamma gate that deadlocked mricore_vitb_cross_attention_ft. That was a
-# multiplicative scale on the branch, which also scaled the gradient reaching the branch's
-# own weights, so it could never train itself open. Here conv2 starts at zero but nothing
-# scales its gradient: verified, |grad| 1.3e+02 on the very first backward.
+# KNOWN COST, measured and accepted: the GELU shifts the stem's input from (mean +0.22,
+# std 0.74) to (mean +0.46, std 0.51), a distribution the pretrained stem never saw.
+# A residual form would avoid that but was not wanted here. If this run underperforms the
+# other slice_* runs, that shift is the first thing to suspect.
 #
 # Both convs declare is_fresh, so they take optimizer.fresh_lr 1.0e-4 - the head's rate,
 # twice the backbone's 5.0e-5.
