@@ -879,6 +879,20 @@ def model_input_size(cfg: dict) -> int:
     return int(cfg["input"].get("resize_to") or cfg["input"]["size"])
 
 
+def images_per_study(cfg: dict) -> int:
+    """How many IMAGES one study becomes, i.e. how many forward passes the model runs.
+
+    Not slots x n_slices any more. With input.slices_as_channels a slot becomes that many
+    images whose channels are its slices, so a study costs slots x groups passes, not
+    slots x n_slices. Getting this wrong does not crash anything: it silently multiplies
+    every throughput number, and it printed MFU 364% (of a hard 100% ceiling) on the first
+    slices_as_channels run before this existed.
+    """
+    i = cfg["input"]
+    g = int(i.get("slices_as_channels") or 0)
+    return len(i["slots"]) * (g if g > 0 else int(i["n_slices"]))
+
+
 def prepare_batch(x: torch.Tensor, cfg: dict, device) -> torch.Tensor:
     """uint8 (B, slots, D, H, W) -> normalized float (B*slots*D, C, H, W)."""
     # ship uint8 to the GPU (4x smaller transfer), normalize there
@@ -2270,7 +2284,7 @@ def print_data_summary(loaders: dict, cfg: dict, plan: dict | None = None):
         ld = loaders[name]
         n = len(ld.dataset)
         rows.append([name, f"{n:,}", f"{len(ld):,}",
-                     f"{n * len(cfg['input']['slots']) * cfg['input']['n_slices']:,}",
+                     f"{n * images_per_study(cfg):,}",
                      "soft LLM" if name != "audit" else "panel 0/1"])
     _table("splits", ["split", "studies", "batches", "images", "labels"], rows,
            "\U0001F4CA")
@@ -2654,7 +2668,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         ("backbone", cfg.get("model", {}).get("name", "?")),
         ("pretrained", cfg.get("model", {}).get("pretrained")),
         ("pooling", f"{cfg.get('model', {}).get('pool')} over "
-                    f"{len(cfg['input']['slots']) * cfg['input']['n_slices']} images/study"),
+                    f"{images_per_study(cfg)} images/study"),
         ("output logits", f"{num_output_logits(cfg)}  (one per finding)"),
         None,
         ("total params", f"{tot_p:,}  ({tot_p/1e6:.2f} M)"),
@@ -2691,8 +2705,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         except Exception as e:
             print(f"  [warn] torch.compile failed: {type(e).__name__}: {e}")
     scaler = torch.amp.GradScaler("cuda", enabled=cfg["training"]["amp"] and device.type == "cuda")
-    imgs_per_batch = (train_batch_size(cfg) * len(cfg["input"]["slots"])
-                      * cfg["input"]["n_slices"])
+    imgs_per_batch = train_batch_size(cfg) * images_per_study(cfg)
     # Always on. There is no run for which "is every layer actually moving?" is not worth
     # knowing, and it is the one diagnostic that separates a frozen or throttled trunk from
     # a merely unlucky one - the loss curve shows them as the same thing. Cadence is
@@ -3179,8 +3192,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
 
     # images per optimizer step: studies per batch x accumulation x slots x slices.
     # Fixed for the run, so total images is just gstep x this.
-    per_step_imgs = (train_batch_size(cfg) * accum
-                     * len(cfg["input"]["slots"]) * cfg["input"]["n_slices"])
+    per_step_imgs = train_batch_size(cfg) * accum * images_per_study(cfg)
     retr_prev = (0, 0, 0, 0.0)      # last retrieval snapshot
     # counted once on a real batch, then reused - the count itself is not free
     flops_per_img = [None]
