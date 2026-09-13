@@ -1,34 +1,39 @@
-# convnext_base_relabel with a TIGHTER FIELD OF VIEW. One variable: mm_per_px 0.40 -> 0.27,
-# so the 512x512 tensor covers 138 mm of knee instead of 205 mm.
+# convnext_base_relabel with a TIGHTER FRAME at LOWER cost: 336 px at the same
+# 0.40 mm/px, so the image covers 134 mm of knee instead of 205.
 #
-# WHAT IS WRONG TODAY. The scanners acquire a median 512 px over a 160 mm field of view,
-# i.e. 0.312 mm/px. We ask for 205 mm, so a typical study is SHRUNK from 512 px to 399 and
-# then zero-padded back to 512. Measured over every local series: the median training image
-# is 39% padding, and only 160,000 of its 262,144 pixels carry any anatomy at all. See
-# data_code/09_resolution_compare.ipynb.
+# WHAT IS WRONG TODAY. The scanners acquire a median 512 px over 160 mm. We ask for 205 mm,
+# so a typical study is shrunk 512 -> 399 px and zero-padded back to 512: the median training
+# image is 39% padding and only 160k of its 262k pixels carry anatomy.
+# See data_code/09_resolution_compare.ipynb.
 #
-# WHY THIS NUMBER. The public 0.941 notebook crops to 130-140 mm at 336 px, which is
-# 0.387 mm/px - essentially our 0.40. So the difference between that solution and ours is
-# NOT resolution, it is field of view: it throws away the outer third of the frame and
-# spends its pixels on the joint. 0.27 x 512 = 138 mm sits inside that range.
+# WHY 336 AT 0.40, AND NOT 512 AT 0.27. Both give ~135 mm of frame, but they differ on
+# interpolation. mm_per_px is what decides whether a series is stretched UP past what the
+# scanner recorded:
+#     0.40 (today and here)   24.4% of series upsampled, median factor 1.17x
+#     0.27                    68.7% upsampled
+# Native spacing here is a median 0.312 mm/px, so 0.27 would invent detail on two thirds of
+# the data. This run changes the FRAME and leaves interpolation exactly where every previous
+# run had it.
 #
-# WHY OUR OWN CROP-SAFETY NUMBER IS NOT A VETO. 08_check_crop_safety says a 128 mm frame
-# loses >5% of the anatomy BOUNDING BOX on 92% of series, and I treated that as
-# disqualifying earlier. A 0.941 solution does it anyway, so that metric is measuring skin,
-# fat and muscle at the edges rather than the joint. The bet is that the discarded outer
-# ring held nothing the model was using; the run settles it.
+# WHY THIS FRAME. The public 0.941 notebook crops physically to CROP_MM 130-140 at 336 px,
+# i.e. ~0.39 mm/px. That is this configuration almost exactly, and it is the geometry two of
+# its four arms actually use.
 #
-# NOT A REPEAT OF convnext_small_672px_28slices. That run kept the wide 208 mm frame and
-# merely added pixels to the empty margin, and lost 0.0061 with 10 of 12 findings down.
-# This changes the frame and holds the tensor fixed, the opposite move.
+# NOT A REPEAT OF convnext_small_672px_28slices. That kept the wide 208 mm frame and added
+# pixels to the empty margin, losing 0.0061 with 10 of 12 findings down. This keeps the pixel
+# scale and shrinks the frame - the opposite move.
 #
-# Cost is UNCHANGED: same 512x512, same 96 images per study, same batch. Only the
-# millimetres each pixel covers moves.
+# BONUS: 336**2 is 43% of 512**2, so this member is less than half the cost of every other
+# one we own. If it holds its score, it changes what we can afford to ensemble.
 #
-# Beat: convnext_base_relabel 0.9050 solo.
+# WATCH: Baker's cyst sits behind the knee, furthest from the joint centre, so it is the
+# finding most exposed to a tighter crop. Baker's down with the rest up would point at ~160 mm
+# rather than at abandoning the idea.
+#
+# Beat: convnext_base_relabel 0.9050 solo, at 0.43x the compute.
 
 experiment:
-  name: "convnext_base_fov138"
+  name: "convnext_base_336px"
 
 paths:
   # Same --like split as convnext_small_relabel: byte-identical train/val MEMBERSHIP to the
@@ -46,12 +51,11 @@ model:
   drop_rate: 0.1                    # dropout in the head, mild regularization
 
 input:
-  # 0.27 x 512 = 138 mm of frame, against the shared default's 0.40 x 512 = 205 mm.
-  # A median study (512 px @ 0.312 mm/px) is now UPSCALED 512 -> 592 and centre-cropped to
-  # 512, instead of being shrunk to 399 and zero-padded. Padding falls from 39% of the
-  # tensor to 0 and pixels landing on anatomy rise 1.64x, at the cost of ~22 mm of outer
-  # knee. Everything else in `input` is inherited unchanged.
-  mm_per_px: 0.27
+  # 336 x 0.40 = 134 mm of frame, against the shared default's 512 x 0.40 = 205 mm.
+  # mm_per_px is DELIBERATELY unchanged: it is the knob that controls interpolation, and at
+  # 0.40 exactly 24.4% of series are upsampled (median 1.17x), the same as every run to date.
+  # Only `size` moves, so the sole variable is how much knee is in frame.
+  size: 336
 
 training:
   epochs: 12
