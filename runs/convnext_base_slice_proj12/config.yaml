@@ -1,0 +1,135 @@
+# Slices as channels, then a LEARNED 24 -> 12 projection before the backbone.
+#
+# WHERE THIS SITS. Three points on one curve, all keeping every one of the 24 slices:
+#
+#   run                            passes/study  stem ratio  how 24 slices reach the stem
+#   convnext_base_slice_input_ch1       4         3.0x comp  all 24 straight in
+#   convnext_base_slice_input_ch2       8         1.5x comp  split into 2 fixed halves
+#   THIS RUN                            4         1.5x comp  learned 1x1 mixing to 12
+#
+# ConvNeXt-Base's stem maps a 4x4 patch of in_chans to 128 outputs, so 24 channels
+# COMPRESSES 384 -> 128 where the ordinary 3-channel layout EXPANDS 48 -> 128. ch2 fixes
+# that by paying double the forward passes; this gets the same stem budget at ch1's cost
+# and pays with one learned layer instead.
+#
+# THE PROJECTION IS NOT RANDOMLY INITIALISED. It starts as a pairwise average of adjacent
+# slices (output j = mean of slices 2j, 2j+1). That matters: timm's in_chans adaptation
+# works precisely BECAUSE the widened stem begins as the pretrained filter applied to the
+# mean of its inputs - measured, tiling the RGB filters and scaling by 3/24 reproduces the
+# 3-channel output exactly. A random projection in front would destroy that on step 1.
+#
+# LEARNING RATE. The projection is fresh while the trunk is pretrained, so it declares
+# is_fresh and takes optimizer.fresh_lr = 1.0e-4: the same rate as the head and twice the
+# backbone's 5.0e-5. The stem stays on the backbone rate, because it is still pretrained
+# weights, merely re-tiled to a different width.
+#
+# Beat: convnext_base_336px, val 0.9044 / LB 0.917.
+
+experiment:
+  name: "convnext_base_slice_proj12"
+
+paths:
+  # Same --like split as convnext_small_relabel: byte-identical train/val MEMBERSHIP to the
+  # baseline, only the target values differ. Keeps this comparable to convnext_base_4slot
+  # (val 0.8944 / audit 0.8900) on everything except the labels.
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+  # audit_csv stays 05_audit58.csv - the panel labels never change, so it is the one
+  # honest cross-label-set comparison.
+
+model:
+  name: "convnext_base.fb_in22k_ft_in1k"   # timm id: ConvNeXt-Base pretrained on ImageNet-22k
+  pretrained: true
+  slice_proj: 12                    # learned 1x1 conv, 24 slice-channels -> 12,
+                                    # before the backbone. 0 or absent disables it.
+  pool: "mean"                      # how the 96 slice features collapse per study: mean | max | attn
+  drop_rate: 0.1                    # dropout in the head, mild regularization
+
+input:
+  # 336 x 0.40 = 134 mm of frame, against the shared default's 512 x 0.40 = 205 mm.
+  # mm_per_px is DELIBERATELY unchanged: it is the knob that controls interpolation, and at
+  # 0.40 exactly 24.4% of series are upsampled (median 1.17x), the same as every run to date.
+  # Only `size` moves, so the sole variable is how much knee is in frame.
+  size: 336
+  # ONE image per slot, all 24 slices as channels. This is the aggressive variant: the
+  # stem compresses 24x16=384 -> 128 (3.0x), where the ordinary 3-channel layout EXPANDS
+  # 48 -> 128 (2.7x). convnext_base_slice_proj122 is the same idea at 2 images of 12 (1.5x).
+  slices_as_channels: 1
+
+training:
+  epochs: 12
+  grad_clip: 3.0                    # 3.0, NEVER 1.0. Inherited as 1.0 from
+                                    # convnext_base_relabel, which is the run measured
+                                    # clipping 100% of its steps - that does not stabilise
+                                    # anything, it silently caps every update and throttles
+                                    # the effective learning rate below the configured one.
+                                    # This is a SECOND difference from the 0.9050 baseline,
+                                    # so a win here is frame-plus-clipping, not frame alone.
+                                    # Kept anyway: comparing against a known-throttled
+                                    # setting is worse than accepting the confound.
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-5                      # BACKBONE lr — the trunk is 99.9% of the weights
+    fresh_lr: 1.0e-4                # the 24->12 projection ONLY: freshly
+                                    # initialised, so it must not crawl at the
+                                    # pretrained trunk's rate. Same as the head.
+    backbone_lr_mult: 0.5           # head = lr / 0.5 = 1.0e-4, twice the trunk. Knee MRI
+                                    # is far from ImageNet, so the trunk needs real adaptation
+    layer_decay: null               # layer-wise lr decay, e.g. 0.75: each layer down gets 75%
+                                    # of the one above. Replaces backbone_lr_mult when set.
+  scheduler:
+    name: "cosine"                  # learning rate warms up, then decays along a cosine curve
+    warmup_frac: 0.05
+    min_lr_mult: 0.01               # floor: ends at 1% of the base learning rate
+  loss:
+    name: "bce"                     # bce = binary cross-entropy | focal = focuses on hard cases
+                                    # aucm = pairwise surrogate for AUROC, the actual metric
+    pos_weight: null                # "auto" up-weights rare labels
+    focal_gamma: 2.0
+    aucm_margin: 1.0                # how far apart aucm pushes a positive from a negative
+    aucm_bce_mix: 0.1               # bit of bce mixed in, keeps the probabilities sane
+  early_stopping:                   # stop once val stops improving, saves GPU hours
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 7                     # VALIDATIONS without improvement, not epochs.
+                                    # With eval_every_steps that is several per
+                                    # epoch; the counter is only CHECKED at an
+                                    # epoch boundary.
+
+# CPU-side loading; decoding shards is the bottleneck, so keep workers busy
+dataloader:
+  batch_size: 8                     # 8 studies x 4 slots = 32 images @336. The parent's
+                                    # batch 4 meant 4 x 96 = 384 images at 53.9 GB; one
+                                    # image per slot cuts that ~24x, so the old numbers are
+                                    # meaninglessly conservative here. Raise further after
+                                    # reading the first gpu_mem(peak) print.
+  accum_steps: 1                    # effective 8 studies per update - IDENTICAL to every
+                                    # other run, so step counts and the lr schedule still
+                                    # compare against convnext_base_336px
+  val_batch_size: 16                 # no backward pass, so no stored activations
+
+  num_workers: 26                   # Small ran data-wait 0% at 190 img/s on an A100. The
+                                    # H200 at batch 2 wants ~380 img/s sustained and
+                                    # retrieval averaged ~185 between bursts, so the loader
+                                    # becomes the bottleneck here unless it scales too
+  val_num_workers: null             # null = same as num_workers
+
+  prefetch_factor: 4                # batches queued per worker
+  pin_memory: true                  # page-locked memory, faster CPU -> GPU copies
+  persistent_workers: true          # don't respawn workers every epoch
+  drop_last: false                  # keep the ragged final batch
+
+modal:
+  gpu: "A100-40GB"                 # not H200: one image per slot means 32-64
+                                  # images per step instead of 384, so 141 GB is
+                                  # wasted. These runs are I/O bound on decode
+                                  # anyway, so the slower card costs little.                       # 141GB, and ~1.7x the A100's throughput
+  cpu: 14.0                         # one core per dataloader worker, decoding npz is
+                                    # CPU-bound and the GPU is now fast enough to notice
+  memory_gb: 64                     # 24 workers x prefetch 4, and batch 2 doubles the
+                                    # bytes each queued batch holds
+
+# inherits resume: "last" from shared_config - the preemption-safe setting. On a fresh
+# volume there is nothing to resume, so this starts from scratch.
