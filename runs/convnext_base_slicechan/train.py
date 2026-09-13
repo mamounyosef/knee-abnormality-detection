@@ -44,14 +44,15 @@ class SliceModel(nn.Module):
         # stem must accept n_slices inputs. timm adapts the pretrained RGB filters to the
         # wider input by tiling and rescaling them, so the weights are still used.
         i = cfg["input"]
-        as_ch = bool(i.get("slices_as_channels"))
-        in_ch = int(i["n_slices"]) if as_ch else int(i["channels"])
+        g = int(i.get("slices_as_channels") or 0)     # images per slot; 0 = off
+        as_ch = g > 0
+        in_ch = int(i["n_slices"]) // g if as_ch else int(i["channels"])
         self.backbone = timm.create_model(m["name"], pretrained=m.get("pretrained", True),
                                           num_classes=0, in_chans=in_ch,
                                           drop_rate=m.get("drop_rate", 0.0))
         feat = self.backbone.num_features
         # images per study: one per SLOT when slices are channels, otherwise one per slice
-        self.per_study = len(i["slots"]) * (1 if as_ch else i["n_slices"])
+        self.per_study = len(i["slots"]) * (g if as_ch else i["n_slices"])
         self.pool = m.get("pool", "mean")            # how those images collapse into one vector
         if self.pool == "attn":
             # tiny network that scores each slice, so the model can weight informative ones

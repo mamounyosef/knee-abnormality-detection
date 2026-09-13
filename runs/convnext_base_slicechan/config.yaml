@@ -53,8 +53,10 @@ input:
   # 0.40 exactly 24.4% of series are upsampled (median 1.17x), the same as every run to date.
   # Only `size` moves, so the sole variable is how much knee is in frame.
   size: 336
-  # one image per SLOT, channels = slices. See the header for the cost measurement.
-  slices_as_channels: true
+  # ONE image per slot, all 24 slices as channels. This is the aggressive variant: the
+  # stem compresses 24x16=384 -> 128 (3.0x), where the ordinary 3-channel layout EXPANDS
+  # 48 -> 128 (2.7x). convnext_base_slicechan2 is the same idea at 2 images of 12 (1.5x).
+  slices_as_channels: 1
 
 training:
   epochs: 12

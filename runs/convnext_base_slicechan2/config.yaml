@@ -1,0 +1,134 @@
+# convnext_base_336px with SLICES AS CHANNELS, split 2 ways. A study becomes 8 images, not 96.
+#
+# THE PROBLEM. Every run in this project encodes each slice as its own image: 4 slots x 24
+# slices = 96 forward passes per study, whose 96 feature vectors are then averaged. That is
+# where our compute goes, and it is why we ship six members while the public 0.941 notebook
+# ships forty-seven. Its cheapest arm runs SIX passes per study.
+#
+# THE CHANGE. A slot becomes one image whose 24 channels are its 24 slices, so the study
+# costs 4 passes. timm builds the backbone with in_chans=24 and adapts the pretrained RGB
+# stem filters to the wider input by tiling and rescaling, so the pretrained weights are
+# still used and NOTHING is discarded - unlike a DepthCompress-style 1x1 projection down to
+# 3 channels, which costs the same and throws information away.
+#
+# MEASURED at 336px, one study's work:
+#     today, 3 ch x 96 passes          1.000x
+#     grouped 2.5D, 3 ch x 32 passes   0.266x
+#     in_chans=24, 4 passes            0.039x
+# Slice count barely matters here: 20 and 16 both measure ~0.044x, because n_slices only
+# changes the width of the FIRST convolution. So we keep all 24 slices and lose nothing.
+#
+# On Kaggle's T4 that is roughly 0.035 s/study against convnext_base_relabel's 2.10 - about
+# 60x. At that price a 47-member ensemble costs under half an hour of the 9 h cap.
+#
+# THE TWO REAL RISKS, both genuine:
+#   1. Pooling collapses from 96 vectors to 8. Most cross-slice reasoning must now happen
+#      inside the stem's channel mixing, where before it happened in a mean at the end.
+#      This is the SAFER of the two slicechan runs: convnext_base_slicechan uses one image
+#      of 24 channels and compresses the stem 3.0x; this uses two of 12 and compresses 1.5x.
+#   2. The stem starts further from its pretrained state than in any run we have done.
+#
+# Beat: convnext_base_336px, val 0.9044 / LB 0.917, which is itself tied with
+# convnext_base_relabel's 0.9050 / 0.918. One variable against a validated member.
+
+experiment:
+  name: "convnext_base_slicechan2"
+
+paths:
+  # Same --like split as convnext_small_relabel: byte-identical train/val MEMBERSHIP to the
+  # baseline, only the target values differ. Keeps this comparable to convnext_base_4slot
+  # (val 0.8944 / audit 0.8900) on everything except the labels.
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+  # audit_csv stays 05_audit58.csv - the panel labels never change, so it is the one
+  # honest cross-label-set comparison.
+
+model:
+  name: "convnext_base.fb_in22k_ft_in1k"   # timm id: ConvNeXt-Base pretrained on ImageNet-22k
+  pretrained: true
+  pool: "mean"                      # how the 96 slice features collapse per study: mean | max | attn
+  drop_rate: 0.1                    # dropout in the head, mild regularization
+
+input:
+  # 336 x 0.40 = 134 mm of frame, against the shared default's 512 x 0.40 = 205 mm.
+  # mm_per_px is DELIBERATELY unchanged: it is the knob that controls interpolation, and at
+  # 0.40 exactly 24.4% of series are upsampled (median 1.17x), the same as every run to date.
+  # Only `size` moves, so the sole variable is how much knee is in frame.
+  size: 336
+  # TWO images per slot, 12 channels each, instead of one image of 24. Same 24 slices,
+  # but the stem compresses 12x16=192 -> 128 (1.5x) rather than 384 -> 128 (3.0x). For
+  # reference the ordinary 3-channel layout EXPANDS 48 -> 128 (2.7x), so one image of 24
+  # is an 8x swing in the stem's information budget and this halves it.
+  slices_as_channels: 2
+
+training:
+  epochs: 12
+  grad_clip: 3.0                    # 3.0, NEVER 1.0. Inherited as 1.0 from
+                                    # convnext_base_relabel, which is the run measured
+                                    # clipping 100% of its steps - that does not stabilise
+                                    # anything, it silently caps every update and throttles
+                                    # the effective learning rate below the configured one.
+                                    # This is a SECOND difference from the 0.9050 baseline,
+                                    # so a win here is frame-plus-clipping, not frame alone.
+                                    # Kept anyway: comparing against a known-throttled
+                                    # setting is worse than accepting the confound.
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-5                      # BACKBONE lr — the trunk is 99.9% of the weights
+    backbone_lr_mult: 0.5           # head = lr / 0.5 = 1.0e-4, twice the trunk. Knee MRI
+                                    # is far from ImageNet, so the trunk needs real adaptation
+    layer_decay: null               # layer-wise lr decay, e.g. 0.75: each layer down gets 75%
+                                    # of the one above. Replaces backbone_lr_mult when set.
+  scheduler:
+    name: "cosine"                  # learning rate warms up, then decays along a cosine curve
+    warmup_frac: 0.05
+    min_lr_mult: 0.01               # floor: ends at 1% of the base learning rate
+  loss:
+    name: "bce"                     # bce = binary cross-entropy | focal = focuses on hard cases
+                                    # aucm = pairwise surrogate for AUROC, the actual metric
+    pos_weight: null                # "auto" up-weights rare labels
+    focal_gamma: 2.0
+    aucm_margin: 1.0                # how far apart aucm pushes a positive from a negative
+    aucm_bce_mix: 0.1               # bit of bce mixed in, keeps the probabilities sane
+  early_stopping:                   # stop once val stops improving, saves GPU hours
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 7                     # VALIDATIONS without improvement, not epochs.
+                                    # With eval_every_steps that is several per
+                                    # epoch; the counter is only CHECKED at an
+                                    # epoch boundary.
+
+# CPU-side loading; decoding shards is the bottleneck, so keep workers busy
+dataloader:
+  batch_size: 8                     # 8 studies x 4 slots = 32 images @336. The parent's
+                                    # batch 4 meant 4 x 96 = 384 images at 53.9 GB; one
+                                    # image per slot cuts that ~24x, so the old numbers are
+                                    # meaninglessly conservative here. Raise further after
+                                    # reading the first gpu_mem(peak) print.
+  accum_steps: 1                    # effective 8 studies per update - IDENTICAL to every
+                                    # other run, so step counts and the lr schedule still
+                                    # compare against convnext_base_336px
+  val_batch_size: 8                 # no backward pass, so no stored activations
+
+  num_workers: 26                   # Small ran data-wait 0% at 190 img/s on an A100. The
+                                    # H200 at batch 2 wants ~380 img/s sustained and
+                                    # retrieval averaged ~185 between bursts, so the loader
+                                    # becomes the bottleneck here unless it scales too
+  val_num_workers: null             # null = same as num_workers
+
+  prefetch_factor: 4                # batches queued per worker
+  pin_memory: true                  # page-locked memory, faster CPU -> GPU copies
+  persistent_workers: true          # don't respawn workers every epoch
+  drop_last: false                  # keep the ragged final batch
+
+modal:
+  gpu: "H200"                       # 141GB, and ~1.7x the A100's throughput
+  cpu: 20.0                         # one core per dataloader worker, decoding npz is
+                                    # CPU-bound and the GPU is now fast enough to notice
+  memory_gb: 64                     # 24 workers x prefetch 4, and batch 2 doubles the
+                                    # bytes each queued batch holds
+
+# inherits resume: "last" from shared_config - the preemption-safe setting. On a fresh
+# volume there is nothing to resume, so this starts from scratch.

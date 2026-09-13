@@ -895,9 +895,18 @@ def prepare_batch(x: torch.Tensor, cfg: dict, device) -> torch.Tensor:
         b, s, d, ctx, h, w = x.shape
         x = x.reshape(b * s * d, ctx, h, w)
     elif as_ch:
+        # `slices_as_channels` is the number of IMAGES each slot becomes. 1 puts all 24
+        # slices in one image; 2 splits them into two images of 12 channels, and so on.
+        # It is not a style choice, it sets the stem's information budget: ConvNeXt-Base's
+        # stem maps a 4x4 patch of in_chans to 128 outputs, so 24 channels COMPRESSES
+        # 384 -> 128 (3.0x) where the usual 3 channels EXPAND 48 -> 128 (2.7x). Splitting
+        # into 2 images of 12 halves that to 1.5x while keeping every slice.
         b, s, d, h, w = x.shape
-        x = x.reshape(b * s, d, h, w)              # one image per SLOT, slices as channels
-        c = d
+        g = max(1, int(cfg["input"]["slices_as_channels"]))
+        if d % g:
+            raise ValueError(f"slices_as_channels={g} must divide n_slices={d}")
+        x = x.reshape(b * s * g, d // g, h, w)
+        c = d // g
     else:
         b, s, d, h, w = x.shape
         x = x.view(b * s * d, 1, h, w)             # every slice becomes its own 2D image
