@@ -90,13 +90,17 @@ training:
 
 # CPU-side loading; decoding shards is the bottleneck, so keep workers busy
 dataloader:
-  batch_size: 2                     # 2 studies x 4 slots x 24 slices = 192 images @512.
-                                    # Small peaked at 46.7GB for 96 images (~0.49 GB/img);
-                                    # Base's wider stages put it near 0.63, so ~125GB of
-                                    # the H200's 141GB. 4 studies would need ~250GB.
-  accum_steps: 4                    # effective 8 studies per update -> 454 steps/epoch,
-                                    # same as tiny and small, so the curves still compare
-  val_batch_size: 4                 # no backward pass, so no stored activations
+  batch_size: 4                     # 4 studies x 4 slots x 24 slices = 384 images @336.
+                                    # MEASURED, not inherited: at 336px this config peaked
+                                    # at 53.91 GB with batch 2, so batch 4 lands near 108 GB
+                                    # of the H200's 141. The parent's comment below refers
+                                    # to 512px, where 4 studies really would not fit.
+  accum_steps: 2                    # effective 8 studies per update, IDENTICAL to every
+                                    # other run. Every backbone here uses LayerNorm, not
+                                    # BatchNorm, so 4x2 and 2x4 give the same gradient and
+                                    # the same optimizer steps - this is a speed change
+                                    # only, and the comparison to 0.9050 is unaffected.
+  val_batch_size: 8                 # no backward pass, so no stored activations
 
   num_workers: 26                   # Small ran data-wait 0% at 190 img/s on an A100. The
                                     # H200 at batch 2 wants ~380 img/s sustained and
