@@ -1,4 +1,4 @@
-# Slices as channels, then a RAMP down the slice axis: 24 -> 16 -> 8, then the stem.
+# Slices as channels, then a two-stage LINEAR ramp down the slice axis: 24 -> 16 -> 8.
 #
 # WHERE THIS SITS. Four points on one curve, all keeping every one of the 24 slices:
 #
@@ -13,19 +13,28 @@
 # the chain. 12 compresses 1.5x and 24 compresses 3.0x, against the 2.7x EXPANSION the
 # ordinary 3-channel layout enjoys.
 #
-# THE GELU IS NOT DECORATION. Two 1x1 convolutions with nothing between them collapse to
-# a single 1x1 convolution, so a linear 24 -> 16 -> 8 ramp would be algebraically identical
-# to a plain 24 -> 8 map, just with more parameters.
+# THE CHAIN IS  conv 24->16, conv 16->8, BatchNorm(8).
 #
-# BOTH CONVS START AS A SMOOTH RESAMPLE, not randomly. Output j is the mean of the input
-# channels that map onto it, so the chain begins close to "pretrained stem applied to
-# averaged slices" - which is why timm's in_chans adaptation works at all (measured: tiling
-# the RGB filters and scaling by 3/24 reproduces the 3-channel output to 1.3e-05).
+# No activation between the convs, and it is worth being precise: stacked linear 1x1 convs
+# compose, so this is mathematically ONE 24 -> 8 linear map. The function class equals a
+# single Conv2d(24, 8). What differs is the optimisation, and the structure stays available
+# if a nonlinearity is wanted later.
 #
-# KNOWN COST, measured and accepted: the GELU shifts the stem's input from (mean +0.22,
-# std 0.74) to (mean +0.46, std 0.51), a distribution the pretrained stem never saw.
-# A residual form would avoid that but was not wanted here. If this run underperforms the
-# other slice_* runs, that shift is the first thing to suspect.
+# THE BATCHNORM IS THE IMPORTANT PART, and it fixes a flaw the whole slices_as_channels
+# family shares. Averaging slices SHRINKS the variance: a plain mean-of-3 measures
+# (mean +0.22, std 0.74) while the pretrained stem was trained on roughly (0, 1). So every
+# layout in this family hands the stem a signal ~26% too flat. Measured:
+#
+#   what the stem wants                        mean  0.000   std 1.000
+#   plain mean-of-3 (the no-op)                mean +0.218   std 0.738   corr 1.0000
+#   conv, conv                                 mean +0.218   std 0.782   corr 0.9429
+#   conv, GELU, conv                           mean +0.465   std 0.507   corr 0.8630
+#   conv, conv, BN            <- this run      mean -0.000   std 1.000   corr 0.9429
+#   conv, BN, GELU, conv, BN                   mean +0.000   std 1.000   corr 0.8655
+#
+# So BN buys the correct statistics for free: identical correlation to having no BN, and
+# the distribution the stem actually expects. Any activation costs ~0.08 of that
+# correlation and buys expressiveness we are not testing here.
 #
 # Both convs declare is_fresh, so they take optimizer.fresh_lr 1.0e-4 - the head's rate,
 # twice the backbone's 5.0e-5.
@@ -47,8 +56,9 @@ paths:
 model:
   name: "convnext_base.fb_in22k_ft_in1k"   # timm id: ConvNeXt-Base pretrained on ImageNet-22k
   pretrained: true
-  slice_proj: [16, 8]               # ramp down the slice axis: 24 -> 16 -> GELU -> 8,
-                                    # then the stem sees 8 channels (8*16 = 128 -> 128,
+  slice_proj: [16, 8]               # ramp down the slice axis: 24 -> 16 -> 8, no
+                                    # activation. The stem then sees 8 channels
+                                    # (8*16 = 128 -> 128,
                                     # exactly 1.00x). A single int means one stage; a list
                                     # means a ramp with GELU between the stages.
   pool: "mean"                      # how the 96 slice features collapse per study: mean | max | attn

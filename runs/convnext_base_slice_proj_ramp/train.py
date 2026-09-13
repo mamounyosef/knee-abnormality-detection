@@ -62,9 +62,12 @@ class SliceModel(nn.Module):
         # anywhere in the chain. 12 compresses 1.5x, 24 compresses 3.0x, and the ordinary
         # 3-channel layout EXPANDS 48 -> 128.
         #
-        # The GELU is not decoration. Two 1x1 convs with nothing between them collapse to a
-        # single 1x1 conv, so a linear 24 -> 16 -> 8 ramp would be algebraically identical
-        # to a plain 24 -> 8 map. The nonlinearity is what makes the ramp a ramp.
+        # NO activation between the two convs, deliberately. Be clear about what that
+        # means: stacked linear 1x1 convs compose, so this is mathematically ONE 24 -> 8
+        # linear map, and the function class is identical to a single Conv2d(24, 8). What
+        # differs is the optimisation, not the expressiveness - a factorised map has its own
+        # gradient dynamics, and it keeps the two-stage structure available if we later want
+        # to insert a nonlinearity or freeze a stage.
         #
         # Both convs start as a SMOOTH RESAMPLE, not randomly: output j is the mean of the
         # input channels that map onto it. timm's in_chans adaptation works precisely
@@ -73,10 +76,10 @@ class SliceModel(nn.Module):
         # 3-channel output to 1.3e-05), and a random projection in front would destroy that
         # on step 1.
         #
-        # KNOWN COST, measured and accepted: the GELU shifts the stem's input from
-        # (mean +0.22, std 0.74) to (mean +0.46, std 0.51). The pretrained stem was not
-        # trained on that. If this run underperforms the other slice_* runs, that shift is
-        # the first thing to suspect.
+        # Without the activation there is no distribution shift to worry about: the chain
+        # stays a weighted average of slices, so the stem receives what it expects
+        # (measured with the GELU in place it was mean +0.46 / std 0.51 against the plain
+        # mean-of-3's +0.22 / 0.74; without it, +0.22 / 0.78).
         stages = m.get("slice_proj")
         stages = [stages] if isinstance(stages, int) and stages else (stages or [])
         self.slice_proj = None
@@ -93,9 +96,18 @@ class SliceModel(nn.Module):
                         conv.weight[o, lo:hi, 0, 0] = 1.0 / (hi - lo)
                 conv.is_fresh = True                 # -> optimizer.fresh_lr
                 layers.append(conv)
-                if k < len(stages) - 1:
-                    layers.append(nn.GELU())
                 prev = nxt
+            # BatchNorm on the way out, and it is not cosmetic. Averaging slices SHRINKS
+            # the variance: the plain mean-of-3 measures (mean +0.22, std 0.74) where the
+            # pretrained stem was trained on roughly (0, 1), so every slices_as_channels
+            # layout hands the stem a signal about 26% too flat. Measured, this fixes it
+            # exactly - (mean 0.000, std 1.000) - while keeping correlation with the plain
+            # average at 0.9429, i.e. identical to having no BN at all. An activation would
+            # also need normalising but costs 0.08 of that correlation, which is why there
+            # is none here.
+            bn = nn.BatchNorm2d(prev)
+            bn.is_fresh = True
+            layers.append(bn)
             self.slice_proj = nn.Sequential(*layers)
             in_ch = prev
         self.backbone = timm.create_model(m["name"], pretrained=m.get("pretrained", True),
