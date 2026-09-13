@@ -59,7 +59,15 @@ input:
 
 training:
   epochs: 12
-  grad_clip: 1.0                    # cap gradient size so one bad batch can't blow up training
+  grad_clip: 3.0                    # 3.0, NEVER 1.0. Inherited as 1.0 from
+                                    # convnext_base_relabel, which is the run measured
+                                    # clipping 100% of its steps - that does not stabilise
+                                    # anything, it silently caps every update and throttles
+                                    # the effective learning rate below the configured one.
+                                    # This is a SECOND difference from the 0.9050 baseline,
+                                    # so a win here is frame-plus-clipping, not frame alone.
+                                    # Kept anyway: comparing against a known-throttled
+                                    # setting is worse than accepting the confound.
   optimizer:
     name: "adamw"
     weight_decay: 0.05

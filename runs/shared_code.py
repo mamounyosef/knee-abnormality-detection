@@ -2389,6 +2389,40 @@ def check_normalization(cfg: dict, model: nn.Module) -> None:
     raise SystemExit("[norm] " + msg)
 
 
+def check_grad_clip(cfg: dict):
+    """grad_clip below 3.0 is a configuration error here, so refuse to start.
+
+    shared_config.yaml already defaults to 3.0, but that protects nothing: 45 run configs
+    set their own value, and the way a new run is made in this project is by COPYING the
+    closest existing one. Copy anything from the convnext_base_relabel era and 1.0 comes
+    with it, silently.
+
+    Why it matters: clipping rescales any update whose gradient norm exceeds the threshold.
+    convnext_base_relabel clipped 100% of its steps at 1.0, so it trained at a fraction of
+    the learning rate its config advertised, and every run copied from it inherited both the
+    setting and the misleading comment justifying it.
+
+    Set training.grad_clip_below_3_ok: true to override, and say why in a comment.
+    """
+    g = cfg.get("training", {}).get("grad_clip")
+    if g is None or float(g) >= 3.0 or float(g) == 0.0:
+        return
+    if cfg.get("training", {}).get("grad_clip_below_3_ok"):
+        print(f"  ⚠️  grad_clip {g} is below the 3.0 floor, allowed by "
+              f"training.grad_clip_below_3_ok")
+        return
+    lines = [
+        "[grad_clip] %s is below the 3.0 floor." % g,
+        "  Clipping rescales every update above the threshold, so a low cap silently",
+        "  throttles the effective learning rate below the one this config advertises.",
+        "  convnext_base_relabel clipped 100% of its steps at 1.0, and every run copied",
+        "  from it inherited the value.",
+        "  Set training.grad_clip to 3.0 or higher, or set",
+        "  training.grad_clip_below_3_ok: true if it is deliberate (say why in a comment).",
+    ]
+    raise SystemExit("\n".join(lines))
+
+
 def check_aux_wiring(cfg: dict, model: nn.Module):
     """aux_report.enable is only half the wiring: the MODEL must return the tuple.
 
@@ -2555,6 +2589,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     print_config(cfg)
     check_normalization(cfg, model)
     check_aux_wiring(cfg, model)
+    check_grad_clip(cfg)
 
     out = Path(out_dir) / cfg["output"]["run_dir"]
     ckpt_dir = out / cfg["output"]["checkpoints_dir"]
