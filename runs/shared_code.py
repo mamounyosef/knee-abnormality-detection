@@ -934,14 +934,18 @@ def prepare_batch(x: torch.Tensor, cfg: dict, device) -> torch.Tensor:
     r = cfg["input"].get("resize_to")
     if r and x.shape[-1] != int(r):
         x = F.interpolate(x, size=(int(r), int(r)), mode="area")
-    if as_ch:
-        # norm_mean/std describe three RGB channels; here every channel is the SAME
-        # grayscale modality, so one scalar applies to all of them. Averaging the three is
-        # the right reduction: it is what a grey pixel would have received anyway once it
-        # was copied into all three channels.
+    if as_ch and c != len(cfg["input"]["norm_mean"]):
+        # A WIDENED stem (12 or 24 slice-channels): norm_mean/std describe three RGB
+        # channels and there is no per-channel statistic to apply, so one scalar covers all
+        # of them. Averaging the three is the right reduction: it is what a grey pixel would
+        # have received anyway once it was copied into all three channels.
         m = float(np.mean(cfg["input"]["norm_mean"]))
         s_ = float(np.mean(cfg["input"]["norm_std"]))
         return (x - m) / s_
+    # slices_as_channels landing on exactly 3 channels (grouped 2.5D) falls THROUGH to the
+    # per-channel path below, because the stem is then the untouched pretrained RGB stem and
+    # must be fed the statistics it was trained with. That also makes it byte-identical to
+    # how convnext_small_25d normalises, which is the overlapping version of this same idea.
     mean = torch.tensor(cfg["input"]["norm_mean"][:c], device=device).view(1, c, 1, 1)
     std = torch.tensor(cfg["input"]["norm_std"][:c], device=device).view(1, c, 1, 1)
     return (x - mean) / std
@@ -2176,24 +2180,45 @@ def save_debug_batch(x_prep: torch.Tensor, cfg: dict, out_dir: Path,
     """
     if cv2 is None:
         return
-    slots, d = len(cfg["input"]["slots"]), cfg["input"]["n_slices"]
-    per = slots * d
+    i = cfg["input"]
+    slots, d = len(i["slots"]), int(i["n_slices"])
+    g = int(i.get("slices_as_channels") or 0)       # images per slot; 0 = one image per slice
+    per = images_per_study(cfg)                     # images for ONE study, NOT slots * d
     if x_prep.shape[0] < per:
         return
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    mean = torch.tensor(cfg["input"]["norm_mean"][:x_prep.shape[1]]).view(1, -1, 1, 1)
-    std = torch.tensor(cfg["input"]["norm_std"][:x_prep.shape[1]]).view(1, -1, 1, 1)
+    # Invert EXACTLY the normalisation prepare_batch applied, which depends on the channel
+    # count: per-channel when the stem is the pretrained 3-channel one, the averaged scalar
+    # when the stem was widened to hold slices. Slicing norm_mean to x_prep.shape[1] was
+    # wrong for a widened stem - it yields 3 values against 12 or 24 channels and does not
+    # broadcast - so this branched the same way prepare_batch does instead.
+    n_ch = x_prep.shape[1]
+    if n_ch == len(i["norm_mean"]):
+        mean = torch.tensor(i["norm_mean"]).view(1, -1, 1, 1)
+        std = torch.tensor(i["norm_std"]).view(1, -1, 1, 1)
+    else:
+        mean = torch.tensor(float(np.mean(i["norm_mean"]))).view(1, 1, 1, 1)
+        std = torch.tensor(float(np.mean(i["norm_std"]))).view(1, 1, 1, 1)
     v = x_prep[:per].detach().float().cpu() * std + mean       # undo normalization
-    v = (v.clamp(0, 1) * 255).to(torch.uint8)[:, 0].numpy()    # first channel is enough
+    v = (v.clamp(0, 1) * 255).to(torch.uint8).numpy()          # keep EVERY channel
+
+    # Where does (slot r, slice sl) live? With one image per slice it is row r*d+sl, channel
+    # 0. With slices_as_channels the slices are packed into channels, so it is image
+    # r*g + sl//cpg at channel sl%cpg. Getting this wrong does not crash, it just draws the
+    # wrong planes on the contact sheet - which is the one artifact we use to eyeball input.
+    cpg = d // g if g else 1
+
+    def plane(r: int, sl: int):
+        return v[r * g + sl // cpg, sl % cpg] if g else v[r * d + sl, 0]
 
     cols = min(8, d)
     picks = np.linspace(0, d - 1, cols).astype(int)
-    h, w = v.shape[1:]
+    h, w = v.shape[-2:]                             # v is (images, channels, H, W) now
     sheet = np.zeros((slots * h, cols * w), np.uint8)
     for r in range(slots):
         for c, sl in enumerate(picks):
-            sheet[r * h:(r + 1) * h, c * w:(c + 1) * w] = v[r * d + sl]
+            sheet[r * h:(r + 1) * h, c * w:(c + 1) * w] = plane(r, sl)
 
     sheet = cv2.cvtColor(sheet, cv2.COLOR_GRAY2BGR)
     for r, name in enumerate(cfg["input"]["slots"]):
