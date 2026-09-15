@@ -23,19 +23,22 @@ import sys
 from pathlib import Path
 
 # ============================ CONFIG (edit here) ============================
-# MEMBER 0 OWNS THE LOADER: every member shares one DICOM decode pass, so they must
-# agree on slots / n_slices / size / mm_per_px / windowing. They may differ in
-# normalisation (MRI-CORE wants [0,1]) - that is applied per member, on GPU.
+# MEMBERS ARE GROUPED BY LOADER GEOMETRY (slots / n_slices / size / mm_per_px / windowing)
+# and the notebook decodes ONCE PER GROUP, via predict_dicom_ensemble_grouped. Members that
+# agree still share a single decode pass exactly as before; members that disagree now cost
+# one extra pass (0.188 s/study on a T4) instead of being refused outright.
+# Normalisation, resize_to and slices_as_channels never split a group: all three are applied
+# per member inside prepare_batch, on GPU, from an already-decoded tensor.
 # posweight is deliberately NOT here. Added to these three it moves val by 0.0000:
 # it is another ConvNeXt-Small on the same data as 4slot, so it makes the same
 # mistakes. mricore_vitb and radimagenet_resnet50 earn their slots by being the only
 # non-ConvNeXt architectures - radimagenet scores lowest solo (0.8799) and still adds
 # +0.0018 to the blend.
 #
-# convnext_small_25d is NOT here either, and not for a scoring reason: 2.5D is a
-# LOADER setting (neighbouring slices in the RGB channels), so it cannot share member
-# 0's decode pass. It would need a second pass over every DICOM to buy +0.0004 on val,
-# which is inside the noise. predict_dicom_ensemble now rejects it explicitly.
+# convnext_small_25d is NOT here either, and now for a purely SCORING reason: a second
+# decode pass is available since predict_dicom_ensemble_grouped, so the old objection (it
+# could not share member 0's pass) no longer applies - but it only bought +0.0004 on val,
+# inside the noise, and it costs 96 passes per study to do it.
 # dinov3_convnext_base is the 5th member. It LOSES solo to convnext_base_relabel
 # (0.9011 vs 0.9050) on a byte-identical config, so supervised ImageNet-22k beats DINOv3
 # as a standalone model - but it is the largest ensemble gain since the relabel: flat
@@ -63,11 +66,22 @@ from pathlib import Path
 # 6.9-8.3 h of the 9 h cap against 5.5-6.6 h for these six, and +0.0004 val is well inside
 # the 0.0055 noise. A timeout forfeits the run, so the cap decides. See runtime_budget.py.
 MEMBERS = [
+    # 6-MODEL FLAT SET. convnext_base_25d_18slices replaces convnext_large: non-overlapping
+    # 2.5D at 18 slices, so 24 passes per study instead of 96, and a 196M-parameter
+    # 3.49 s/study model gives way to a ~0.4 s/study one.
+    # 18 slices was chosen over the 24-slice convnext_base_25d_group3 on the LARGEST
+    # samples available: solo LB 0.914 vs 0.913 and audit 0.9054 vs 0.9005, at 25% less
+    # compute. val disagrees by 0.0003 solo and 0.0001 in the ensemble, inside noise.
+    # It is 336 px where the rest are 512, so this is the first submission that cannot share
+    # one decode pass - predict_dicom_ensemble_grouped decodes once per geometry group.
+    # MEASURED on a T4, 20-study stress: 13.401 s/study = 5.58 h at 1500 studies, against
+    # 21.547 s/study (8.98 h) for the 9-model branch-group construct that scores 0.9167.
+    # +0.0009 val is inside this project's 0.0055 noise; a timeout forfeits the whole run.
     ("convnext_base_relabel", "best"),
     ("mricore_vitb_cross_attention", "best"),
     ("mricore_vitb_mae_cross_attention", "best"),
     ("dinov3_convnext_base", "best"),
-    ("convnext_large", "best"),
+    ("convnext_base_25d_18slices", "best"),
     ("swinv2_base_in22k", "best"),
 ]
 # RadImageNet is deliberately ABSENT: its licence is "personal, non-commercial (e.g.,
@@ -93,20 +107,28 @@ STRESS       = 0              # >0 = MEASUREMENT run: repeat the 3 public studie
 PUBLISH      = True
 WAIT_FOR_RUN = True
 SUBMIT       = True           # REAL SUBMISSION: costs one of the day's 5.
-                              # False = run the kernel and stop. Kernel runs are FREE;
-                              # only the submit costs one of the day's 5. Use it to see
-                              # the notebook's real output before spending one.
+                              # False = push and run the kernel, then stop. Kernel runs are
+                              # FREE, so always do that first and read inference_log.txt:
+                              # it names every member that scored and the decode-pass count.
+                              # Set STRESS > 0 with SUBMIT = False to get marginal per-study
+                              # rates before committing to the 9 h cap.
 KAGGLE_USER  = "mamounhussam"
-SLUG         = "knee-ensemble-6-mae-flat"
-NOTE         = ("6-model FLAT ensemble, PRIZE-ELIGIBLE (no RadImageNet): the 0.929 five "
-                "plus mricore_vitb_mae_cross_attention, the cross-attention config "
-                "rebuilt on the MAE-pretrained MRI-CORE trunk. It ADDS rather than "
-                "replaces its non-MAE twin (swapping ties at 0.9147, adding gives "
-                "0.9156): its logits correlate 0.873 with that twin where two SEEDS "
-                "of one config sit at 0.952. Chosen over the 9-member 0.9160 set on "
-                "RUNTIME - measured on a T4, the nine price at 6.9-8.3 h of the 9 h "
-                "cap while this fits in 5.5-6.6 h, for 0.0004 val, inside noise. "
-                "| val 0.9156 vs 0.9147 for the five | Built with DINOv3")
+SLUG         = "knee-ensemble-6-25d18-flat"
+# KEEP THIS IN STEP WITH MEMBERS. Submission 56234763 shipped the 18-slice member while
+# this text still named the 24-slice one, because the swap changed MEMBERS and SLUG and
+# missed NOTE. Kaggle descriptions cannot be edited after submitting, so that record is
+# permanently wrong. Re-read this string whenever MEMBERS changes.
+NOTE         = ("6-model FLAT ensemble, PRIZE-ELIGIBLE (no RadImageNet): the 0.931 "
+                "six with convnext_large REPLACED by convnext_base_25d_18slices, "
+                "non-overlapping 2.5D at 18 slices (3 consecutive slices in the RGB "
+                "channels, so 24 passes/study not 96, at 336px; solo val 0.9010 / "
+                "audit 0.9054 / LB 0.914). val 0.9158 vs 0.9156. Uses "
+                "predict_dicom_ensemble_grouped: the new member is 336px where the "
+                "rest are 512, so the notebook decodes once per GEOMETRY GROUP and "
+                "blends at the end. MEASURED on a T4 (20-study stress): 13.4 s/study "
+                "= 5.6 h at 1500 studies, against 15.85 for the 0.931 six. The 9-model "
+                "branch-group construct scores 0.9167 but prices at 21.5 s/study = "
+                "8.98 h, too close to the cap to risk. | Built with DINOv3")
 # ===========================================================================
 
 PKG_ROOT = Path(__file__).resolve().parent.parent.parent      # <repo>/runs

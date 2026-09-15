@@ -1,0 +1,128 @@
+# convnext_base_25d_18slices with TOKEN-TO-TOKEN SELF-ATTENTION before pooling.
+#
+# THE ONE DIFFERENCE FROM convnext_base_25d_slotattn, stated exactly:
+#   slotattn   12 label queries attend OVER the 24 tokens. Q=queries, K=V=tokens. Each token
+#              reaches the output unchanged and is merely WEIGHTED, per finding.
+#   THIS RUN   the 24 tokens attend over EACH OTHER. Q=K=V=tokens. The sagittal token comes
+#              out REWRITTEN with coronal and axial information, and only then is it pooled.
+#
+# Both sit entirely after the backbone, on (B, 24, 1024) - one token per image, already
+# spatially pooled by timm. Neither touches ConvNeXt or its patches.
+#
+# This is the other half of the 0.941 notebook's V48 head, which projects its tokens to 512,
+# adds plane and position embeddings, and runs an 8-head MultiheadAttention over them.
+#
+# WHY IT IS RUN SEPARATELY rather than stacked on slotattn: they are different mechanisms and
+# stacking both at once would leave a win unattributable. If both help, combine them after.
+#
+# NOT A REPEAT of convnext_small_transformer_pool (0.8792, and a loss). That REPLACED the
+# mean with self-attention over 96 raw slices, on ConvNeXt-Small, on the old labels, with no
+# slot or position embeddings and no residual path. Here the mean survives, the attention is
+# a GATED RESIDUAL whose gate starts at zero, and the tokens carry learned slot identity - so
+# at step 0 this model is bit-identical to convnext_base_25d_18slices and attention can only
+# add.
+#
+# Beat: convnext_base_25d_18slices, val 0.9010 / audit 0.9054 / LB 0.914, at the same cost.
+
+experiment:
+  name: "convnext_base_25d_tokenattn"
+
+paths:
+  # Byte-identical split MEMBERSHIP to convnext_base_25d_group3 and convnext_base_336px.
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+  # audit_csv stays 05_audit58.csv - the panel labels never change, so it is the one
+  # honest cross-label-set comparison.
+
+model:
+  name: "convnext_base.fb_in22k_ft_in1k"   # timm id: ConvNeXt-Base pretrained on ImageNet-22k
+  pretrained: true
+  pool: "mean"                      # the residual path the attention branch adds to
+
+  token_attention:
+    enable: true
+    heads: 8                        # 8 attention heads over 1024 features, 128 per head
+    use_pos: true                   # position embedding over the 6 groups within a slot,
+                                    # alongside the slot embedding. Both are just learned
+                                    # vectors added to each token.                      # how the 24 image features collapse per study: mean | max | attn
+  drop_rate: 0.1                    # dropout in the head, mild regularization
+
+input:
+  # 336 x 0.40 = 134 mm of frame, unchanged. mm_per_px stays 0.40, the value every run in
+  # this project has used: it is the knob that controls interpolation, and at 0.40 exactly
+  # 24.4% of series are upsampled (median 1.17x).
+  size: 336
+
+  # 18 real slices per slot, down from the shared default of 24. This is the ONLY difference
+  # from convnext_base_25d_group3.
+  n_slices: 18
+
+  # 6 IMAGES PER SLOT, each holding 3 consecutive slices in its 3 channels.
+  # prepare_batch reshapes (B, 4, 18, H, W) -> (B*4*6, 3, H, W). The slice axis splits with
+  # the GROUP as the outer index and the CHANNEL as the inner one, so the groups are
+  # contiguous and non-overlapping: (0,1,2), (3,4,5), ... (15,16,17).
+  # 18 / 6 = 3 means train.py builds the backbone with in_chans=3, i.e. the pretrained stem
+  # exactly as shipped. No filter tiling, no rescaling, no adaptation.
+  slices_as_channels: 6
+
+training:
+  epochs: 12
+  grad_clip: 3.0                    # 3.0, NEVER 1.0. 1.0 clips every step and silently
+                                    # throttles the effective learning rate.
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-5                      # BACKBONE lr, identical to convnext_base_25d_group3 so
+                                    # the slice count is the only variable
+    backbone_lr_mult: 0.5           # head = lr / 0.5 = 1.0e-4, twice the trunk
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05
+    min_lr_mult: 0.01               # floor: ends at 1% of the base learning rate
+  loss:
+    name: "bce"                     # bce = binary cross-entropy | focal = focuses on hard cases
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 12                     # VALIDATIONS without improvement, not epochs.
+
+# CPU-side loading; decoding shards is the bottleneck and stays one here, though 18 slices
+# is a quarter less to decode per study than 24.
+dataloader:
+  batch_size: 8                     # 8 studies x 4 slots x 6 images = 192 images @336.
+                                    # MEASURED basis: convnext_base_25d_group3 peaked at
+                                    # 71.02 GB on 256 images, i.e. ~0.273 GB/image, so 192
+                                    # images is ~54 GB of the A100-80GB. Comfortable.
+  accum_steps: 1                    # effective 8 studies per update - IDENTICAL to every
+                                    # other run, so step counts and the lr schedule compare
+                                    # directly against convnext_base_25d_group3
+  val_batch_size: 16                # 16 studies x 24 images = 384 images, but with no
+                                    # backward pass there are no stored activations, so this
+                                    # is far cheaper than the training batch despite being
+                                    # twice the studies. Speeds the validations up.
+
+  num_workers: 26                   # the GPU does a quarter of convnext_base_336px's work
+                                    # per study, so the loader is the binding constraint
+  val_num_workers: null             # null = same as num_workers
+
+  prefetch_factor: 6                # batches queued per worker
+  pin_memory: true                  # page-locked memory, faster CPU -> GPU copies
+  persistent_workers: true          # don't respawn workers every epoch
+  drop_last: false                  # keep the ragged final batch
+
+modal:
+  gpu: "A100-80GB"                  # 192 images is ~54 GB, so the 80 GB card fits it with
+                                    # room. NOT the A100-40GB: that would be over the card.
+                                    # At 24 passes per study this run is I/O bound anyway,
+                                    # so the faster H200 would idle.
+  cpu: 14.0                         # one core per dataloader worker, decoding npz is
+                                    # CPU-bound and matters more than ever here
+  memory_gb: 64                     # 26 workers x prefetch 6 x ~32 MB per queued batch
+
+# inherits resume: "last" from shared_config - the preemption-safe setting.

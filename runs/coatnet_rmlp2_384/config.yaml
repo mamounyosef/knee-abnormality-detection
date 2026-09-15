@@ -48,6 +48,19 @@ input:
   mm_per_px: 0.40
   resize_to: 384
 
+  # NON-OVERLAPPING 2.5D, added after this run was first built. Three consecutive slices go
+  # into the three RGB channels, so a slot is 6 images not 18 and a study costs 24 forward
+  # passes instead of 96. CoAtNet's stem is a Conv2d like every other backbone here, so
+  # in_chans stays 3 and the pretrained weights are untouched.
+  # 18 slices, not 24: convnext_base_25d_18slices settled that at LB 0.914 vs 0.913 for the
+  # 24-slice version, at 25% less compute.
+  # This run keeps size 512 + resize_to 384 rather than switching to a native 384 loader,
+  # because resize_to is applied per member inside prepare_batch and does NOT split a
+  # geometry group - so it still shares the decode pass with the four 512 px members. A
+  # native-384 loader would add a THIRD decode pass to the ensemble for no scoring reason.
+  n_slices: 18
+  slices_as_channels: 6
+
   # TensorFlow-lineage checkpoint: normalises to 0.5/0.5, NOT ImageNet. Read off the
   # checkpoint's own pretrained_cfg rather than assumed - the template this was copied from
   # would otherwise inherit ImageNet statistics and fail silently. check_normalization
@@ -56,7 +69,10 @@ input:
   norm_std:  [0.5, 0.5, 0.5]
 
 training:
-  epochs: 12
+  epochs: 16                        # 16, not 12. The attention-stage models here peak LATE
+                                    # (mricore ep11-13, dinov2_vits14_25d ep15 of 16) while
+                                    # the pure-ConvNeXt 2.5D runs peak at ep9. CoAtNet is a
+                                    # hybrid, so budget for the transformer behaviour.
   grad_clip: 3.0                    # 3.0, never 1.0: 1.0 clips every step and silently
                                     # throttles the effective learning rate
   optimizer:
@@ -84,13 +100,16 @@ training:
     enable: true
     monitor: "val_macro_auroc"
     mode: "max"
-    patience: 12                    # VALIDATIONS without improvement, not epochs
+    patience: 8                     # VALIDATIONS without improvement, not epochs
 
 dataloader:
-  batch_size: 2                     # 2 studies x 96 images = 192 @384, which is 0.56x the
-                                    # pixels of the same batch at 512. Raise only after
-                                    # reading the first gpu_mem(peak) print.
-  accum_steps: 4                    # effective 8 studies per update - IDENTICAL to every
+  batch_size: 4                     # 4 studies x 4 slots x 6 images = 96 images @384.
+                                    # Anchor: convnext_base_25d_18slices peaked at 53.53 GB
+                                    # on 192 images @336; 96 images @384 is ~0.65x that in
+                                    # pixel terms, but CoAtNet's attention stages cost more
+                                    # per pixel than ConvNeXt, so this is deliberately
+                                    # conservative. Raise after the first gpu_mem(peak).
+  accum_steps: 2                    # effective 8 studies per update - IDENTICAL to every
                                     # other run, so step counts and lr schedules compare
   val_batch_size: 8
   num_workers: 24
@@ -101,7 +120,7 @@ dataloader:
   drop_last: false
 
 modal:
-  gpu: "H200"
+  gpu: "A100-80GB"                  # 24 passes/study is I/O bound; the H200 would idle
   cpu: 20.0
   memory_gb: 56
   timeout_hours: 10

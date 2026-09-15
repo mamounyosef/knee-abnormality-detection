@@ -1681,8 +1681,15 @@ class ScaleProbe:
     def _hook(self, _mod, inp, out):
         if self.buf is not False:                   # False = not an active step
             f, o = inp[0].detach().float(), out.detach().float()
+            # head weight norm too: logits = head_w . features, so features and logits alone
+            # cannot say WHICH side moved. dinov2_vits14_25d showed feat_l2 FALLING
+            # 24.5 -> 17.9 while logit_std ROSE 0.78 -> 1.30, which can only mean the head
+            # grew to compensate - and a bigger head sends bigger gradients back into the
+            # trunk, eroding the features further. That loop is invisible without this.
+            w = getattr(_mod, "weight", None)
             self.buf = (float(f.std()), float(f.norm(dim=-1).mean()),
-                        float(o.std()), float(o.abs().max()))
+                        float(o.std()), float(o.abs().max()),
+                        float(w.detach().float().norm()) if w is not None else float("nan"))
 
     def active(self, step: int) -> bool:
         return self.handle is not None and self.every > 0 and step % self.every == 0
@@ -1699,20 +1706,25 @@ class ScaleProbe:
     def row(b):
         if not b:
             return {}
-        return {"feat_std": round(b[0], 4), "feat_l2": round(b[1], 3),
-                "logit_std": round(b[2], 4), "logit_absmax": round(b[3], 3)}
+        r = {"feat_std": round(b[0], 4), "feat_l2": round(b[1], 3),
+             "logit_std": round(b[2], 4), "logit_absmax": round(b[3], 3)}
+        if len(b) > 4:
+            r["head_w_norm"] = round(b[4], 4)
+        return r
 
     @staticmethod
     def summarize(b):
         if not b:
             return ""
-        fs, fl, ls, lm = b
+        fs, fl, ls, lm = b[:4]
+        hw = b[4] if len(b) > 4 else None
         flag = ""
         if fs > 2.5 or fs < 0.15:
             flag = ("   <-- feature scale is far from 1: the head's effective lr is not "
                     "what the config says. Consider model.feat_norm")
+        head = f"   |   head |W| {hw:.2f}" if hw is not None and hw == hw else ""
         return (f"  \U0001F4CF scale  features std {fs:.3f}  L2 {fl:.1f}   |   "
-                f"logits std {ls:.3f}  |max| {lm:.2f}{flag}")
+                f"logits std {ls:.3f}  |max| {lm:.2f}{head}{flag}")
 
 
 class UDRatio:
@@ -5328,8 +5340,12 @@ try:
         _ti = [BLEND['tasks'].index(t) for t in TASKS]
         _W = [[row[j] for j in _ti] for row in BLEND['matrix']]
         print('using per-class blend weights')
-    pred = sc.predict_dicom_ensemble(CFGS, MODELS, todo, plan, idx, files_by_series,
-                                     batch_size=1, weights=_W)
+    # _grouped, not the plain one: members that disagree on loader geometry (size,
+    # mm_per_px, n_slices, slots, windowing) cannot share a decode pass, so it decodes once
+    # per geometry GROUP and blends at the end. With every member on one geometry this does
+    # exactly what predict_dicom_ensemble did, in one pass, so it is safe as the default.
+    pred = sc.predict_dicom_ensemble_grouped(CFGS, MODELS, todo, plan, idx, files_by_series,
+                                             batch_size=1, weights=_W)
     # the 9h cap is enforced on the HIDDEN test set, which is larger than what runs
     # here, so the number that has to be extrapolated is s/study, not the total
     _el = _time.time() - _t0
@@ -5619,6 +5635,10 @@ def _write_timing_json(timing: dict, n_studies: int, device) -> None:
                     for nm, sec in zip(timing["members"], timing["member_s"])],
         "total_s_per_study": (timing["decode_s"] + sum(timing["member_s"])) / n,
     }
+    # >1 when members disagreed on loader geometry and the ensemble needed a decode pass per
+    # group. decode_s_per_study above is the TOTAL across passes, so the budget stays honest.
+    if timing.get("decode_passes"):
+        payload["decode_passes"] = int(timing["decode_passes"])
     Path(TIMING_JSON).write_text(json.dumps(payload, indent=1), encoding="utf-8")
     print(f"  ⏱️  timings -> {TIMING_JSON}")
 
@@ -5627,7 +5647,8 @@ def _write_timing_json(timing: dict, n_studies: int, device) -> None:
 def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, plan: dict,
                            index: pd.DataFrame, files_by_series: dict, device=None,
                            batch_size: int | None = None, num_workers: int | None = None,
-                           report_every: int = 50, weights=None) -> pd.DataFrame:
+                           report_every: int = 50, weights=None,
+                           return_member_logits: bool = False):
     """Score several models in ONE pass over the DICOMs and average their logits.
 
     Decoding a study costs ~9s against <1s of GPU, so looping predict_dicom once per
@@ -5697,14 +5718,15 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
     # resize_to is deliberately ABSENT: it is applied per member inside prepare_batch, from
     # each member's own cfg, so members may disagree on it and still share one decode pass.
     # That is the whole point of the setting.
-    geo = ("slots", "n_slices", "size", "mm_per_px", "window", "window_pct", "channels",
-           "slice_context", "slice_context_stride")
+    # ONE definition, shared with predict_dicom_ensemble_grouped, so the guard here and the
+    # grouping there can never drift apart and disagree about what a decode pass requires.
     for i, c in enumerate(cfgs[1:], 1):
-        bad = [k for k in geo if c["input"].get(k) != cfg0["input"].get(k)]
+        bad = [k for k in LOADER_GEOMETRY_KEYS if c["input"].get(k) != cfg0["input"].get(k)]
         if bad:                                    # loud: a silent mismatch would score
             raise ValueError(                      # every member on the wrong pixels
                 f"member {i} disagrees on loader geometry {bad} - it cannot share a "
-                f"decode pass with member 0")
+                f"decode pass with member 0. Use predict_dicom_ensemble_grouped, which "
+                f"decodes once per geometry group and blends at the end.")
 
     ds = KneeShardDataset(studies_df.assign(**{t: 0.0 for t in tasks}),
                           cfg0, plan, train=False, dicom=(index, files_by_series))
@@ -5723,6 +5745,17 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
     timing = {"decode_s": 0.0, "gpu_s": 0.0,
               "member_s": [0.0] * len(models),
               "members": [c["experiment"]["name"] for c in cfgs]}
+
+    def _neutral(k: int) -> np.ndarray:
+        """What a failed batch of k studies contributes: a no-opinion score.
+
+        In probability space that is 0.5; in LOGIT space the same thing is 0.0, and getting
+        this wrong would quietly push every failed study towards the positive class, since
+        sigmoid(0.5) = 0.62 rather than 0.5.
+        """
+        if return_member_logits:
+            return np.zeros((len(models), k, len(tasks)), np.float32)
+        return np.full((k, len(tasks)), 0.5, np.float32)
     it = iter(loader)
     while True:
         _tdec = time.perf_counter()
@@ -5734,7 +5767,7 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
             left = n - done
             print(f"  ❌ loader died at study {done} ({type(e).__name__}: {e}); "
                   f"remaining {left} score 0.5")
-            out.append(np.full((left, len(tasks)), 0.5, np.float32))
+            out.append(_neutral(left))
             failed += left
             break
         timing["decode_s"] += time.perf_counter() - _tdec
@@ -5761,6 +5794,14 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
                     torch.cuda.synchronize()           # else we time the launch, not the work
                 timing["member_s"][_mi] += time.perf_counter() - _tm
                 stacked[_mi][:, COLS[_mi]] = o
+            if return_member_logits:
+                # Raw per-member LOGITS, un-blended, for predict_dicom_ensemble_grouped:
+                # members that disagree on loader geometry cannot share this decode pass, so
+                # the blend has to wait until every geometry group has been scored. NaN still
+                # means "this member has no opinion on this finding".
+                r = stacked.cpu().numpy()             # (n_members, k, n_tasks)
+                del stacked
+                return r
             if W is None:
                 # nanmean, so each finding is averaged over exactly the members that
                 # predict it. With every member full-width this is the plain mean.
@@ -5790,7 +5831,7 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
             msg = f"batch at study {done} failed ({type(e).__name__}: {e}) -> 0.5"
             print(f"  ⚠️  {msg}", flush=True)
             notes.append(msg)
-            out.append(np.full((k, len(tasks)), 0.5, np.float32))
+            out.append(_neutral(k))
         timing["gpu_s"] += time.perf_counter() - _tgpu
         if device.type == "cuda":
             torch.cuda.empty_cache()               # next study starts on a clean heap
@@ -5799,23 +5840,180 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
             el = time.time() - t0
             print(f"  … {done}/{n} studies  {el / max(done, 1):.1f}s each  "
                   f"eta {fmt(el / max(done, 1) * (n - done))}", flush=True)
-    probs = np.concatenate(out) if out else np.zeros((0, len(tasks)))
-    summary = (f"scored {len(probs)} studies with {len(models)} members in "
+    # member-logit batches are (n_members, k, n_tasks), so studies live on axis 1
+    if return_member_logits:
+        probs = (np.concatenate(out, axis=1) if out
+                 else np.zeros((len(models), 0, len(tasks)), np.float32))
+        n_scored = probs.shape[1]
+    else:
+        probs = np.concatenate(out) if out else np.zeros((0, len(tasks)))
+        n_scored = len(probs)
+    summary = (f"scored {n_scored} studies with {len(models)} members in "
                f"{fmt(time.time() - t0)}"
                + (f" ({failed} fell back to 0.5)" if failed else ""))
     print(f"  ✅ {summary}")
+    # In member-logit mode this is ONE GROUP of a grouped ensemble, not the whole run. Each
+    # group would overwrite the previous group's files, leaving a log that claims the
+    # ensemble had only the last group's members - which is exactly what happened on the
+    # first grouped test run: "scored 3 studies with 1 members". Hand the timing back
+    # instead and let predict_dicom_ensemble_grouped write one combined report.
+    if return_member_logits:
+        return probs, timing
     # the kernel's stdout is not downloadable, so leave the diagnosis in a file that
     # `kaggle kernels output` can fetch - otherwise a Kaggle-only failure is invisible
     try:
         Path("inference_log.txt").write_text(summary + chr(10) + chr(10).join(notes)
-                                             + chr(10) + _timing_report(timing, len(probs)),
+                                             + chr(10) + _timing_report(timing, n_scored),
                                              encoding="utf-8")
     except Exception:
         pass
     try:
-        _write_timing_json(timing, len(probs), device)
+        _write_timing_json(timing, n_scored, device)
     except Exception as e:
         print(f"  (timing not recorded: {type(e).__name__}: {e})")
+    res = pd.DataFrame(probs, columns=tasks)
+    res.insert(0, "StudyInstanceUID", studies_df["StudyInstanceUID"].values)
+    return res
+
+
+LOADER_GEOMETRY_KEYS = ("slots", "n_slices", "size", "mm_per_px", "window", "window_pct",
+                        "channels", "slice_context", "slice_context_stride")
+
+
+def loader_geometry(cfg: dict) -> tuple:
+    """The settings that decide what PIXELS a member is handed.
+
+    Members sharing all of these can share one decode pass. resize_to is deliberately
+    absent: it is applied per member inside prepare_batch from that member's own cfg, so
+    members may disagree on it and still ride the same batch. slices_as_channels is absent
+    for the same reason - it is a reshape of an already-decoded tensor, not a decode setting.
+    """
+    i = cfg["input"]
+    return tuple(repr(i.get(k)) for k in LOADER_GEOMETRY_KEYS)
+
+
+@torch.no_grad()
+def predict_dicom_ensemble_grouped(cfgs: list, models: list, studies_df: pd.DataFrame,
+                                   plan: dict, index: pd.DataFrame, files_by_series: dict,
+                                   device=None, batch_size: int | None = None,
+                                   num_workers: int | None = None, report_every: int = 50,
+                                   weights=None) -> pd.DataFrame:
+    """Score an ensemble whose members do NOT all agree on loader geometry.
+
+    predict_dicom_ensemble decodes each study once and hands the same uint8 batch to every
+    member, which is what makes a six-member ensemble affordable - but it therefore requires
+    every member to want the same pixels, and refuses to start otherwise. That blocks an
+    otherwise-free win: convnext_base_25d_group3 is 336 px where the rest are 512, and
+    swapping it in for convnext_large is +0.0003 val while replacing a 3h34m 196M-parameter
+    model with a 51-minute one.
+
+    So: group the members by geometry, decode once PER GROUP, and blend at the end. Cost is
+    one extra decode per extra group - measured at 0.188 s/study on a T4 against
+    convnext_large's 3.488 s/study of GPU, so the swap above still nets ~3.0 s/study FASTER
+    despite paying for a second pass.
+
+    Every group still goes through predict_dicom_ensemble, so its geometry guard remains in
+    force within a group; this only removes the requirement that there be exactly one group.
+    With a single group the behaviour is identical to calling it directly.
+    """
+    device = device or torch.device("cuda" if usable_cuda() else "cpu")
+    tasks = cfgs[0]["tasks"]
+    n = len(studies_df)
+
+    groups: dict = {}
+    for i, c in enumerate(cfgs):
+        groups.setdefault(loader_geometry(c), []).append(i)
+
+    print(f"\n\U0001f5c2️  {len(models)} members in {len(groups)} geometry group(s) "
+          f"= {len(groups)} decode pass(es) over {n} studies")
+    for gi, (key, idx) in enumerate(groups.items()):
+        c0 = cfgs[idx[0]]["input"]
+        print(f"   group {gi}: size={c0['size']} mm_per_px={c0['mm_per_px']} "
+              f"n_slices={c0['n_slices']} slots={len(c0['slots'])} -> "
+              f"{', '.join(cfgs[i]['experiment']['name'] for i in idx)}")
+
+    # (n_members, n_studies, n_tasks) LOGITS, filled group by group, then blended ONCE. NaN
+    # is the initial value so a member that somehow never scores cannot silently vote 0.
+    allm = np.full((len(models), n, len(tasks)), np.nan, np.float32)
+    timing = {"decode_s": 0.0, "gpu_s": 0.0, "member_s": [0.0] * len(models),
+              "members": [c["experiment"]["name"] for c in cfgs],
+              "decode_passes": len(groups)}
+    t0 = time.time()
+    for gi, (key, idx) in enumerate(groups.items()):
+        sub_cfgs = [cfgs[i] for i in idx]
+        sub_models = [models[i] for i in idx]
+        # Every member must agree on the TASK list for the columns to line up across groups.
+        # predict_dicom_ensemble scatters into cfgs[0]["tasks"] of ITS OWN subset, so a group
+        # led by a partial-head member would return a narrower array than this one expects.
+        if list(sub_cfgs[0]["tasks"]) != list(tasks):
+            order = sorted(range(len(idx)), key=lambda j: len(sub_cfgs[j]["tasks"]),
+                           reverse=True)
+            idx = [idx[j] for j in order]
+            sub_cfgs = [cfgs[i] for i in idx]
+            sub_models = [models[i] for i in idx]
+            if list(sub_cfgs[0]["tasks"]) != list(tasks):
+                raise ValueError(
+                    f"geometry group {gi} has no full-width member, so its columns cannot be "
+                    f"aligned to the head task list: "
+                    f"{[c['experiment']['name'] for c in sub_cfgs]}")
+        print(f"\n▶ decode pass {gi + 1}/{len(groups)}", flush=True)
+        lg, gtiming = predict_dicom_ensemble(
+            sub_cfgs, sub_models, studies_df, plan, index, files_by_series, device=device,
+            batch_size=batch_size, num_workers=num_workers, report_every=report_every,
+            return_member_logits=True)
+        # DECODE accumulates across groups - that is the whole cost of the extra pass, and
+        # the number the 9h budget turns on. GPU time stays attributed per member.
+        timing["decode_s"] += gtiming["decode_s"]
+        timing["gpu_s"] += gtiming["gpu_s"]
+        for slot, i in enumerate(idx):
+            timing["member_s"][i] = gtiming["member_s"][slot]
+        if lg.shape[1] != n:                       # a group that died early scores neutrally
+            pad = np.zeros((lg.shape[0], n - lg.shape[1], len(tasks)), np.float32)
+            lg = np.concatenate([lg, pad], axis=1)
+        for slot, i in enumerate(idx):
+            allm[i] = lg[slot]
+
+    # blend exactly as the single-pass path does: nanmean, or per-class weights
+    A = torch.as_tensor(allm)
+    if weights is None:
+        avg = torch.nanmean(A, dim=0)
+    else:
+        W = torch.as_tensor(np.asarray(weights, dtype=np.float32))
+        if W.shape != (len(models), len(tasks)):
+            raise ValueError(f"weights must be ({len(models)}, {len(tasks)}), "
+                             f"got {tuple(W.shape)}")
+        present = (~torch.isnan(A)).any(dim=1).float()      # (n_members, n_tasks)
+        W = W * present
+        col = W.sum(dim=0)
+        if not torch.all(col > 0):
+            raise ValueError(f"every task needs a non-zero weight column, got sums {col}")
+        W = W / col
+        avg = torch.nan_to_num(A, nan=0.0).mul(W[:, None, :]).sum(dim=0)
+    probs = torch.sigmoid(avg).numpy()
+
+    # ONE combined report for the whole ensemble. Written here and nowhere else: the
+    # per-group calls deliberately do not write, or the last group would overwrite the rest
+    # and the log would under-report the ensemble.
+    scored = [cfgs[i]["experiment"]["name"] for i in range(len(models))
+              if not np.isnan(allm[i]).all()]
+    summary = (f"scored {n} studies with {len(scored)}/{len(models)} members in "
+               f"{fmt(time.time() - t0)} over {len(groups)} decode pass(es)")
+    print(f"  ✅ {summary}")
+    if len(scored) != len(models):
+        missing = [c["experiment"]["name"] for i, c in enumerate(cfgs)
+                   if np.isnan(allm[i]).all()]
+        print(f"  ⚠️  MEMBERS THAT NEVER SCORED: {', '.join(missing)}")
+    try:
+        Path("inference_log.txt").write_text(
+            summary + chr(10) + f"members: {', '.join(scored)}" + chr(10)
+            + _timing_report(timing, n), encoding="utf-8")
+    except Exception:
+        pass
+    try:
+        _write_timing_json(timing, n, device)
+    except Exception as e:
+        print(f"  (timing not recorded: {type(e).__name__}: {e})")
+
     res = pd.DataFrame(probs, columns=tasks)
     res.insert(0, "StudyInstanceUID", studies_df["StudyInstanceUID"].values)
     return res

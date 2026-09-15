@@ -23,13 +23,15 @@ from sklearn.metrics import roc_auc_score
 RUNS = Path(__file__).resolve().parent.parent.parent
 MEMBERS = ["convnext_base_relabel", "convnext_base_trauma", "convnext_base_wear",
            "convnext_base_fluid", "mricore_vitb_cross_attention",
-           "mricore_vitb_mae_cross_attention", "dinov3_convnext_base",
-           "convnext_large", "swinv2_base_in22k"]
+           "mricore_vitb_mae_cross_attention_full", "dinov3_convnext_base",
+           "convnext_base_25d_group3", "swinv2_base_in22k"]
 # the offline construct: the four convnext runs average into ONE vote, then that vote
 # blends flat with the five standalone models
 GROUP = MEMBERS[:4]
 STANDALONE = MEMBERS[4:]
-EXPECTED = 0.9160
+EXPECTED = 0.9167       # was 0.9160: the MAE cross-attention member went 3 -> 6 fusion
+                        # points (+0.0004) and convnext_large gave way to
+                        # convnext_base_25d_group3 (+0.0003)
 
 
 def best_npz(run):

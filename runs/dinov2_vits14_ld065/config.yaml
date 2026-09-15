@@ -1,0 +1,180 @@
+# DINOv2 ViT-S/14, 2.5D, with the HEAD-GROWTH FEEDBACK LOOP damped.
+#
+# THE HYPOTHESIS THIS RUN TESTS. dinov2_vits14_25d (layer_decay 0.75) learns, but its
+# training diagnostics get worse as it goes, which none of our other runs do:
+#
+#     step      0    800   1600   2400   2800
+#     gnorm   7.3    5.8    inf   10.0   18.3      <- RISING, and an overflow at 1600
+#     clip%    97     87     92     95     95
+#     feat_l2 24.5   20.1   19.0   18.3   17.9     <- features shrinking
+#     logit_std 0.78  0.82   0.92   1.03   1.30    <- logits growing
+#
+# Logits are head_weights . features. Features FELL while logits ROSE, so the head must be
+# GROWING to compensate. A bigger head sends bigger gradients back into the trunk, which
+# erodes the features further, which makes the head grow again. Self-reinforcing, and it
+# explains both the rising gnorm and the inf.
+#
+# WHY THIS IS NOT JUST "DINOv2 HAS BIG GRADIENTS". It does start large - its features are
+# 1.25 per element against ConvNeXt-Base's 0.48, and head gradients scale linearly with
+# feature norm - but a merely-large-and-stable gnorm would settle. Ours climbs 7 -> 18.
+#
+# THE CHANGES, both pulling the same way (move the trunk LESS):
+#   layer_decay  0.75 -> 0.60   the patch embedding drops from 0.75^top to 0.60^top, about
+#                               10x slower, so the lower layers holding DINOv2's general
+#                               features are very close to frozen
+#   lr           5.0e-5 -> 4.0e-5   a 20% cut, same direction
+#   grad_clip    3.0 -> 5.0     the ONE change pulling the other way, and deliberate
+#
+# WHY A LOOSER CLIP IS CONSISTENT HERE. grad_clip is global, but layer_decay decides where
+# an allowed update actually LANDS. At 0.60 the trunk's lr is tiny, so relaxing the clip
+# mostly frees the HEAD - which is fresh and SHOULD move - rather than the pretrained
+# features we are protecting. It also stops the schedule being purely nominal: the parent
+# clipped 95% of steps, so its lr curve described something it never did.
+# 5.0 still catches an overflow (any finite clip does, and one fired at step 1600), and it
+# stays above the project's floor of 3. With AdamW a roughly constant clip factor largely
+# cancels anyway - the update is m/sqrt(v), which is scale invariant - so the clip matters
+# less than the raw percentage suggests.
+#
+# NEW DIAGNOSTIC: head_w_norm is now logged every probe step (shared_code's ScaleProbe).
+# The hypothesis is falsifiable against it directly - if head |W| climbs here the way it
+# must have in the parent, the loop is real; if it stays flat while val still lags, the
+# explanation is wrong and DINOv2-S simply does not transfer here.
+#
+# Beat: dinov2_vits14_25d, which reached val 0.8627 by epoch 6 and was still climbing.
+
+experiment:
+  name: "dinov2_vits14_ld065"
+
+paths:
+  # Byte-identical split MEMBERSHIP to convnext_base_25d_group3, so the backbone is the only
+  # variable against that run.
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+  # audit_csv stays 05_audit58.csv - the panel labels never change, so it is the one
+  # honest cross-label-set comparison.
+
+model:
+  name: "vit_small_patch14_dinov2.lvd142m"   # DINOv2-S, 22.1M params, 384 features, Apache-2.0
+  pretrained: true
+  pool: "mean"                      # how the 24 image features collapse per study
+  drop_rate: 0.1                    # dropout in the head
+  drop_path_rate: 0.1               # stochastic depth. ViT-S is only 12 blocks and 22M
+                                    # params, so 0.1 rather than the 0.2 a Base-size
+                                    # transformer would want.
+
+input:
+  # 336 x 0.40 = 134 mm of frame, identical to convnext_base_25d_group3. 336 / 14 = 24
+  # patches, so the patch grid divides exactly and no pixels are dropped at the edge.
+  size: 336
+
+  # 18 slices, not the shared default of 24. convnext_base_25d_18slices settled that
+  # question: against the 24-slice version it scored LB 0.914 vs 0.913 and audit 0.9054 vs
+  # 0.9005, at 25% less compute. val disagreed by 0.0003, inside noise. So 18 is free.
+  n_slices: 18
+
+  # 6 IMAGES PER SLOT, each holding 3 consecutive slices in its 3 channels:
+  # (0,1,2), (3,4,5), ... (15,16,17). 4 slots x 6 = 24 forward passes per study.
+  # 18 / 6 = 3 puts in_chans at 3, i.e. the pretrained patch embedding exactly as shipped.
+  # Slice count does NOT touch the patch grid: that is 336 / 14 = 24 x 24 either way.
+  slices_as_channels: 6
+
+  # DINOv2's timm entry reports ImageNet statistics, which is what shared_config already
+  # carries, so check_normalization passes with no override. Confirmed against
+  # pretrained_cfg: mean (0.485, 0.456, 0.406), std (0.229, 0.224, 0.225).
+
+training:
+  epochs: 16                        # 16, NOT the 12 this was copied from. Every ViT in this
+                                    # project runs 16 and they peak LATE: mricore_vitb_relabel
+                                    # ep11, cross_attention ep12, mae_cross_attention ep11,
+                                    # mae_cross_attention_full ep13, radiodino_vitb ep13.
+                                    # Two of those peak at 13, so a 12-epoch budget would stop
+                                    # before their best checkpoint ever exists. The ConvNeXt
+                                    # 2.5D runs peak at ep9, which is why the file this was
+                                    # copied from says 12 - the wrong family to inherit from.
+                                    # DINOv2 is self-supervised with no classification head,
+                                    # so if anything it needs MORE adaptation, not less.
+                                    # early_stopping (patience 7 validations) caps the waste
+                                    # if it does peak early.
+  grad_clip: 5.0                    # 3.0, NEVER 1.0. 1.0 clips every step and silently
+                                    # throttles the effective learning rate.
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 4.0e-5                      # BACKBONE lr, the value every ViT run here uses
+                                    # (mricore_vitb, radiodino_vitb, eva02_base_448)
+    backbone_lr_mult: 0.5           # head = lr / 0.5 = 1.0e-4, twice the trunk
+    layer_decay: 0.60               # LAYER-WISE LR DECAY, and it is the fix for run001.
+                                    # run001 used null (uniform trunk lr) and stalled at val
+                                    # 0.7215 by epoch 4, where every healthy run here is at
+                                    # 0.84-0.86 by step 1200. It was NOT diverging and NOT
+                                    # clipping: clip_pct fell 67% -> 1.2% by step 1500 and
+                                    # gnorm settled at 1.2. It was FORGETTING:
+                                    #   feat_l2   26.0 -> 20.4 over training (others: stable)
+                                    #   log10_ud  -3.42 vs -3.96/-3.99 for the ConvNeXt runs
+                                    #   loss      0.570 -> 0.545 in 1500 steps, then UP
+                                    # ViT-S is 21.8M params against ConvNeXt-Base's 88M, so
+                                    # the same nominal lr moves the weights ~3.5x further in
+                                    # RELATIVE terms, and DINOv2's entire value is the
+                                    # features it was erasing faster than it learned the task.
+                                    # LLRD replaces backbone_lr_mult: the head stays at
+                                    # lr/mult = 1.0e-4, the trunk's top block gets 0.75x that,
+                                    # and the patch embedding ~0.75^top = 2.4e-6, so the early
+                                    # layers holding the general features barely move.
+                                    # lr is deliberately NOT lowered as well: LLRD already
+                                    # cuts the trunk's average lr about tenfold, run001's other
+                                    # symptom was learning too SLOWLY, and two changes at once
+                                    # would leave the cause unattributable either way.
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05
+    min_lr_mult: 0.01               # floor: ends at 1% of the base learning rate
+  loss:
+    name: "bce"                     # bce = binary cross-entropy | focal = focuses on hard cases
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  lp_ft_epochs: 0                   # OFF: full fine-tune from step 0, see the header
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 8                     # VALIDATIONS without improvement, not epochs.
+
+dataloader:
+  batch_size: 8                     # 8 studies x 4 slots x 6 images = 192 images @336, the
+                                    # same image count convnext_base_25d_18slices ran at
+                                    # 53.53 GB on this card. ViT-S is a quarter of
+                                    # ConvNeXt-Base's parameters with a much smaller
+                                    # activation footprint, so expect well under that.
+                                    # Confirm on the first gpu_mem(peak) print before raising.
+  accum_steps: 1                    # effective 8 studies per update - IDENTICAL to every
+                                    # other run, so step counts and the lr schedule compare
+  val_batch_size: 16                # no backward pass, so no stored activations
+
+  num_workers: 26                   # ViT-S does far less GPU work per image than
+                                    # ConvNeXt-Base, so the loader binds even harder here
+  val_num_workers: null             # null = same as num_workers
+
+  prefetch_factor: 6                # batches queued per worker
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+modal:
+  gpu: "A100"                  # ViT-S at 24 passes is small and I/O bound, so the H200's
+                                    # extra throughput would idle waiting on decode. 192
+                                    # images @336 is the count convnext_base_25d_18slices ran
+                                    # at 53.53 GB, and ViT-S is 21.8M params against
+                                    # ConvNeXt-Base's 88M, so expect well under that.
+                                    # A100-40GB is NOT safe on that anchor alone.
+  cpu: 14.0                         # one core per dataloader worker, decoding npz is
+                                    # CPU-bound and is the binding constraint here
+  memory_gb: 64                     # 26 workers x prefetch 6
+
+# resume: "last" is shared_config's preemption-safe default and the right setting here.
+# run001 (uniform trunk lr, stalled at val 0.7215) has been deleted from the volume, so
+# there is nothing stale to load and this run starts from scratch regardless. "last"
+# earns its place for what comes AFTER step 0: Modal restarts a preempted container on
+# the same input, and without it the run would silently begin again from nothing.
+resume: "last"

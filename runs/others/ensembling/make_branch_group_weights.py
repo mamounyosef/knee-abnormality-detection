@@ -35,8 +35,13 @@ OUT = HERE / "branch_group_weights.json"
 
 GROUP = ["convnext_base_relabel", "convnext_base_trauma", "convnext_base_wear",
          "convnext_base_fluid"]
-STANDALONE = ["mricore_vitb_cross_attention", "mricore_vitb_mae_cross_attention",
-              "dinov3_convnext_base", "convnext_large", "swinv2_base_in22k"]
+STANDALONE = ["mricore_vitb_cross_attention", "mricore_vitb_mae_cross_attention_full",
+              "dinov3_convnext_base", "convnext_base_25d_group3", "swinv2_base_in22k"]
+# Two changes from the 0.9160 set, both measured on val:
+#   mricore_vitb_mae_cross_attention -> _full  (6 fusion points instead of 3): 0.9160 -> 0.9164
+#   convnext_large -> convnext_base_25d_group3 (32 passes/study, not 96):      0.9164 -> 0.9167
+# The second is also the cheap one: 0.512 s/study against convnext_large's 3.488 on a T4,
+# at the price of a second decode pass because it is 336 px where the rest are 512.
 MEMBERS = GROUP + STANDALONE
 
 

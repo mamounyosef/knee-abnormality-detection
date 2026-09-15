@@ -55,6 +55,25 @@
       "runtime_seconds": 486,
       "runtime": "8.1 min push->kernel complete (0.14 h of the 9 h cap). FASTER than the single convnext_small_relabel submission (14.2 min) because all four members share one DICOM decode pass - only the forward passes multiply.",
       "notes": "Same four architectures as the 0.913 ensemble, every member retrained on the qwen-2.4T medium-effort labels. +0.006 LB (0.913 -> 0.919), +0.0105 val, +0.0197 audit-58. The per-member gains were additive rather than redundant. Note convnext_base_relabel ALONE scored 0.918, so the ensemble now adds only +0.001 over its best member - the members have become more correlated as the labels improved."
+    },
+    {
+      "ref": 56234763,
+      "date": "2026-09-14 15:55",
+      "slug": "knee-ensemble-6-25d18-flat",
+      "members": [
+        "convnext_base_relabel",
+        "mricore_vitb_cross_attention",
+        "mricore_vitb_mae_cross_attention",
+        "dinov3_convnext_base",
+        "convnext_base_25d_18slices",
+        "swinv2_base_in22k"
+      ],
+      "blend": "flat",
+      "val_flat": 0.9158,
+      "public_score": 0.932,
+      "s_per_study": 13.401,
+      "decode_passes": 2,
+      "notes": "BEST SO FAR, +0.001 over the 0.931 six. The ONLY change is convnext_large -> convnext_base_25d_18slices, a non-overlapping 2.5D member at 24 passes/study instead of 96. It is 336px where the rest are 512, so this is the first submission to use predict_dicom_ensemble_grouped (decode once per geometry group, blend at the end). Cheaper AND better: 13.401 s/study against 15.85, ~15% faster, while swapping out a 196M-parameter model for an 88M one at a quarter of its passes. val predicted only +0.0002; the LB moved +0.001, so val UNDER-called this one. NOTE: the Kaggle description text wrongly names convnext_base_25d_group3 - the bundle shipped 25d_18slices, verified 6/6 in the kernel log. The NOTE string was not updated with MEMBERS."
     }
   ]
 }

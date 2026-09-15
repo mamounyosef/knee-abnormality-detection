@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "runs"))
 import shared_code as sc  # noqa: E402
 
-RUN = "convnext_base_25d_group3"
+RUN = sys.argv[1] if len(sys.argv) > 1 else "convnext_base_25d_group3"
 fails = []
 
 
@@ -53,8 +53,8 @@ print("\n%s: %d slots x %d slices, %d images per slot, %d channels each"
 print("\nconfig")
 check("slices_as_channels divides n_slices", n_sl % g == 0, "%d / %d" % (n_sl, g))
 check("channels per image is exactly 3 (pretrained RGB stem)", per_img == 3, "got %d" % per_img)
-check("images_per_study is 32", sc.images_per_study(cfg) == 32,
-      "got %d" % sc.images_per_study(cfg))
+check("images_per_study is slots x groups", sc.images_per_study(cfg) == n_slots * g,
+      "got %d, expected %d" % (sc.images_per_study(cfg), n_slots * g))
 check("that is 3x cheaper than 96", sc.images_per_study(cfg) * 3 == n_slots * n_sl)
 check("grad_clip is at least 3.0", float(cfg["training"]["grad_clip"]) >= 3.0,
       str(cfg["training"]["grad_clip"]))
@@ -67,7 +67,12 @@ h = w = 4
 x = torch.arange(n_sl, dtype=torch.uint8).view(1, 1, n_sl, 1, 1).expand(2, n_slots, n_sl, h, w)
 out = sc.prepare_batch(x.contiguous(), cfg, "cpu")
 
-check("flattened shape is (B*32, 3, H, W)", tuple(out.shape) == (2 * 32, 3, h, w),
+# resize_to, when set, changes the SPATIAL size inside prepare_batch (coatnet_rmlp2_384
+# loads at 512 and hands the backbone 384), so compare against model_input_size, not the
+# size the fake batch was built at.
+exp_hw = sc.model_input_size(cfg) if i.get("resize_to") else h
+check("flattened shape is (B*%d, 3, %d, %d)" % (n_slots * g, exp_hw, exp_hw),
+      tuple(out.shape) == (2 * n_slots * g, 3, exp_hw, exp_hw),
       str(tuple(out.shape)))
 
 # undo the normalisation to recover the slice indices
@@ -79,7 +84,8 @@ groups = np.rint(rec[:, :, 0, 0]).astype(int)          # (B*32, 3), one row per 
 first_slot = groups[:g]                                 # the 8 images of study 0, slot 0
 print("    study 0, slot 0 ->", [tuple(r) for r in first_slot])
 want = np.array([[k * per_img + c for c in range(per_img)] for k in range(g)])
-check("groups are (0,1,2), (3,4,5), ... (21,22,23)", np.array_equal(first_slot, want))
+check("groups are contiguous: %s ... %s" % (tuple(want[0]), tuple(want[-1])),
+      np.array_equal(first_slot, want))
 check("every slice appears exactly once per slot",
       sorted(first_slot.ravel().tolist()) == list(range(n_sl)))
 check("no slice appears in two images (non-overlapping)",
@@ -99,24 +105,52 @@ expect_per_ch = (raw - np.array(i["norm_mean"])) / np.array(i["norm_std"])
 expect_scalar = (raw - np.mean(i["norm_mean"])) / np.mean(i["norm_std"])
 check("per-channel statistics were applied", np.allclose(ch0, expect_per_ch, atol=1e-4),
       "got %s" % np.round(ch0, 4).tolist())
-check("NOT the scalar widened-stem branch",
-      not np.allclose(ch0, expect_scalar, atol=1e-4),
-      "scalar branch would give %s" % np.round(expect_scalar, 4).tolist())
+# A checkpoint whose three norm values are EQUAL (0.5/0.5/0.5, the TensorFlow lineage that
+# coatnet_rmlp2_384 uses) makes the two branches numerically identical, so this test cannot
+# distinguish them and asserting it would be a false alarm.
+if len(set(i["norm_mean"])) == 1 and len(set(i["norm_std"])) == 1:
+    print("    %-52s n/a  (mean/std are uniform: %s)"
+          % ("scalar-vs-per-channel", i["norm_mean"]))
+else:
+    check("NOT the scalar widened-stem branch",
+          not np.allclose(ch0, expect_scalar, atol=1e-4),
+          "scalar branch would give %s" % np.round(expect_scalar, 4).tolist())
 
 # --- 4. the stem is the pretrained one, untouched ---------------------------------
-print("\nstem (downloads ConvNeXt-Base weights once, then compares)")
+print("\ninput layer (downloads the backbone weights once, then compares)")
 try:
     import timm
 
     name = cfg["model"]["name"]
     ref = timm.create_model(name, pretrained=True, num_classes=0)
     got = timm.create_model(name, pretrained=True, num_classes=0, in_chans=per_img)
-    rw = ref.stem[0].weight.detach()
-    gw = got.stem[0].weight.detach()
-    check("stem shape unchanged by in_chans=3", tuple(rw.shape) == tuple(gw.shape),
+
+    def first_conv(m):
+        """The layer that actually eats the input channels.
+
+        ConvNeXt calls it stem[0], a ViT calls it patch_embed.proj, and both are a plain
+        Conv2d(in_chans, dim, kernel=patch, stride=patch). Finding it by type rather than by
+        name keeps this check valid for any backbone we try next.
+        """
+        import torch.nn as nn
+        for mod in m.modules():
+            if isinstance(mod, nn.Conv2d):
+                return mod
+        raise AttributeError("no Conv2d found - backbone takes its input some other way")
+
+    rc, gc = first_conv(ref), first_conv(got)
+    print("    input layer: %s kernel=%s out=%d" % (type(gc).__name__, gc.kernel_size,
+                                                    gc.out_channels))
+    k = gc.kernel_size[0] * gc.kernel_size[1] * per_img
+    print("    budget per patch: %d -> %d  (%.2fx %s)"
+          % (k, gc.out_channels, max(k, gc.out_channels) / min(k, gc.out_channels),
+             "compression" if k > gc.out_channels else "expansion"))
+    rw = rc.weight.detach()
+    gw = gc.weight.detach()
+    check("input-layer shape unchanged by in_chans=3", tuple(rw.shape) == tuple(gw.shape),
           "%s vs %s" % (tuple(rw.shape), tuple(gw.shape)))
     d = (rw - gw).abs().max().item()
-    check("stem weights are bit-identical (no adaptation)", d == 0.0, "max diff %.3e" % d)
+    check("input-layer weights are bit-identical (no adaptation)", d == 0.0, "max diff %.3e" % d)
 except Exception as exc:
     check("stem comparison", False, "%s: %s" % (type(exc).__name__, exc))
 
