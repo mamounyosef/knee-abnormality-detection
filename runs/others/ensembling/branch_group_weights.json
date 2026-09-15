@@ -8,7 +8,7 @@
   "mricore_vitb_mae_cross_attention_full",
   "dinov3_convnext_base",
   "convnext_base_25d_group3",
-  "swinv2_base_in22k"
+  "convnext_base_25d_poolattn"
  ],
  "weights_per_class": {
   "ACL": {
@@ -20,7 +20,7 @@
    "mricore_vitb_mae_cross_attention_full": 0.16666666666666666,
    "dinov3_convnext_base": 0.16666666666666666,
    "convnext_base_25d_group3": 0.16666666666666666,
-   "swinv2_base_in22k": 0.16666666666666666
+   "convnext_base_25d_poolattn": 0.16666666666666666
   },
   "MCL": {
    "convnext_base_relabel": 0.08333333333333333,
@@ -31,7 +31,7 @@
    "mricore_vitb_mae_cross_attention_full": 0.16666666666666666,
    "dinov3_convnext_base": 0.16666666666666666,
    "convnext_base_25d_group3": 0.16666666666666666,
-   "swinv2_base_in22k": 0.16666666666666666
+   "convnext_base_25d_poolattn": 0.16666666666666666
   },
   "Medial Meniscus": {
    "convnext_base_relabel": 0.08333333333333333,
@@ -42,7 +42,7 @@
    "mricore_vitb_mae_cross_attention_full": 0.16666666666666666,
    "dinov3_convnext_base": 0.16666666666666666,
    "convnext_base_25d_group3": 0.16666666666666666,
-   "swinv2_base_in22k": 0.16666666666666666
+   "convnext_base_25d_poolattn": 0.16666666666666666
   },
   "Lateral Meniscus": {
    "convnext_base_relabel": 0.08333333333333333,
@@ -53,7 +53,7 @@
    "mricore_vitb_mae_cross_attention_full": 0.16666666666666666,
    "dinov3_convnext_base": 0.16666666666666666,
    "convnext_base_25d_group3": 0.16666666666666666,
-   "swinv2_base_in22k": 0.16666666666666666
+   "convnext_base_25d_poolattn": 0.16666666666666666
   },
   "Medial OA": {
    "convnext_base_relabel": 0.08333333333333333,
@@ -64,7 +64,7 @@
    "mricore_vitb_mae_cross_attention_full": 0.16666666666666666,
    "dinov3_convnext_base": 0.16666666666666666,
    "convnext_base_25d_group3": 0.16666666666666666,
-   "swinv2_base_in22k": 0.16666666666666666
+   "convnext_base_25d_poolattn": 0.16666666666666666
   },
   "Lateral OA": {
    "convnext_base_relabel": 0.08333333333333333,
@@ -75,7 +75,7 @@
    "mricore_vitb_mae_cross_attention_full": 0.16666666666666666,
    "dinov3_convnext_base": 0.16666666666666666,
    "convnext_base_25d_group3": 0.16666666666666666,
-   "swinv2_base_in22k": 0.16666666666666666
+   "convnext_base_25d_poolattn": 0.16666666666666666
   },
   "PF OA": {
    "convnext_base_relabel": 0.08333333333333333,
@@ -86,7 +86,7 @@
    "mricore_vitb_mae_cross_attention_full": 0.16666666666666666,
    "dinov3_convnext_base": 0.16666666666666666,
    "convnext_base_25d_group3": 0.16666666666666666,
-   "swinv2_base_in22k": 0.16666666666666666
+   "convnext_base_25d_poolattn": 0.16666666666666666
   },
   "Effusion": {
    "convnext_base_relabel": 0.08333333333333333,
@@ -97,7 +97,7 @@
    "mricore_vitb_mae_cross_attention_full": 0.16666666666666666,
    "dinov3_convnext_base": 0.16666666666666666,
    "convnext_base_25d_group3": 0.16666666666666666,
-   "swinv2_base_in22k": 0.16666666666666666
+   "convnext_base_25d_poolattn": 0.16666666666666666
   },
   "Synovitis": {
    "convnext_base_relabel": 0.08333333333333333,
@@ -108,7 +108,7 @@
    "mricore_vitb_mae_cross_attention_full": 0.16666666666666666,
    "dinov3_convnext_base": 0.16666666666666666,
    "convnext_base_25d_group3": 0.16666666666666666,
-   "swinv2_base_in22k": 0.16666666666666666
+   "convnext_base_25d_poolattn": 0.16666666666666666
   },
   "Baker's": {
    "convnext_base_relabel": 0.08333333333333333,
@@ -119,7 +119,7 @@
    "mricore_vitb_mae_cross_attention_full": 0.16666666666666666,
    "dinov3_convnext_base": 0.16666666666666666,
    "convnext_base_25d_group3": 0.16666666666666666,
-   "swinv2_base_in22k": 0.16666666666666666
+   "convnext_base_25d_poolattn": 0.16666666666666666
   },
   "Contusion": {
    "convnext_base_relabel": 0.08333333333333333,
@@ -130,7 +130,7 @@
    "mricore_vitb_mae_cross_attention_full": 0.16666666666666666,
    "dinov3_convnext_base": 0.16666666666666666,
    "convnext_base_25d_group3": 0.16666666666666666,
-   "swinv2_base_in22k": 0.16666666666666666
+   "convnext_base_25d_poolattn": 0.16666666666666666
   },
   "Fracture": {
    "convnext_base_relabel": 0.08333333333333333,
@@ -141,7 +141,7 @@
    "mricore_vitb_mae_cross_attention_full": 0.16666666666666666,
    "dinov3_convnext_base": 0.16666666666666666,
    "convnext_base_25d_group3": 0.16666666666666666,
-   "swinv2_base_in22k": 0.16666666666666666
+   "convnext_base_25d_poolattn": 0.16666666666666666
   }
  },
  "note": "the nested branch-group construct written flat: the four convnext runs share one 1/6 vote, each standalone model holds 1/6"

@@ -47,21 +47,33 @@ DV2 = "dinov2_vits14_25d"
 SA = "convnext_base_25d_slotattn"   # label-query attention head
 TA = "convnext_base_25d_tokenattn"  # token-to-token attention head
 PA = "convnext_base_25d_poolattn"   # learned weighting replacing the mean
-SP = "convnext_base_25d_spatial"    # 2400 spatial tokens + blank masking          # DINOv2 ViT-S/14, val 0.8930, 24 passes/study
+SP = "convnext_base_25d_spatial"    # 2400 spatial tokens + blank masking
+CN = "coatnet_rmlp2_384"            # conv+attention hybrid, val 0.8974 / audit 0.9087
+
+# SHIPPED is submission 56258238: the 9-model branch group at val 0.9167, measured at
+# 15.202 s/study = 6.33 h of the 9 h cap. Every CoAtNet question below is asked against it,
+# because "does it help" only means anything relative to what we would otherwise send.
+SHIPPED = [G, MC, MF, DV, A24, PA]
 
 COMBOS = [
-    ("base-24sl",            [G, MC, MF, DV, A24, SW]),      # 0.9167, the reference
-    ("base-18sl",            [G, MC, MF, DV, A18, SW]),      # 0.9166
-    # --- spatial: best audit of the family, does it ensemble? ------------------
-    ("spatial-for-18sl",     [G, MC, MF, DV, SP, SW]),
-    ("spatial-added",        [G, MC, MF, DV, A18, SW, SP]),
-    ("spatial-for-24sl",     [G, MC, MF, DV, SP, SW, A24]),
-    ("spatial-plus-slotattn",[G, MC, MF, DV, A18, SW, SP, SA]),
-    # --- poolattn -------------------------------------------------------------
-    ("poolattn-for-18sl",    [G, MC, MF, DV, PA, SW]),
-    ("poolattn-added",       [G, MC, MF, DV, A18, SW, PA]),
-    # --- everything the head line produced ------------------------------------
-    ("all-heads-added",      [G, MC, MF, DV, A18, SW, SA, TA, PA, SP]),
+    ("shipped-0.9167",        SHIPPED),                            # the baseline to beat
+    # --- does CoAtNet ADD? ------------------------------------------------------------
+    ("shipped+coatnet",       [G, MC, MF, DV, A24, PA, CN]),
+    ("bg24-plus-coatnet",     [G, MC, MF, DV, A24, SW, CN]),       # onto the 0.9167 w/ swin
+    # --- does it REPLACE anything? ----------------------------------------------------
+    # CoAtNet's val is BELOW every member it might replace, so if it still wins a slot the
+    # gain is decorrelation, not strength - the same pattern poolattn showed.
+    ("coatnet-for-pool",      [G, MC, MF, DV, A24, CN]),
+    ("coatnet-for-24sl",      [G, MC, MF, DV, CN, PA]),
+    ("coatnet-for-dinov3",    [G, MC, MF, A24, PA, CN]),
+    ("coatnet-for-mricore",   [G, MC, DV, A24, PA, CN]),
+    ("coatnet-for-group",     [MC, MF, DV, A24, PA, CN]),          # drop the 4-model group
+    # --- is it a near-duplicate of the other 2.5D members? ----------------------------
+    ("shipped+coatnet+18sl",  [G, MC, MF, DV, A24, PA, CN, A18]),
+    ("coatnet-fused-with-24", [G, MC, MF, DV, [A24, CN], PA]),     # ONE shared vote
+    # --- everything, to see whether the blend is simply saturated ---------------------
+    ("shipped+coatnet+spat",  [G, MC, MF, DV, A24, PA, CN, SP]),
+    ("kitchen-sink",          [G, MC, MF, DV, A24, PA, CN, A18, SP, SW]),
 ]
 SPLITS = ["val", "audit"]
 

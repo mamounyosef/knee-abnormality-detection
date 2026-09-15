@@ -63,6 +63,9 @@ image = (
     .apt_install("libgl1", "libglib2.0-0")
     .pip_install("pydicom==3.0.1", "pylibjpeg", "pylibjpeg-libjpeg",
                  "pylibjpeg-openjpeg", "numpy", "opencv-python-headless", "pandas")
+    # the archive may be a single .zip (older volumes) or part files (everything since the
+    # split); archive_parts.open_archive hides the difference behind one file object
+    .add_local_python_source("archive_parts")
 )
 
 app = modal.App("knee-preprocess")
@@ -89,7 +92,9 @@ def _process_study(job):
     arrays: dict[str, np.ndarray] = {}
     meta = {"study": study, "series": {}}
 
-    with zipfile.ZipFile(ARCHIVE) as zf:
+    import archive_parts as ap
+
+    with ap.open_archive(DATA_MOUNT, COMP) as _fh, zipfile.ZipFile(_fh) as zf:
         for series, paths in by_series.items():
             slices = []
             for p in paths:
@@ -203,7 +208,9 @@ def build_index(limit_studies: int = 0):
     import collections
     import zipfile
 
-    with zipfile.ZipFile(ARCHIVE) as zf:
+    import archive_parts as ap
+
+    with ap.open_archive(DATA_MOUNT, COMP) as _fh, zipfile.ZipFile(_fh) as zf:
         names = [n for n in zf.namelist()
                  if n.startswith("train_series/") and n.endswith(".dcm")]
     by_study = collections.defaultdict(list)

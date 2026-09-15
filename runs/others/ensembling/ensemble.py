@@ -33,12 +33,13 @@ BEST_METRIC     = "oof_mean_auroc"   # what ranks a search run; "oof_mean_auroc"
 # ("run", 3200)             -> its step-3200 validation
 # [("r", 3200), ("r", 4000)] -> LIST = sub-ensemble, averaged first, ONE vote above
 FULL_MODELS = [
-    ["convnext_base_relabel", "convnext_base_trauma", "convnext_base_wear", "convnext_base_fluid"],
+    "convnext_base_relabel",
     "mricore_vitb_cross_attention",
-    "mricore_vitb_mae_cross_attention_full",
+    "mricore_vitb_mae_cross_attention",
     "dinov3_convnext_base",
-    "convnext_base_25d_group3",
+    "convnext_base_25d_18slices",
     "swinv2_base_in22k",
+    "convnext_base_25d_poolattn",
 ]
 
 

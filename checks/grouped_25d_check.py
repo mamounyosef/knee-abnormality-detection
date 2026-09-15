@@ -154,6 +154,45 @@ try:
 except Exception as exc:
     check("stem comparison", False, "%s: %s" % (type(exc).__name__, exc))
 
+# --- 5. the RUN'S OWN model, built through its train.py -------------------------------
+# Everything above builds timm directly, which is exactly how coatnet_rmlp2_384 slipped
+# through: its CONFIG was converted to the 2.5D layout but its train.py still hardcoded
+# per_study = slots * n_slices, so it built a 72-image model, was handed 24, and died on
+# "shape [-1, 72, 1024] is invalid for input of size 98304" - after the GPU container had
+# started. A real forward pass through the run's own build_model is the only thing that
+# catches a config and a train.py that disagree.
+print("\nthe run's own model (train.py -> forward pass)")
+try:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("_t", ROOT / "runs" / RUN / "train.py")
+    _t = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(_t)
+    small = sc.load_config(ROOT / "runs" / RUN, verbose=False)
+    # Use the run's REAL resolution. Shrinking to a convenient number breaks backbones whose
+    # stride or window does not divide it: 112 gives CoAtNet's relative-position tables a
+    # 3.5 grid and it fails with "size of tensor a (9) must match tensor b (16)". Batch 1
+    # keeps a full-resolution CPU pass tractable.
+    small["model"]["pretrained"] = False
+    mdl = _t.build_model(small).eval()
+    px = int(small["input"]["size"])
+    want = sc.images_per_study(small)
+    check("train.py's per_study matches images_per_study",
+          getattr(mdl, "per_study", None) == want,
+          "model says %s, engine says %d" % (getattr(mdl, "per_study", None), want))
+    xb = torch.randint(0, 255, (1, n_slots, n_sl, px, px), dtype=torch.uint8)
+    pbx = sc.prepare_batch(xb, small, "cpu")
+    print("    %d images at %d px through %s ..." % (pbx.shape[0], pbx.shape[-1],
+                                                     small["model"]["name"].split(".")[0]))
+    with torch.no_grad():
+        o = mdl(pbx)
+    check("forward pass returns (B, n_tasks)",
+          tuple(o.shape) == (1, sc.num_output_logits(small)), str(tuple(o.shape)))
+    check("logits are finite", bool(torch.isfinite(o).all()))
+except Exception as exc:
+    check("the run's own model builds and runs", False,
+          "%s: %s" % (type(exc).__name__, exc))
+
 print("\n" + "=" * 72)
 if fails:
     print("FAILED: " + ", ".join(fails))

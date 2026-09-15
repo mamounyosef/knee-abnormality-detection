@@ -66,23 +66,22 @@ from pathlib import Path
 # 6.9-8.3 h of the 9 h cap against 5.5-6.6 h for these six, and +0.0004 val is well inside
 # the 0.0055 noise. A timeout forfeits the run, so the cap decides. See runtime_budget.py.
 MEMBERS = [
-    # 6-MODEL FLAT SET. convnext_base_25d_18slices replaces convnext_large: non-overlapping
-    # 2.5D at 18 slices, so 24 passes per study instead of 96, and a 196M-parameter
-    # 3.49 s/study model gives way to a ~0.4 s/study one.
-    # 18 slices was chosen over the 24-slice convnext_base_25d_group3 on the LARGEST
-    # samples available: solo LB 0.914 vs 0.913 and audit 0.9054 vs 0.9005, at 25% less
-    # compute. val disagrees by 0.0003 solo and 0.0001 in the ensemble, inside noise.
-    # It is 336 px where the rest are 512, so this is the first submission that cannot share
-    # one decode pass - predict_dicom_ensemble_grouped decodes once per geometry group.
-    # MEASURED on a T4, 20-study stress: 13.401 s/study = 5.58 h at 1500 studies, against
-    # 21.547 s/study (8.98 h) for the 9-model branch-group construct that scores 0.9167.
-    # +0.0009 val is inside this project's 0.0055 noise; a timeout forfeits the whole run.
+    # THE 0.9167 CONSTRUCT, made to fit the cap. 9 models, 6 votes: the first four average
+    # into ONE vote via branch_group_weights.json, the other five take 1/6 each.
+    # swinv2_base_in22k is OUT and convnext_base_25d_poolattn is IN. The construct scores the
+    # SAME 0.9167 either way, but swinv2 costs 5.197 s/study against poolattn's ~0.4 - the
+    # difference between 8.98 h at 1500 studies (two minutes inside the 9 h cap, measured)
+    # and roughly 7 h.
+    # Order MUST match branch_group_weights.json exactly.
     ("convnext_base_relabel", "best"),
+    ("convnext_base_trauma", "best"),
+    ("convnext_base_wear", "best"),
+    ("convnext_base_fluid", "best"),
     ("mricore_vitb_cross_attention", "best"),
-    ("mricore_vitb_mae_cross_attention", "best"),
+    ("mricore_vitb_mae_cross_attention_full", "best"),
     ("dinov3_convnext_base", "best"),
-    ("convnext_base_25d_18slices", "best"),
-    ("swinv2_base_in22k", "best"),
+    ("convnext_base_25d_group3", "best"),
+    ("convnext_base_25d_poolattn", "best"),
 ]
 # RadImageNet is deliberately ABSENT: its licence is "personal, non-commercial (e.g.,
 # academic) research purposes only... any commercial use, sale, or other monetization is
@@ -96,7 +95,10 @@ MEMBERS = [
 # worse than the one measured, including the 6-member that scored 0.922. Fixed: best.pt
 # is now step 2600 and its `score` matches val_log's peak. ALWAYS check that before a
 # submission - it is silent otherwise.
-BLEND_WEIGHTS = None           # FLAT. The per-class search is fitting noise now: its
+BLEND_WEIGHTS = "branch_group_weights.json"   # the nested construct as a flat
+                               # per-class matrix; verified identical to the
+                               # nested form (max logit gap 4.8e-07).
+_OLD = None                    # FLAT. The per-class search is fitting noise now: its
                                # out-of-fold estimate is 0.9152 against flat's 0.9156.
                                # For the 9-member branch-group construct instead, set this
                                # to "branch_group_weights.json" (make_branch_group_weights.py
@@ -113,22 +115,24 @@ SUBMIT       = True           # REAL SUBMISSION: costs one of the day's 5.
                               # Set STRESS > 0 with SUBMIT = False to get marginal per-study
                               # rates before committing to the 9 h cap.
 KAGGLE_USER  = "mamounhussam"
-SLUG         = "knee-ensemble-6-25d18-flat"
+SLUG         = "knee-ensemble-9-bg-poolattn"
 # KEEP THIS IN STEP WITH MEMBERS. Submission 56234763 shipped the 18-slice member while
 # this text still named the 24-slice one, because the swap changed MEMBERS and SLUG and
 # missed NOTE. Kaggle descriptions cannot be edited after submitting, so that record is
 # permanently wrong. Re-read this string whenever MEMBERS changes.
-NOTE         = ("6-model FLAT ensemble, PRIZE-ELIGIBLE (no RadImageNet): the 0.931 "
-                "six with convnext_large REPLACED by convnext_base_25d_18slices, "
-                "non-overlapping 2.5D at 18 slices (3 consecutive slices in the RGB "
-                "channels, so 24 passes/study not 96, at 336px; solo val 0.9010 / "
-                "audit 0.9054 / LB 0.914). val 0.9158 vs 0.9156. Uses "
-                "predict_dicom_ensemble_grouped: the new member is 336px where the "
-                "rest are 512, so the notebook decodes once per GEOMETRY GROUP and "
-                "blends at the end. MEASURED on a T4 (20-study stress): 13.4 s/study "
-                "= 5.6 h at 1500 studies, against 15.85 for the 0.931 six. The 9-model "
-                "branch-group construct scores 0.9167 but prices at 21.5 s/study = "
-                "8.98 h, too close to the cap to risk. | Built with DINOv3")
+NOTE         = ("9-model BRANCH-GROUP ensemble, val 0.9167, our best. PRIZE-ELIGIBLE "
+                "(no RadImageNet). Nested construct written flat: convnext_base_relabel "
+                "and its three task-group branches (trauma / wear / fluid) share one 1/6 "
+                "vote, so per finding the parent holds 1/12 and its owning branch 1/12; "
+                "the five standalone models hold 1/6 each - mricore_vitb_cross_attention, "
+                "mricore_vitb_mae_cross_attention_full, dinov3_convnext_base, "
+                "convnext_base_25d_group3, convnext_base_25d_poolattn. Verified identical "
+                "to the nested form (max logit gap 4.8e-07). swinv2_base_in22k was dropped "
+                "for convnext_base_25d_poolattn: val is 0.9167 either way, but swinv2 cost "
+                "5.197 s/study AND its own decode geometry, so dropping it removed a whole "
+                "decode pass (4 -> 3). MEASURED on a T4 at 15.202 s/study over 20 studies "
+                "= 6.33 h at 1500, against 8.98 h for the swinv2 version. | Built with "
+                "DINOv3")
 # ===========================================================================
 
 PKG_ROOT = Path(__file__).resolve().parent.parent.parent      # <repo>/runs

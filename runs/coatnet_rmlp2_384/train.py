@@ -43,12 +43,22 @@ class SliceModel(nn.Module):
         # img_size must be passed: the `rmlp` in this checkpoint is a relative-position MLP
         # whose bias tables are sized for one feature map, so the model has to be built at
         # the resolution it will actually see.
+        # slices_as_channels: a slot becomes `g` images whose channels are its slices, so the
+        # stem takes n_slices/g inputs and a study costs slots*g passes, not slots*n_slices.
+        # This file was written before the 2.5D layout existed and hardcoded both, so when the
+        # CONFIG was converted it still built a 72-image model and fed it 24: the run died on
+        # `shape [-1, 72, 1024] is invalid for input of size 98304`.
+        i = cfg["input"]
+        g = int(i.get("slices_as_channels") or 0)     # images per slot; 0 = one per slice
+        as_ch = g > 0
+        in_ch = int(i["n_slices"]) // g if as_ch else int(i["channels"])
         self.backbone = timm.create_model(m["name"], pretrained=m.get("pretrained", True),
-                                          num_classes=0, img_size=sc.model_input_size(cfg),
+                                          num_classes=0, in_chans=in_ch,
+                                          img_size=sc.model_input_size(cfg),
                                           drop_rate=m.get("drop_rate", 0.0),
                                           drop_path_rate=m.get("drop_path_rate", 0.0))
         feat = self.backbone.num_features
-        self.per_study = len(cfg["input"]["slots"]) * cfg["input"]["n_slices"]  # images per study
+        self.per_study = len(i["slots"]) * (g if as_ch else int(i["n_slices"]))
         self.pool = m.get("pool", "mean")            # how those images collapse into one vector
         if self.pool == "attn":
             # tiny network that scores each slice, so the model can weight informative ones

@@ -24,7 +24,7 @@ RUNS = Path(__file__).resolve().parent.parent.parent
 MEMBERS = ["convnext_base_relabel", "convnext_base_trauma", "convnext_base_wear",
            "convnext_base_fluid", "mricore_vitb_cross_attention",
            "mricore_vitb_mae_cross_attention_full", "dinov3_convnext_base",
-           "convnext_base_25d_group3", "swinv2_base_in22k"]
+           "convnext_base_25d_group3", "convnext_base_25d_poolattn"]
 # the offline construct: the four convnext runs average into ONE vote, then that vote
 # blends flat with the five standalone models
 GROUP = MEMBERS[:4]

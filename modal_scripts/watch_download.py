@@ -40,7 +40,8 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
 
 ROOT = Path(__file__).resolve().parent.parent
-ARCHIVE = "rsna-knee-abnormality-detection.zip"
+ARCHIVE = "rsna-knee-abnormality-detection.zip"      # older volumes: one big file
+PARTS_DIR = "rsna-knee-abnormality-detection.parts"  # newer volumes: 2 GiB part files
 DONE = ".download.done"
 FULL_GIB = 246.82
 
@@ -65,24 +66,56 @@ def modal(session: int, *args, timeout=300):
     return ((p.stdout or b"") + (p.stderr or b"")).decode("utf-8", "replace")
 
 
+def _as_gib(raw):
+    """Modal prints either '152.0 GiB' / '512.0 MiB' or a bare byte count."""
+    raw = str(raw or "").strip()
+    if not raw:
+        return None
+    try:
+        if " " in raw:
+            n, unit = raw.split()[:2]
+            mult = {"B": 1, "KiB": 1024, "MiB": 1024 ** 2,
+                    "GiB": 1024 ** 3, "TiB": 1024 ** 4}.get(unit)
+            return float(n) * mult / 1024 ** 3 if mult else None
+        return float(raw) / 1024 ** 3
+    except (ValueError, IndexError):
+        return None
+
+
 def volume_state(session: int):
-    """(gib_or_None, done_sentinel_present). None size means the call failed."""
+    """(gib_or_None, done_sentinel_present). None size means the call failed.
+
+    Handles BOTH archive layouts. Older volumes hold a single `<comp>.zip`; everything since
+    the part split holds a `<comp>.parts/` directory, and progress is the sum of the parts.
+    Watching only the old filename would report 0 GiB forever on a healthy new download and
+    make the supervisor relaunch a job that was working fine.
+    """
     out = modal(session, "volume", "ls", "knee-data", "--json")
     try:
         rows = json.loads(out[out.index("["):out.rindex("]") + 1])
     except (ValueError, json.JSONDecodeError):
         return None, False
     names = {r.get("Filename"): r for r in rows}
-    gib = None
+    done = DONE in names
+
     z = names.get(ARCHIVE)
     if z:
-        raw = str(z.get("Size", ""))
-        try:                                   # "152.0 GiB" or a raw byte count
-            gib = (float(raw.split()[0]) if "GiB" in raw
-                   else float(raw) / 1024 ** 3)
-        except (ValueError, IndexError):
-            gib = None
-    return gib, DONE in names
+        return _as_gib(z.get("Size")), done
+
+    if PARTS_DIR in names:
+        out = modal(session, "volume", "ls", "knee-data", PARTS_DIR, "--json")
+        try:
+            prows = json.loads(out[out.index("["):out.rindex("]") + 1])
+        except (ValueError, json.JSONDecodeError):
+            return None, done
+        tot = 0.0
+        for r in prows:
+            if str(r.get("Filename", "")).endswith(".bin"):
+                g = _as_gib(r.get("Size"))
+                if g is not None:
+                    tot += g
+        return tot, done
+    return None, done
 
 
 def download_app_live(session: int) -> bool:
@@ -111,27 +144,50 @@ def download_app_live(session: int) -> bool:
     return False
 
 
-def relaunch(session: int) -> bool:
-    """Start a detached download. Returns True if the launch command was accepted.
+_LAUNCHERS = []          # live Popen handles; see relaunch() for why they must not be killed
 
-    A TIMEOUT HERE IS NOT A FAILURE. `modal run --detach` submits the job and then keeps
-    printing until the client detaches, so a slow image build makes it exceed any timeout we
-    set while the job is already running happily. The first version reported "relaunch
-    FAILED" for session 21 at the exact 600s mark, and the archive grew from 136 to 152 GiB
-    regardless. So say UNCONFIRMED rather than FAILED, and let the next poll settle it by
-    looking at the app list, which is the real evidence either way.
+
+def relaunch(session: int) -> bool:
+    """Start a detached download and LEAVE THE CLIENT ALONE.
+
+    NEVER kill the launch client. This function used to run the launch through
+    `subprocess.run(..., timeout=N)`, and subprocess.run kills the child when that timeout
+    fires. `--detach` did not save the job: measured on session 23, the app was cancelled
+    2-3 minutes after the client was killed, every single time.
+
+        relaunch called   client killed   app cancelled
+        17:51:29 (t/o 420)   17:58:29        18:01:29
+        18:11:43 (t/o 240)   18:15:43        18:17:44
+        18:20:51 (t/o 240)   18:24:51        18:26:50
+
+    So the supervisor was killing its own downloads, then dutifully relaunching them, 54
+    times. A plain CPU app left with its client attached ran 15 minutes untouched on the
+    same workspace, which is what ruled out a workspace-side lifetime cap.
+
+    Popen and walk away: the launcher lives as long as it wants, we only watch the app list
+    for evidence. Handles are kept in _LAUNCHERS so they are not garbage collected (which
+    would close the pipes under a running child) and are reaped when they exit.
     """
-    out = modal(session, "run", "--detach", "modal_scripts/modal_download.py",
-                "--skip-csvs", timeout=420)
-    if "View run at" in out or "Initialized" in out:
-        print("      relaunch submitted")
-        return True
-    if not out:                                    # our timeout fired, not modal's
-        print("      relaunch UNCONFIRMED (client still printing at timeout); "
-              "next poll will confirm from the app list")
-        return True
-    print("      relaunch FAILED:\n%s" % out[-500:])
-    return False
+    for p in [p for p in _LAUNCHERS if p.poll() is not None]:
+        _LAUNCHERS.remove(p)
+
+    log = ROOT / "modal_scripts" / ("_launch_s%d.log" % session)
+    fh = open(log, "ab", buffering=0)
+    proc = subprocess.Popen(
+        [sys.executable, "-u", "-m", "modal", "run", "--detach",
+         "modal_scripts/modal_download.py", "--skip-csvs"],
+        env=env_for(session), cwd=str(ROOT), stdout=fh, stderr=fh, stdin=subprocess.DEVNULL)
+    _LAUNCHERS.append(proc)
+
+    # Confirm from the app list rather than from the client's output: the app appears the
+    # moment it is created, while the client keeps printing long afterwards.
+    for _ in range(30):
+        time.sleep(10)
+        if download_app_live(session) or proc.poll() is not None:
+            break
+    print("      relaunch submitted (client left running, pid %d, log %s)"
+          % (proc.pid, log.name))
+    return True
 
 
 def main():

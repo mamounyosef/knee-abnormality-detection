@@ -100,7 +100,7 @@ training:
     enable: true
     monitor: "val_macro_auroc"
     mode: "max"
-    patience: 7                     # VALIDATIONS without improvement, not epochs
+    patience: 10                     # VALIDATIONS without improvement, not epochs
 
 dataloader:
   batch_size: 4                     # 4 studies x 4 slots x 6 images = 96 images @384.

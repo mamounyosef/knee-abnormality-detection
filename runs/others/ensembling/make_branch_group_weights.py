@@ -36,7 +36,11 @@ OUT = HERE / "branch_group_weights.json"
 GROUP = ["convnext_base_relabel", "convnext_base_trauma", "convnext_base_wear",
          "convnext_base_fluid"]
 STANDALONE = ["mricore_vitb_cross_attention", "mricore_vitb_mae_cross_attention_full",
-              "dinov3_convnext_base", "convnext_base_25d_group3", "swinv2_base_in22k"]
+              "dinov3_convnext_base", "convnext_base_25d_group3",
+              "convnext_base_25d_poolattn"]
+# swinv2_base_in22k gave way to convnext_base_25d_poolattn: the construct scores the SAME
+# 0.9167 either way, and swinv2 costs 5.197 s/study against poolattn's ~0.4. That is the
+# difference between 8.98 h at 1500 studies (two minutes inside the 9 h cap) and ~7 h.
 # Two changes from the 0.9160 set, both measured on val:
 #   mricore_vitb_mae_cross_attention -> _full  (6 fusion points instead of 3): 0.9160 -> 0.9164
 #   convnext_large -> convnext_base_25d_group3 (32 passes/study, not 96):      0.9164 -> 0.9167

@@ -2,11 +2,23 @@
 modal_download.py — pull the RSNA Knee competition data onto a Modal volume.
 ===========================================================================
 
-Downloads the whole competition (~570 GB) as ONE zip archive straight onto the
-`knee-data` volume, resuming with HTTP Range requests if the connection dies.
-The archive is NOT extracted: 820k tiny files perform badly on a network volume,
-and training will read from compact preprocessed shards anyway (built later, in
-modal_scripts/modal_preprocess.py, once EDA tells us the target resolution).
+Downloads the whole competition archive onto the `knee-data` volume as 2 GiB PART FILES,
+resuming with bounded HTTP Range requests if the connection dies. The archive is NOT
+extracted: 820k tiny files perform badly on a network volume, and training reads compact
+preprocessed shards anyway (modal_scripts/modal_preprocess.py).
+
+It is split into parts because BOTH failure modes of a single 247 GiB file grow with the
+file, so a download that looks healthy for hours collapses near the end:
+
+  * `vol.commit()` re-hashes the whole file to find changed blocks. Measured on a 233 GiB
+    archive, one commit ran over 5 MINUTES without returning, and a container stuck in
+    commit cannot answer Modal's cancellation signal, so it gets killed.
+  * Kaggle stalls an open-ended `Range: bytes=<have>-` covering many GiB: one 32 MiB chunk
+    in 1.0 s, then 0.06 GiB in 319 s. The same bytes as a BOUNDED range run at 14.6 MB/s.
+
+Nothing is ever concatenated - archive_parts.open_archive stitches the parts into a
+seekable stream that zipfile accepts. Volumes holding a pre-split single `<comp>.zip` keep
+working, and a partial one is kept as the BASE with new parts continuing after it.
 
 Kaggle credentials are read from the local ~/.kaggle/kaggle.json at launch time
 and injected as an ephemeral secret, so nothing needs pre-creating in each of
@@ -35,18 +47,24 @@ CSVS = ["train.csv", "train_series.csv", "test.csv", "test_series.csv",
         "sample_submission.csv"]
 
 CHUNK = 32 * 1024 * 1024          # 32 MiB per write
-COMMIT_EVERY = 8 * 1024**3        # commit the volume every 8 GiB of progress
-STALE_AFTER_S = 8 * 60       # archive untouched this long = the lock holder is dead. A
-                             # live writer commits every 8 GiB, about 3.5 min, so 8 min
-                             # is comfortably clear of a healthy run. It was 15, which
-                             # was too patient: Modal preempts these workers ("Worker
-                             # disappeared"), and each retry that arrived before the
-                             # lock expired was REFUSED and burnt, so the download sat
-                             # idle for 15-25 min per preemption.
+# The part size itself lives in archive_parts.PART_SIZE, because the reader has to agree
+# with the writer about it. Both failure modes that made the old single-file download
+# unworkable scale with the archive, which is why splitting it is the fix and not a tuning
+# knob: see the header of archive_parts.py for the measurements.
+STALE_AFTER_S = 90           # no part written for this long = the lock holder is dead. A
+                             # live writer finishes a part every minute or two, so 90 s
+                             # clears a dead lock fast without ever racing a healthy one.
+                             # It was 8 min: a killed container left a lock whose archive
+                             # mtime still looked fresh, and the next relaunch refused to
+                             # start as "a download really is running".
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install("requests", "kaggle", "tqdm")
+    # archive_parts defines the part layout AND the reader that stitches parts back into a
+    # zipfile-compatible stream. Modal no longer auto-mounts local modules, so without this
+    # the container dies on `import archive_parts` the moment it starts.
+    .add_local_python_source("archive_parts")
 )
 
 app = modal.App("knee-download")
@@ -101,95 +119,202 @@ def download_csvs():
               retries=modal.Retries(max_retries=10, backoff_coefficient=1.0,
                                     initial_delay=60.0))
 def download_archive():
-    """Stream the competition archive onto the volume, resuming if interrupted.
+    """Fetch the competition archive onto the volume as PART FILES, resuming if interrupted.
 
-    Kaggle's download-all endpoint 302-redirects to a storage URL. We send
-    `Range: bytes=<already_have>-` so a retry picks up where the last attempt
-    stopped instead of re-pulling hundreds of gigabytes. If the server answers
-    200 instead of 206 it ignored the Range header and we start over.
+    Not one big file. See archive_parts.py for the full reasoning; the short version is that
+    both failure modes of the single-file design are unbounded in the archive's size:
+
+      * `vol.commit()` re-hashes the whole file, so it grows from instant to over 5 minutes
+        as the download proceeds, and a container stuck in commit cannot answer Modal's
+        cancellation signal and gets killed.
+      * Kaggle stalls an open-ended `Range: bytes=<have>-` that spans many GiB, delivering
+        one chunk and then nothing, while the same bytes as a BOUNDED range run at full speed.
+
+    So: one bounded request per 2 GiB part, one commit per part, and the parts are stitched
+    back together at read time by archive_parts.open_archive rather than concatenated.
     """
     import time
 
     import requests
 
-    # lock + done-sentinel: stops two --detach reruns from both appending to the
-    # same file at once. That's what silently corrupted an earlier download - the
-    # file shrank AFTER a run printed "done", which only happens if a second,
-    # still-alive writer touched it afterwards. Refuse to start if a lock is
-    # already there, and never resume into an archive already marked complete.
+    import archive_parts as ap
+
+    # lock + done-sentinel: stops two --detach reruns from both writing parts at once.
+    # That's what silently corrupted an earlier download - the file shrank AFTER a run
+    # printed "done", which only happens if a second, still-alive writer touched it
+    # afterwards. Refuse to start if a live lock is there, and never resume into an
+    # archive already marked complete.
     if os.path.exists(DONE):
         print(f"[zip] {DONE} exists, archive already complete, refusing to touch it")
-        return os.path.getsize(ARCHIVE)
-    # The lock must be STALE-AWARE. A killed container never runs its finally block, so
-    # a plain lock outlives the job holding it and then blocks every retry forever. That
-    # is not hypothetical: a client disconnect cancelled one job at 136 GiB and the
-    # orphaned lock killed all five of its retries. A live downloader always grows the
-    # archive, so "lock present AND the file grew recently" is the real liveness test.
+        return ap.archive_size(MOUNT, COMP)
+
     vol.reload()
+    pdir = ap.parts_dir(MOUNT, COMP)
+    os.makedirs(pdir, exist_ok=True)
+
+    def newest_part_mtime():
+        """When a part was last written. This is the liveness signal for the lock.
+
+        The old code watched the single archive's mtime. With parts there is no one file to
+        watch, so take the newest part's mtime and treat "no parts yet" as infinitely old.
+        """
+        parts = ap.list_parts(MOUNT, COMP)
+        if not parts:
+            return 0.0
+        return max(os.path.getmtime(p) for _, p, _ in parts)
+
+    # The lock must be STALE-AWARE. A killed container never runs its finally block, so a
+    # plain lock outlives the job holding it and then blocks every retry forever. That is
+    # not hypothetical: a client disconnect cancelled one job at 136 GiB and the orphaned
+    # lock killed all five of its retries. A live downloader always writes new parts, so
+    # "lock present AND a part was written recently" is the real liveness test.
     if os.path.exists(LOCK):
         holder = Path(LOCK).read_text().strip()
-        age = time.time() - os.path.getmtime(ARCHIVE) if os.path.exists(ARCHIVE) else 1e9
+        mt = newest_part_mtime()
+        age = time.time() - mt if mt else 1e9
         if age < STALE_AFTER_S:
             raise RuntimeError(
-                f"[zip] lock held by {holder} and the archive grew {age:.0f}s ago, so a "
+                f"[zip] lock held by {holder} and a part was written {age:.0f}s ago, so a "
                 f"download really is running. Refusing to start a second writer."
             )
-        print(f"[zip] stale lock ({holder}); archive untouched for {age / 60:.0f} min, "
-              f"taking it over", flush=True)
+        when = "no part has ever been written" if not mt else f"no part written for {age / 60:.0f} min"
+        print(f"[zip] stale lock ({holder}); {when}, taking it over", flush=True)
     Path(LOCK).write_text(f"pid={os.getpid()} started={time.time()}")
     vol.commit()
+
+    t0 = time.time()
+
+    def stamp(msg):
+        print(f"[zip] +{time.time() - t0:7.1f}s  {msg}", flush=True)
 
     try:
         url = f"https://www.kaggle.com/api/v1/competitions/data/download-all/{COMP}"
         auth = (os.environ["KAGGLE_USERNAME"], os.environ["KAGGLE_KEY"])
 
-        have = os.path.getsize(ARCHIVE) if os.path.exists(ARCHIVE) else 0
-        print(f"[zip] starting from {have / 1024**3:.2f} GiB", flush=True)
+        # A volume that started under the OLD single-file downloader keeps that archive as
+        # the BASE and new parts continue after it, so 232 GiB of existing work is not
+        # thrown away and never has to be copied.
+        base = ap.base_size(MOUNT, COMP)
+        if base:
+            stamp(f"existing single archive kept as the base: {base / 1024**3:.2f} GiB")
 
-        headers = {"Range": f"bytes={have}-"} if have else {}
-        with requests.get(url, auth=auth, headers=headers, stream=True,
-                          timeout=(30, 300), allow_redirects=True) as r:
-            r.raise_for_status()
-            if have and r.status_code != 206:
-                print(f"[zip] server ignored Range (status {r.status_code}); restarting", flush=True)
-                have = 0
-            total = int(r.headers.get("Content-Length", 0)) + have
-            mode = "ab" if have else "wb"
-            print(f"[zip] status={r.status_code} total={total / 1024**3:.2f} GiB", flush=True)
+        # Resume from the trustworthy prefix only. contiguous_parts stops at the first gap
+        # or short middle part, so an interrupted part is refetched rather than stitched over.
+        good = ap.contiguous_parts(MOUNT, COMP)
+        # A short part is only valid as the LAST part of a complete archive; mid-download it
+        # means "interrupted", so drop it and refetch that index.
+        if good and good[-1][2] != ap.PART_SIZE:
+            stamp(f"part {good[-1][0]} is short ({good[-1][2]} B), refetching it")
+            good = good[:-1]
+        next_index = len(good)
+        have = base + sum(s for _, _, s in good)
+        stamp(f"resuming at part {next_index}, {have / 1024**3:.2f} GiB held")
 
-            since_commit = 0
-            with open(ARCHIVE, mode) as fh:
-                for chunk in r.iter_content(chunk_size=CHUNK):
-                    if not chunk:
-                        continue
-                    fh.write(chunk)
-                    have += len(chunk)
-                    since_commit += len(chunk)
-                    if since_commit >= COMMIT_EVERY:
-                        fh.flush()
-                        os.fsync(fh.fileno())
-                        vol.commit()
-                        since_commit = 0
-                        pct = f"{100 * have / total:.1f}%" if total else "?"
-                        print(f"[zip] {have / 1024**3:9.2f} GiB  ({pct})", flush=True)
+        total = 0
+        stalls = 0
+        start_bytes = have
+        commit_s = 0.0
+
+        def fetch_part(index, lo, hi):
+            """Pull [lo, hi] inclusive into part `index`. Returns (bytes, archive_total).
+
+            Written to a .tmp name and renamed only once complete, so a container killed
+            mid-write can never leave a short part that looks finished.
+            """
+            hdr = {"Range": f"bytes={lo}-{hi}"}
+            # read timeout 60 s: a window that goes quiet is a stall, and we want it to raise
+            # quickly so the retry re-requests instead of sitting on a dead socket.
+            with requests.get(url, auth=auth, headers=hdr, stream=True,
+                              timeout=(30, 60), allow_redirects=True) as r:
+                r.raise_for_status()
+                if r.status_code != 206:
+                    raise RuntimeError(f"expected 206 for a bounded range, got {r.status_code}")
+                cr = r.headers.get("Content-Range", "")
+                tot = int(cr.rsplit("/", 1)[1]) if "/" in cr else 0
+                dst = ap.part_path(MOUNT, COMP, index)
+                tmp = dst + ".tmp"
+                n = 0
+                with open(tmp, "wb") as fh:
+                    for chunk in r.iter_content(chunk_size=CHUNK):
+                        if chunk:
+                            fh.write(chunk)
+                            n += len(chunk)
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                os.replace(tmp, dst)
+                return n, tot
+
+        while True:
+            # part i covers [base + i*PART_SIZE, ...), so the byte range and the part index
+            # stay consistent whether or not this volume has a pre-split base archive
+            lo = base + next_index * ap.PART_SIZE
+            hi = lo + ap.PART_SIZE - 1
+            if total:
+                if lo >= total:
+                    break
+                hi = min(hi, total - 1)
+            try:
+                n, tot = fetch_part(next_index, lo, hi)
+            except Exception as exc:
+                stalls += 1
+                stamp(f"part {next_index} failed ({type(exc).__name__}: "
+                      f"{str(exc)[:120]}), retry {stalls}")
+                if stalls > 40:
+                    raise
+                time.sleep(min(3 * stalls, 30))
+                continue
+            if tot and not total:
+                total = tot
+                # parts still to fetch, which is what matters when a base archive means
+                # most of the download is already done
+                left = -(-(total - base) // ap.PART_SIZE)
+                stamp(f"archive total is {total / 1024**3:.2f} GiB; "
+                      f"{(total - have) / 1024**3:.2f} GiB still to fetch in {left} parts")
+            if n == 0:
+                stamp("empty part returned; treating as end of archive")
+                break
+
+            # One commit per part. This is the whole point of the split: only the new part
+            # is dirty, so the cost stays flat instead of growing with the archive.
+            _c = time.time()
+            vol.commit()
+            _c = time.time() - _c
+            commit_s += _c
+
+            have += n
+            next_index += 1
+            el = time.time() - t0
+            got = have - start_bytes
+            pct = f"{100 * have / total:.1f}%" if total else "?"
+            stamp(f"{have / 1024**3:9.2f} GiB ({pct})  part {next_index - 1} done  "
+                  f"+{got / 1024**3:.2f} GiB this run at {got / el / 1024**2:5.1f} MB/s  "
+                  f"[commit {_c:.1f}s, {commit_s:.0f}s total, {stalls} retries]")
+
+            if total and have >= total:
+                break
 
         vol.commit()
-        size = os.path.getsize(ARCHIVE)
+        size = ap.parts_bytes(MOUNT, COMP)
+        if total and size != total:
+            raise RuntimeError(f"[zip] finished with {size} bytes but the server says "
+                               f"{total}; refusing to mark this complete")
 
         # cheap integrity guard: just parsing the central directory (seconds, not the
         # full-archive CRC pass that verify_deep does) catches a truncated/corrupt
         # download right here instead of letting it silently print "done".
         import zipfile
-        with zipfile.ZipFile(ARCHIVE) as zf:
-            n_members = len(zf.namelist())
-        print(f"[zip] done: {size / 1024**3:.2f} GiB, {n_members} members at {ARCHIVE}", flush=True)
+        with ap.open_archive(MOUNT, COMP) as fh:
+            with zipfile.ZipFile(fh) as zf:
+                n_members = len(zf.namelist())
+        print(f"[zip] done: {size / 1024**3:.2f} GiB, {n_members} members in "
+              f"{len(ap.contiguous_parts(MOUNT, COMP))} parts at {pdir}", flush=True)
 
         Path(DONE).write_text(f"size={size} members={n_members} finished={time.time()}")
     finally:
         if os.path.exists(LOCK):
             os.remove(LOCK)
         vol.commit()
-    return size
+    return ap.archive_size(MOUNT, COMP)
 
 
 # -----------------------------------------------------------------------------
@@ -201,18 +326,25 @@ def verify():
     import collections
     import zipfile
 
+    import archive_parts as ap
+
     csvs = sorted(os.listdir(CSV_DIR)) if os.path.exists(CSV_DIR) else []
     print(f"[verify] csv dir: {csvs}")
 
-    if not os.path.exists(ARCHIVE):
-        print(f"[verify] MISSING {ARCHIVE}")
+    # open_archive handles BOTH layouts: a single <comp>.zip on volumes filled before the
+    # part split, and part files on everything since. Nothing here needs to know which.
+    size = ap.archive_size(MOUNT, COMP)
+    if not size:
+        print(f"[verify] MISSING: no {ARCHIVE} and no parts in {ap.parts_dir(MOUNT, COMP)}")
         return {"ok": False, "csvs": csvs}
 
-    size = os.path.getsize(ARCHIVE)
-    print(f"[verify] {ARCHIVE}  {size / 1024**3:.2f} GiB", flush=True)
+    n_parts = len(ap.contiguous_parts(MOUNT, COMP))
+    print(f"[verify] {size / 1024**3:.2f} GiB "
+          f"({'single archive' if n_parts == 0 else f'{n_parts} parts'})", flush=True)
     try:
-        with zipfile.ZipFile(ARCHIVE) as zf:
-            names = zf.namelist()
+        with ap.open_archive(MOUNT, COMP) as fh:
+            with zipfile.ZipFile(fh) as zf:
+                names = zf.namelist()
     except zipfile.BadZipFile as exc:
         print(f"[verify] BAD ZIP (truncated or still downloading): {exc}")
         return {"ok": False, "bytes": size, "csvs": csvs}
@@ -239,14 +371,16 @@ def verify_deep(sample: int = 400, seed: int = 0):
     import random
     import zipfile
 
-    if not os.path.exists(ARCHIVE):
-        print(f"[deep] MISSING {ARCHIVE}")
+    import archive_parts as ap
+
+    size = ap.archive_size(MOUNT, COMP)
+    if not size:
+        print(f"[deep] MISSING: no {ARCHIVE} and no parts in {ap.parts_dir(MOUNT, COMP)}")
         return {"ok": False}
 
-    with zipfile.ZipFile(ARCHIVE) as zf:
+    with ap.open_archive(MOUNT, COMP) as _fh, zipfile.ZipFile(_fh) as zf:
         infos = [i for i in zf.infolist() if not i.is_dir()]
-        print(f"[deep] {len(infos)} members, {os.path.getsize(ARCHIVE) / 1024**3:.2f} GiB",
-              flush=True)
+        print(f"[deep] {len(infos)} members, {size / 1024**3:.2f} GiB", flush=True)
 
         # sort by position in the file, then take an EVEN stride, so the sample spans the
         # whole archive instead of clustering wherever random happens to land
