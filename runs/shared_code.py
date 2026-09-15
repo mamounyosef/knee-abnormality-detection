@@ -2754,10 +2754,15 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     # Any gated branch in the model (CrossSliceBlock.gamma, LayerScale, ...). A gamma that
     # DECAYS is the model declining whatever the block offers, which is a real answer and
     # completely invisible in the loss - so it is reported, not inferred.
-    _gates = [(n, q) for n, q in model.named_parameters() if n.endswith("gamma")]
+    # "gamma" catches LayerScale in a ViT and the spliced cross-attention blocks; "gate"
+    # catches the attention branches in convnext_base_25d_{slot,token}attn, whose gate IS the
+    # experiment - it starts at zero, and how far it moves is the answer to "did attention
+    # earn its place". Missing it would leave those runs uninterpretable.
+    _gates = [(n, q) for n, q in model.named_parameters()
+              if n.endswith("gamma") or n.endswith("gate")]
     if _gates:
-        print(f"  🚪 gates: {len(_gates)} gamma tensor(s) tracked "
-              f"-> printed every {_udc.get('every_steps', 200)} steps")
+        print(f"  🚪 gates: {len(_gates)} tensor(s) tracked ({', '.join(sorted({n.rsplit(chr(46), 1)[-1] for n, _ in _gates}))}) "
+              f"-> every {_udc.get('every_steps', 200)} steps, and into train_log.csv")
 
     probe = ScaleProbe(model, _udc.get("every_steps", 200))
     if probe.handle is not None:
@@ -3368,17 +3373,26 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                     # report the gate in full: the mean says how much branch survives, min/max
                     # say whether it moved uniformly or on a handful of channels, and `open`
                     # counts channels past 1e-3. All of it also lands in train_log.csv.
-                    print("  \U0001F6AA gates (gamma)")
+                    print("  \U0001F6AA gates   (zero = that branch contributes nothing)")
                     _gopen = 0.0
                     for _n, _q in _gates:
                         _v = _q.detach().float()
                         _a = _v.abs()
-                        _lbl = _n.rsplit(".", 2)[-2] if "." in _n else _n
+                        # label by the OWNING MODULE: "slot_attn.gate" -> "slot_attn",
+                        # "blocks.4.gamma" -> "4". Without this every branch would
+                        # print under one name and the CSV columns would collide.
+                        _parts = _n.split(".")
+                        _lbl = _parts[-2] if len(_parts) > 1 else _n
                         _op = int((_a > 1e-3).sum())
                         _gopen = max(_gopen, float(_a.mean()))
+                        # std of ONE element is undefined: torch returns nan and warns every
+                        # time. tokenattn's gate is a scalar (the tokens are shared by all 12
+                        # findings, so there is no per-label axis), so this would fire every
+                        # 200 steps forever unless guarded.
+                        _sd = f"{float(_v.std()):.5f}" if _v.numel() > 1 else "   n/a"
                         print(f"     {_lbl:<10} |g| mean {float(_a.mean()):.5f}  "
                               f"min {float(_v.min()):+.5f}  max {float(_v.max()):+.5f}  "
-                              f"std {float(_v.std()):.5f}  open {_op}/{_v.numel()}")
+                              f"std {_sd}  open {_op}/{_v.numel()}")
                         _extra[f"gate_{_lbl}_absmean"] = round(float(_a.mean()), 8)
                         _extra[f"gate_{_lbl}_max"] = round(float(_v.max()), 8)
                         _extra[f"gate_{_lbl}_min"] = round(float(_v.min()), 8)
@@ -3902,6 +3916,59 @@ def plot_after_run(cfg: dict, status: str = "") -> None:
         print(f"  ⚠️  plotting failed: {type(e).__name__}: {e}")
 
 
+def stop_running_app(cfg: dict, timeout: int = 90) -> str | None:
+    """Stop this run's Modal app, so the GPU stops billing BEFORE we spend time syncing.
+
+    THE PROBLEM THIS FIXES. sync_on_interrupt used to pull the artifacts first and only then
+    hand over to Modal's own handler, which is what actually stops the app. So from Ctrl+C
+    until the last file landed - tens of seconds, sometimes a minute - the container was
+    still alive and still training. That is paid A100 time spent on ~60 steps that get
+    thrown away, on every single interrupt.
+
+    Order is now: stop the container, then sync. The artifacts are safe either way because
+    they live on the VOLUME, not in the container, and the container commits them every
+    `output.commit_every_steps` (25) regardless.
+
+    WHAT THIS COSTS. Stopping first can lose whatever was written since the last commit: up
+    to 24 rows of train_log, and up to 99 steps of checkpoint progress
+    (`checkpoint_every_steps` is 100). That is a bounded, cheap loss against paying for a
+    minute of idle GPU every time.
+
+    Found by NAME - `modal.App` is created as App(cfg["experiment"]["name"]) in every run's
+    train.py - so no run folder needs to change. `--json` is used because the plain table
+    truncates the description to "convnext_ba...".
+    """
+    import subprocess                       # not a module-level import in this file
+
+    name = cfg.get("experiment", {}).get("name")
+    if not name:
+        return None
+    env = dict(os.environ, PYTHONIOENCODING="utf-8")
+    try:
+        r = subprocess.run([sys.executable, "-m", "modal", "app", "list", "--json"],
+                           capture_output=True, timeout=timeout, env=env)
+        out = (r.stdout or b"").decode("utf-8", "replace")
+        rows = json.loads(out[out.index("["):out.rindex("]") + 1])
+    except Exception as e:
+        print(f"     (could not list apps: {type(e).__name__}: {e})", flush=True)
+        return None
+    for row in rows:
+        if row.get("Description") != name or row.get("Stopped at"):
+            continue
+        state = (row.get("State") or "").lower()
+        if "ephemeral" not in state and "running" not in state:
+            continue
+        app_id = row.get("App ID")
+        try:
+            subprocess.run([sys.executable, "-m", "modal", "app", "stop", app_id, "-y"],
+                           capture_output=True, timeout=timeout, env=env)
+            return app_id
+        except Exception as e:
+            print(f"     (stop failed: {type(e).__name__}: {e})", flush=True)
+            return None
+    return None
+
+
 def sync_on_interrupt(cfg: dict) -> None:
     """Sync on Ctrl+C too, by hooking the signal rather than trusting `finally`.
 
@@ -3917,8 +3984,15 @@ def sync_on_interrupt(cfg: dict) -> None:
 
     def make(previous):
         def handler(signum, frame):
-            print("\n  \u23F9\uFE0F  interrupted — pulling artifacts before exit "
+            print("\n  \u23F9\uFE0F  interrupted — stopping the container, then pulling artifacts "
                   "(Ctrl+C again to skip)", flush=True)
+            # STOP THE CONTAINER FIRST. Syncing takes tens of seconds and the GPU bills
+            # for every one of them; Modal's own handler only stops the app AFTER ours
+            # returns, so doing it here is the difference between paying for the sync and
+            # not. See stop_running_app for what this can cost (up to 24 unlogged steps).
+            _app = stop_running_app(cfg)
+            print(f"     container {'stopped: ' + _app if _app else 'not found (already down?)'}"
+                  f" - GPU released, now pulling artifacts", flush=True)
             sync_back(cfg, "interrupted")
             if callable(previous):
                 return previous(signum, frame)      # let modal stop the app as usual

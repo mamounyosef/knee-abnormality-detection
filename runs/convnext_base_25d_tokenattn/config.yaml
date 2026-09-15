@@ -90,7 +90,7 @@ training:
     enable: true
     monitor: "val_macro_auroc"
     mode: "max"
-    patience: 12                     # VALIDATIONS without improvement, not epochs.
+    patience: 9                     # VALIDATIONS without improvement, not epochs.
 
 # CPU-side loading; decoding shards is the bottleneck and stays one here, though 18 slices
 # is a quarter less to decode per study than 24.

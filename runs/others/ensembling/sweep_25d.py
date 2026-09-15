@@ -43,20 +43,25 @@ L = "convnext_large"
 A24 = "convnext_base_25d_group3"       # 32 passes/study
 A18 = "convnext_base_25d_18slices"     # 24 passes/study
 P336 = "convnext_base_336px"
-DV2 = "dinov2_vits14_25d"          # DINOv2 ViT-S/14, val 0.8930, 24 passes/study
+DV2 = "dinov2_vits14_25d"
+SA = "convnext_base_25d_slotattn"   # label-query attention head
+TA = "convnext_base_25d_tokenattn"  # token-to-token attention head
+PA = "convnext_base_25d_poolattn"   # learned weighting replacing the mean
+SP = "convnext_base_25d_spatial"    # 2400 spatial tokens + blank masking          # DINOv2 ViT-S/14, val 0.8930, 24 passes/study
 
 COMBOS = [
-    ("default-large",        [G, MC, MF, DV, L, SW]),        # 0.9164, the old default
-    ("swap-18sl",            [G, MC, MF, DV, A18, SW]),      # 0.9166
-    ("swap-24sl",            [G, MC, MF, DV, A24, SW]),      # 0.9167
-    # --- does the DINOv2 ViT-S earn a slot? -----------------------------------
-    ("dv2-added",            [G, MC, MF, DV, A18, SW, DV2]),
-    ("dv2-for-18sl",         [G, MC, MF, DV, DV2, SW]),
-    ("dv2-for-dinov3",       [G, MC, MF, DV2, A18, SW]),
-    ("dv2-for-swin",         [G, MC, MF, DV, A18, DV2]),
-    ("dv2-for-mricore-mae",  [G, MC, DV2, DV, A18, SW]),
-    ("dv2-plus-both-25d",    [G, MC, MF, DV, A18, A24, SW, DV2]),
-    ("dv2-and-large",        [G, MC, MF, DV, A18, SW, DV2, L]),
+    ("base-24sl",            [G, MC, MF, DV, A24, SW]),      # 0.9167, the reference
+    ("base-18sl",            [G, MC, MF, DV, A18, SW]),      # 0.9166
+    # --- spatial: best audit of the family, does it ensemble? ------------------
+    ("spatial-for-18sl",     [G, MC, MF, DV, SP, SW]),
+    ("spatial-added",        [G, MC, MF, DV, A18, SW, SP]),
+    ("spatial-for-24sl",     [G, MC, MF, DV, SP, SW, A24]),
+    ("spatial-plus-slotattn",[G, MC, MF, DV, A18, SW, SP, SA]),
+    # --- poolattn -------------------------------------------------------------
+    ("poolattn-for-18sl",    [G, MC, MF, DV, PA, SW]),
+    ("poolattn-added",       [G, MC, MF, DV, A18, SW, PA]),
+    # --- everything the head line produced ------------------------------------
+    ("all-heads-added",      [G, MC, MF, DV, A18, SW, SA, TA, PA, SP]),
 ]
 SPLITS = ["val", "audit"]
 
