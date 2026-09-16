@@ -3813,7 +3813,14 @@ def modal_image():
                          "nvidia-ml-py",   # torch.cuda.utilization/memory_usage need it
 
                          "matplotlib", "psutil", "pydicom")
-            .add_local_dir(str(Path(__file__).parent), "/root/runs")
+            # CODE ONLY. Without this ignore the mount is 7,200 files and 39 GB, because
+            # runs/*/results/ holds 30 GB of checkpoints plus thousands of prediction .npz
+            # and debug .png - none of which the container reads. Checkpoints reach it from
+            # the knee-runs VOLUME, not the image, and results travel back the other way at
+            # sync time. Indexing that every launch is pure wait before the GPU starts.
+            .add_local_dir(str(Path(__file__).parent), "/root/runs",
+                           ignore=["**/results", "**/kaggle", "**/__pycache__", "_wheels",
+                                   "**/*.pt", "**/*.npz", "**/*.png", "**/*.pth"])
             # only the small split CSVs travel in the image; stats/ alone is 824 MB of
             # local analysis output the container never opens
             .add_local_dir(str(Path(__file__).parent.parent / "data"), "/root/data",
@@ -3982,6 +3989,39 @@ def sync_on_interrupt(cfg: dict) -> None:
     """
     import signal
 
+    def _mute_heartbeat_noise():
+        """Stop modal's heartbeat loop from spamming tracebacks at a deliberately dead app.
+
+        We stop the app ourselves to release the GPU before syncing. The client does not know
+        that, so its background heartbeat keeps calling AppHeartbeat, gets
+        `ConflictError: App state is APP_STATE_STOPPED`, and logs a FULL TRACEBACK every few
+        seconds for the whole sync - tens of seconds of scrollback burying the one line that
+        matters. Dropping only the heartbeat-failure records leaves every other modal error
+        visible.
+
+        The filter goes on the root HANDLERS as well as the named loggers: a filter on a
+        logger only sees records logged directly to it, not ones propagating up from
+        children, and the record's origin has moved between modal versions.
+        """
+        import logging
+
+        class _DropHeartbeat(logging.Filter):
+            def filter(self, record):
+                try:
+                    msg = record.getMessage()
+                except Exception:
+                    return True
+                noisy = "Loop attempt" in msg and "heartbeat" in msg
+                if not noisy and record.exc_info:
+                    noisy = "APP_STATE_STOPPED" in str(record.exc_info[1])
+                return not noisy
+
+        filt = _DropHeartbeat()
+        for nm in ("modal-client", "modal", "modal.runner", "modal._utils.async_utils"):
+            logging.getLogger(nm).addFilter(filt)
+        for h in logging.getLogger().handlers:
+            h.addFilter(filt)
+
     def make(previous):
         def handler(signum, frame):
             print("\n  \u23F9\uFE0F  interrupted — stopping the container, then pulling artifacts "
@@ -3990,6 +4030,7 @@ def sync_on_interrupt(cfg: dict) -> None:
             # for every one of them; Modal's own handler only stops the app AFTER ours
             # returns, so doing it here is the difference between paying for the sync and
             # not. See stop_running_app for what this can cost (up to 24 unlogged steps).
+            _mute_heartbeat_noise()   # before the stop, or the first failures still print
             _app = stop_running_app(cfg)
             print(f"     container {'stopped: ' + _app if _app else 'not found (already down?)'}"
                   f" - GPU released, now pulling artifacts", flush=True)
