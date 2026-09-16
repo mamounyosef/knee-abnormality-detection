@@ -39,8 +39,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent.parent
 RUNS = ROOT / "runs"
 
-FOLDS = ["convnext_base_25d_18slices_f0", "convnext_base_25d_18slices_f1",
-         "convnext_base_25d_18slices_f2"]
+FOLDS = ["convnext_base_25d_18slices_f%d" % k for k in range(5)]
 PARENT = "convnext_base_25d_18slices"
 # the members of submission 56258238 (val 0.9167, the 9-model branch group)
 SHIPPED = ["convnext_base_relabel", "convnext_base_trauma", "convnext_base_wear",
@@ -179,7 +178,7 @@ for i, run in enumerate(FOLDS):
     print("    f%d                        %.4f" % (i, macro(ay, a)))
 
 fold_avg = np.nanmean([fold_a[r] for r in FOLDS], axis=0)
-print("\n    3-fold average            %.4f" % macro(ay, fold_avg))
+print("\n    5-fold average            %.4f" % macro(ay, fold_avg))
 
 pa = audit_logits(PARENT)
 if pa is not None:
@@ -199,14 +198,14 @@ if len(sh) == len(SHIPPED):
     shipped_blend = np.nanmean([grp] + stand, axis=0)
     print("\n  ensembles on audit-58:")
     print("    shipped 9-model           %.4f" % macro(ay, shipped_blend))
-    print("    shipped + 3-fold avg      %.4f"
+    print("    shipped + 5-fold avg      %.4f"
           % macro(ay, np.nanmean([grp] + stand + [fold_avg], axis=0)))
-    print("    shipped + 3 folds as 3    %.4f"
+    print("    shipped + 5 folds as 5    %.4f"
           % macro(ay, np.nanmean([grp] + stand + [fold_a[r] for r in FOLDS], axis=0)))
     print("    folds REPLACE 25d_group3  %.4f"
           % macro(ay, np.nanmean([grp] + [sh[m] for m in SHIPPED[4:] if m != "convnext_base_25d_group3"]
                                  + [fold_avg], axis=0)))
-    print("    3-fold avg alone          %.4f" % macro(ay, fold_avg))
+    print("    5-fold avg alone          %.4f" % macro(ay, fold_avg))
 
 print("\n" + "=" * 78)
 print("READ THIS BEFORE QUOTING ANY NUMBER ABOVE")

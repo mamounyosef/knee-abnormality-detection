@@ -66,22 +66,24 @@ from pathlib import Path
 # 6.9-8.3 h of the 9 h cap against 5.5-6.6 h for these six, and +0.0004 val is well inside
 # the 0.0055 noise. A timeout forfeits the run, so the cap decides. See runtime_budget.py.
 MEMBERS = [
-    # THE 0.9167 CONSTRUCT, made to fit the cap. 9 models, 6 votes: the first four average
-    # into ONE vote via branch_group_weights.json, the other five take 1/6 each.
-    # swinv2_base_in22k is OUT and convnext_base_25d_poolattn is IN. The construct scores the
-    # SAME 0.9167 either way, but swinv2 costs 5.197 s/study against poolattn's ~0.4 - the
-    # difference between 8.98 h at 1500 studies (two minutes inside the 9 h cap, measured)
-    # and roughly 7 h.
-    # Order MUST match branch_group_weights.json exactly.
+    # THE 0.932 SEVEN, UNCHANGED, PLUS THE FIVE FOLDS AS ONE EXTRA VOTE.
+    # Built on the seven that actually scored 0.932 (submission 56256423), NOT on the nine
+    # that scored 0.931 - the nine is the one configuration we know did worse.
+    # Nothing proven is removed, so if this beats 0.932 the folds are the cause.
+    # The folds share the 18-slice/336 px geometry with convnext_base_25d_18slices and
+    # convnext_base_25d_poolattn, so they add NO decode pass: still 2 groups.
     ("convnext_base_relabel", "best"),
-    ("convnext_base_trauma", "best"),
-    ("convnext_base_wear", "best"),
-    ("convnext_base_fluid", "best"),
     ("mricore_vitb_cross_attention", "best"),
-    ("mricore_vitb_mae_cross_attention_full", "best"),
+    ("mricore_vitb_mae_cross_attention", "best"),
     ("dinov3_convnext_base", "best"),
-    ("convnext_base_25d_group3", "best"),
+    ("convnext_base_25d_18slices", "best"),
+    ("swinv2_base_in22k", "best"),
     ("convnext_base_25d_poolattn", "best"),
+    ("convnext_base_25d_18slices_f0", "best"),
+    ("convnext_base_25d_18slices_f1", "best"),
+    ("convnext_base_25d_18slices_f2", "best"),
+    ("convnext_base_25d_18slices_f3", "best"),
+    ("convnext_base_25d_18slices_f4", "best"),
 ]
 # RadImageNet is deliberately ABSENT: its licence is "personal, non-commercial (e.g.,
 # academic) research purposes only... any commercial use, sale, or other monetization is
@@ -95,7 +97,7 @@ MEMBERS = [
 # worse than the one measured, including the 6-member that scored 0.922. Fixed: best.pt
 # is now step 2600 and its `score` matches val_log's peak. ALWAYS check that before a
 # submission - it is silent otherwise.
-BLEND_WEIGHTS = "branch_group_weights.json"   # the nested construct as a flat
+BLEND_WEIGHTS = "fold_group_weights.json"   # 7 standalone at 1/8, the 5 folds sharing one 1/8
                                # per-class matrix; verified identical to the
                                # nested form (max logit gap 4.8e-07).
 _OLD = None                    # FLAT. The per-class search is fitting noise now: its
@@ -103,36 +105,36 @@ _OLD = None                    # FLAT. The per-class search is fitting noise now
                                # For the 9-member branch-group construct instead, set this
                                # to "branch_group_weights.json" (make_branch_group_weights.py
                                # writes it; check_partial_head_blend.py verifies it).
-STRESS       = 0              # >0 = MEASUREMENT run: repeat the 3 public studies this
+STRESS       = 0               # >0 = MEASUREMENT run: repeat the 3 public studies this
                               # many times to get a marginal per-study rate, and write
                               # no submission.csv. Use with SUBMIT = False.
 PUBLISH      = True
 WAIT_FOR_RUN = True
-SUBMIT       = True           # REAL SUBMISSION: costs one of the day's 5.
+SUBMIT       = True            # REAL SUBMISSION: costs one of the day's 5.
                               # False = push and run the kernel, then stop. Kernel runs are
                               # FREE, so always do that first and read inference_log.txt:
                               # it names every member that scored and the decode-pass count.
                               # Set STRESS > 0 with SUBMIT = False to get marginal per-study
                               # rates before committing to the 9 h cap.
 KAGGLE_USER  = "mamounhussam"
-SLUG         = "knee-ensemble-9-bg-poolattn"
+SLUG         = "knee-7plus5fold"
 # KEEP THIS IN STEP WITH MEMBERS. Submission 56234763 shipped the 18-slice member while
 # this text still named the 24-slice one, because the swap changed MEMBERS and SLUG and
 # missed NOTE. Kaggle descriptions cannot be edited after submitting, so that record is
 # permanently wrong. Re-read this string whenever MEMBERS changes.
-NOTE         = ("9-model BRANCH-GROUP ensemble, val 0.9167, our best. PRIZE-ELIGIBLE "
-                "(no RadImageNet). Nested construct written flat: convnext_base_relabel "
-                "and its three task-group branches (trauma / wear / fluid) share one 1/6 "
-                "vote, so per finding the parent holds 1/12 and its owning branch 1/12; "
-                "the five standalone models hold 1/6 each - mricore_vitb_cross_attention, "
-                "mricore_vitb_mae_cross_attention_full, dinov3_convnext_base, "
-                "convnext_base_25d_group3, convnext_base_25d_poolattn. Verified identical "
-                "to the nested form (max logit gap 4.8e-07). swinv2_base_in22k was dropped "
-                "for convnext_base_25d_poolattn: val is 0.9167 either way, but swinv2 cost "
-                "5.197 s/study AND its own decode geometry, so dropping it removed a whole "
-                "decode pass (4 -> 3). MEASURED on a T4 at 15.202 s/study over 20 studies "
-                "= 6.33 h at 1500, against 8.98 h for the swinv2 version. | Built with "
-                "DINOv3")
+NOTE         = ("The 0.932 SEVEN plus the five CV folds as ONE shared vote. Built on the "
+                "seven that actually scored 0.932 (56256423), NOT the nine that scored 0.931, "
+                "so nothing proven is removed and a gain is attributable to the folds. "
+                "Weights: each of the 7 standalone members 1/8; the 5 folds share a single "
+                "1/8 (1/40 each) because they are ONE model family differing only in which "
+                "80% of the 4,342 studies they saw - a flat 12-way average would hand that "
+                "family 42% of the ensemble. Collectively the folds have seen EVERY labelled "
+                "study, ~19% more data than any member of the seven. They cannot be scored "
+                "pre-submission: 559-589 of the standard 704 val studies sit in each fold's "
+                "training data. OOF over all 4,342 = 0.8943; on audit-58 (leak-free, 0/58 in "
+                "any fold train split) the 5-fold average 0.9090 beats every single fold and "
+                "the parent 0.9054. MEASURED on a T4: 14.840 s/study over 20 studies, 12/12 "
+                "members, 2 decode passes = 6.18 h of the 9 h cap. | Built with DINOv3")
 # ===========================================================================
 
 PKG_ROOT = Path(__file__).resolve().parent.parent.parent      # <repo>/runs

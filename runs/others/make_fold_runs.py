@@ -37,8 +37,11 @@ def main():
     ap.add_argument("--patience", type=int, default=7,
                     help="validations without improvement before stopping")
     ap.add_argument("--seed-base", type=int, default=42,
-                    help="folds 0-2 all use seed-base; folds 3 and 4 get seed-base+1000 "
-                         "and +2000, far enough apart to be obviously intentional in a log")
+                    help="base seed; see --distinct-seeds for how it is spread over folds")
+    ap.add_argument("--distinct-seeds", action="store_true",
+                    help="EVERY fold gets its own seed (base + 1000*k). Default instead "
+                         "shares the base across folds 0-2 so their spread measures the "
+                         "split alone, and varies only folds 3-4.")
     a = ap.parse_args()
 
     src = RUNS / a.parent
@@ -101,13 +104,22 @@ def main():
         #
         # `reproducibility` lives in shared_config.yaml, not the parent's config, so the
         # block is appended rather than patched.
-        seed = a.seed_base if k < 3 else a.seed_base + 1000 * (k - 2)
+        # --distinct-seeds: every fold differs in BOTH split and trajectory, maximising
+        # ensemble diversity. The default instead keeps folds 0-2 on one seed so their
+        # score spread isolates split variance - useful when the folds are also a
+        # measurement, unnecessary when they are only ensemble members.
+        if a.distinct_seeds:
+            seed = a.seed_base + 1000 * k
+        else:
+            seed = a.seed_base if k < 3 else a.seed_base + 1000 * (k - 2)
         if re.search(r"^reproducibility:", cfg, flags=re.M):
             cfg = re.sub(r"(^reproducibility:\n(?:.*\n)*?\s*seed:\s*)\d+",
                          lambda m: "%s%d" % (m.group(1), seed), cfg, count=1, flags=re.M)
         else:
-            note = ("shared with folds 0-2: their spread measures the SPLIT alone"
-                    if k < 3 else "this fold's own seed: adds trajectory diversity")
+            note = ("this fold's own seed: split AND trajectory both differ"
+                    if a.distinct_seeds else
+                    ("shared with folds 0-2: their spread measures the SPLIT alone"
+                     if k < 3 else "this fold's own seed: adds trajectory diversity"))
             cfg = cfg.rstrip("\n") + (
                 "\n\nreproducibility:\n  seed: %d                          # %s\n"
                 % (seed, note))
