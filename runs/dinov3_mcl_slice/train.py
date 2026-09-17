@@ -84,7 +84,7 @@ class SliceModel(nn.Module):
 
 
 # --- specialist seeding -------------------------------------------------------------
-BRANCH_FROM = "dinov3_convnext_base/results/checkpoints/best.pt"
+BRANCH_FROM = "dinov3_convnext_base/results/checkpoints/step5600.pt"
 PARENT_TASKS = ['ACL', 'MCL', 'Medial Meniscus', 'Lateral Meniscus', 'Medial OA', 'Lateral OA', 'PF OA', 'Effusion', 'Synovitis', "Baker's", 'Contusion', 'Fracture']
 HEAD_INIT = "slice"          # "slice" = copy the parent's MCL row | "fresh" = random head
 REQUIRE_PARENT = False   # set True by the TRAINING entry points below

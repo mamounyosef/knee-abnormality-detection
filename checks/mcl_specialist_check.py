@@ -21,6 +21,7 @@ CPU only, no GPU and no data needed.
     python checks/mcl_specialist_check.py
 """
 
+import csv
 import importlib.util
 import re
 import sys
@@ -34,7 +35,8 @@ sys.path.insert(0, str(ROOT / "runs"))
 import shared_code as sc  # noqa: E402
 
 ARMS = ["dinov3_mcl_slice", "dinov3_mcl_fresh"]
-SEED = ROOT / "runs/dinov3_convnext_base/results/checkpoints/best.pt"
+PARENT = "dinov3_convnext_base"
+SEED = ROOT / "runs" / PARENT / "results/checkpoints/step5600.pt"
 PARENT_TASKS = ['ACL', 'MCL', 'Medial Meniscus', 'Lateral Meniscus', 'Medial OA',
                 'Lateral OA', 'PF OA', 'Effusion', 'Synovitis', "Baker's",
                 'Contusion', 'Fracture']
@@ -110,6 +112,28 @@ print("\n3. the seed checkpoint")
 check("the parent checkpoint is present locally", SEED.exists(), str(SEED))
 ck = torch.load(SEED, map_location="cpu", weights_only=False)
 check("its head is (12, 1024)", tuple(ck["model"]["head.weight"].shape) == (12, 1024))
+
+# A SPECIALIST must branch from the parent's best checkpoint FOR ITS OWN FINDING, not from
+# best.pt, which is the best MACRO checkpoint and a different step. This regressed silently
+# once: the rebuild took best.pt (MCL 0.8736) when step5600 scores 0.8855, giving away
+# +0.0119 before training started. So derive the right step from the log and demand it.
+rows = [r for r in csv.DictReader(open(ROOT / "runs" / PARENT / "results" / "val_log.csv",
+                                       encoding="utf-8"))
+        if r.get("val_auroc_MCL") and r.get("val_macro_auroc")]
+best_mcl = max(rows, key=lambda r: float(r["val_auroc_MCL"]))
+best_macro = max(rows, key=lambda r: float(r["val_macro_auroc"]))
+want_step = int(best_mcl["step"])
+got_step = ck.get("global_step") or ck.get("step")
+check("seeded from the parent's best MCL step (%d, MCL %.4f)"
+      % (want_step, float(best_mcl["val_auroc_MCL"])), got_step == want_step,
+      "got step %s" % got_step)
+check("NOT the best-macro checkpoint (step %s, MCL %.4f)"
+      % (best_macro["step"], float(best_macro["val_auroc_MCL"])),
+      got_step != int(best_macro["step"]) or want_step == int(best_macro["step"]))
+for r in ARMS:
+    txt = (ROOT / "runs" / r / "train.py").read_text(encoding="utf-8")
+    check("%s points BRANCH_FROM at step%d.pt" % (r, want_step),
+          "step%d.pt" % want_step in txt)
 # a slot- or slice-shaped parameter would mean the slot change reinterprets weights rather
 # than simply feeding different images. pool="mean" must hold for that to be true.
 slotted = [k for k in ck["model"]
