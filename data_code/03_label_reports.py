@@ -199,6 +199,56 @@ This is a tie-break for genuine silence only. Never let it override what the rep
 
 Every value must be exactly 0 or 1. Do not output any other number."""
 
+# ---------------------------------------------------------------------------
+# v3: the SHORT prompt. Every prompt experiment so far ADDED specification and the two
+# biggest additions both lost - few-shot with 45 corrections -0.0262, and v2's Synovitis
+# numeric anchors -0.041 on Synovitis itself. The only change that ever won was more
+# THINKING (effort low -> medium, +0.0067), not more wording. Shortening has never been tried.
+#
+# Three deliberate cuts against SYSTEM_SOFT:
+#   1. The six-value Effusion ladder goes. It converts a judgement into a lookup table, and
+#      Effusion is the finding the error decomposition calls irreducible - the exact string
+#      "Small joint effusion." appears with panel=1 and with panel=0.
+#   2. The "fall back on the base rate" instruction goes. That sentence is what manufactures
+#      the ambiguous cells: 23.6% of Synovitis and 24.1% of Effusion land in 0.3-0.7, and
+#      51% of all label error is on cells the report is silent about.
+#   3. An explicit `unknown` is allowed instead. A stated "I cannot tell" is a usable
+#      training signal; a fabricated 0.5 is not distinguishable from a real 50/50.
+#
+# What is KEPT: the definitions that encode a panel CONVENTION a reader could not guess -
+# what counts as a tear, that OA means cartilage loss, that mucoid degeneration is not a
+# tear. Those are facts about the labelling standard, not instructions about how to think.
+SYSTEM_SOFT_V3 = """You are a musculoskeletal radiologist labeling knee MRI reports for a research dataset.
+
+You are given the full text of a knee MRI report. Output a probability (0.0-1.0) that each of
+12 findings is present in that knee, plus the exact sentence you relied on.
+
+The reference labels come from an expert panel who re-read the IMAGES, not the report. Judge
+what the knee most likely shows given what the report describes. If the report gives you no
+basis at all for a finding, say so with "unknown": true for that finding rather than inventing
+a probability.
+
+Conventions the panel used, where they differ from a plain reading:
+
+ACL / MCL - any tear or sprain, any grade. Mucoid degeneration alone is not a tear.
+Medial Meniscus / Lateral Meniscus - a TEAR. Degenerative signal that does not reach the
+       articular surface is not a tear, and neither is extrusion or an old resection.
+Medial OA / Lateral OA / PF OA - substantial CARTILAGE LOSS, not osteophytes alone.
+       "Tricompartmental" means score all three; "bicompartmental" means infer which two.
+Effusion - an amount the panel would call present. Most reports mention some fluid and the
+       panel does not count small amounts.
+Synovitis - synovial thickening or enhancement, reactive synovitis, hoffitis.
+Baker's - popliteal cyst.
+Contusion - bone bruise or marrow oedema of TRAUMATIC origin. Oedema next to a degenerative
+       cartilage defect is not a contusion.
+Fracture - a true fracture, including insufficiency and avulsion. An OCD lesion is not one.
+
+Set "unusable": true only for an empty template. A report saying everything is normal IS
+usable and informative.
+
+Probabilities must be genuine confidences, not only 0.0 or 1.0."""
+
+
 # the active prompt; main() swaps it for SYSTEM_HARD under --mode hard, and appends the
 # output contract / few-shot block on top. Kept under the old name so smoke.py and
 # anything else importing `SYSTEM` still resolves to the soft default.
@@ -363,7 +413,7 @@ def main():
                          "lives in the chat template, so --effort alone does nothing "
                          "for it (measured: identical output at medium and xhigh). "
                          "Qwen is the opposite and uses --effort.")
-    ap.add_argument("--prompt", choices=["v1", "v2"], default="v1",
+    ap.add_argument("--prompt", choices=["v1", "v2", "v3"], default="v1",
                     help="v1 = the prompt that measured 0.9114 at effort=medium. "
                          "v2 = v1 with numeric anchors added to the Synovitis rule.")
     ap.add_argument("--max-tokens", dest="max_tokens", type=int, default=4000,
@@ -401,7 +451,8 @@ def main():
 
     MODE = args.mode
     SYSTEM = (SYSTEM_HARD if MODE == "hard" else
-              (SYSTEM_SOFT_V2 if args.prompt == "v2" else SYSTEM_SOFT))
+              (SYSTEM_SOFT_V3 if args.prompt == "v3" else
+               SYSTEM_SOFT_V2 if args.prompt == "v2" else SYSTEM_SOFT))
     print(f"[mode] {MODE} labels | prompt {args.prompt}")
 
     if args.tag:

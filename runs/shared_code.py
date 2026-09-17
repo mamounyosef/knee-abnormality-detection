@@ -1325,6 +1325,45 @@ class AUCMOfficial(nn.Module):
                     t.copy_(v.to(t.device))
 
 
+class ConfidenceWeighted(nn.Module):
+    """Wrap any per-element loss and weight each CELL by how sure the labeler was.
+
+    The targets are soft LLM probabilities, and their distance from 0.5 is the labeler's own
+    confidence: 0.95 means the report said so, 0.50 means the report was silent and the prompt
+    told it to fall back on a base rate. Trained plainly, a coin-flip cell produces as much
+    gradient as a stated fact, so the model spends capacity reproducing guesses. In this corpus
+    that is 23.6% of Synovitis cells and 24.1% of Effusion cells - our weakest and most
+    ambiguous findings.
+
+    weight = |2p - 1| ** power, so p=0.95 -> 0.90, p=0.75 -> 0.50, p=0.50 -> 0.00.
+
+    NOTE what this does NOT do: the TARGET is untouched. A 0.95 cell is still regressed toward
+    0.95. Only its share of the gradient changes. Weights are normalised by their mean so the
+    effective learning rate does not silently drop as cells are discounted.
+
+    `floor` keeps an ambiguous cell from vanishing completely - at floor=0 a p=0.5 cell is
+    fully ignored, which throws away the information that the finding is plausible at all.
+    """
+
+    def __init__(self, base: nn.Module, power: float = 1.0, floor: float = 0.0):
+        super().__init__()
+        self.base = base
+        self.power = float(power)
+        self.floor = float(floor)
+
+    def forward(self, logits, target):
+        w = (2.0 * target - 1.0).abs().clamp(0.0, 1.0) ** self.power
+        if self.floor > 0:
+            w = self.floor + (1.0 - self.floor) * w
+        # per-element loss, then confidence-weighted mean. Reduction is forced to "none"
+        # here; a base loss that cannot do that is refused at build time.
+        per = self.base(logits, target)
+        if per.shape != target.shape:
+            raise RuntimeError("confidence weighting needs a per-element loss, got %s"
+                               % (tuple(per.shape),))
+        return (w * per).sum() / w.sum().clamp(min=1e-6)
+
+
 def build_loss(cfg: dict, train_df: pd.DataFrame | None, device) -> nn.Module:
     """Plain or focal binary cross-entropy, optionally re-weighted for rare labels."""
     lc = cfg["training"]["loss"]
@@ -1350,6 +1389,17 @@ def build_loss(cfg: dict, train_df: pd.DataFrame | None, device) -> nn.Module:
                             device).to(device)
     if lc["name"] == "aucm":
         return AUCMarginLoss(lc.get("aucm_margin", 1.0), lc.get("aucm_bce_mix", 0.1), pw).to(device)
+
+    # confidence weighting: only meaningful against SOFT targets, because hard 0/1 targets
+    # make every weight exactly 1 and the wrapper becomes a no-op with extra arithmetic.
+    conf = lc.get("confidence_weight") or {}
+    if conf.get("enable"):
+        if cfg.get("target", {}).get("mode") != "soft":
+            raise SystemExit("confidence_weight needs target.mode: soft - with hard 0/1 "
+                             "targets every weight is 1 and the setting does nothing")
+        base = nn.BCEWithLogitsLoss(pos_weight=pw, reduction="none")
+        return ConfidenceWeighted(base, conf.get("power", 1.0),
+                                  conf.get("floor", 0.0)).to(device)
     return nn.BCEWithLogitsLoss(pos_weight=pw)
 
 
@@ -1840,17 +1890,50 @@ def _uncompiled(model):
     return getattr(model, "_orig_mod", model)
 
 
-def _load_model_state(model, sd):
+def _load_model_state(model, sd, allow_head_mismatch: bool = False):
     """Load weights whichever side of torch.compile they were saved from.
 
     Strips a leading "_orig_mod." (a checkpoint written by an older compiled run) and
     loads into the unwrapped module, so compiled and non-compiled runs can resume from
     each other's checkpoints in either direction.
+
+    `allow_head_mismatch` is for SPECIALIST transfer: seed a 1-task model from a 12-task
+    checkpoint by taking the backbone and dropping the head, whose shape cannot match
+    ((12, 1024) into (1, 1024)). It is deliberately NOT the default - a silent partial load
+    is how a half-random model trains for an hour and looks completely normal doing it.
+    Every skipped and every missing tensor is printed, and anything missing OUTSIDE the head
+    is a hard error.
     """
     if any(k.startswith("_orig_mod.") for k in sd):
         sd = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v
               for k, v in sd.items()}
-    return _uncompiled(model).load_state_dict(sd)
+    m = _uncompiled(model)
+    if not allow_head_mismatch:
+        return m.load_state_dict(sd)
+
+    own = m.state_dict()
+    keep, skipped = {}, []
+    for k, v in sd.items():
+        if k in own and own[k].shape == v.shape:
+            keep[k] = v
+        else:
+            skipped.append("%s %s -> %s" % (k, tuple(v.shape),
+                                            tuple(own[k].shape) if k in own else "absent"))
+    missing = [k for k in own if k not in keep]
+    # a skipped tensor is only acceptable if it is the task head
+    bad = [k for k in missing if "head" not in k.lower() and "classifier" not in k.lower()
+           and "fc." not in k.lower()]
+    if bad:
+        raise SystemExit("transfer would leave %d NON-HEAD tensor(s) untrained: %s\n"
+                         "   the checkpoint does not match this architecture"
+                         % (len(bad), bad[:6]))
+    print("  transfer: loaded %d tensors, fresh head (%d tensor(s))" % (len(keep), len(missing)))
+    for x in skipped:
+        print("      skipped %s" % x)
+    for k in missing:
+        print("      fresh   %s %s" % (k, tuple(own[k].shape)))
+    m.load_state_dict(keep, strict=False)
+    return None
 
 
 def save_checkpoint(path: Path, cfg, model, opt=None, sched=None, scaler=None,
@@ -5189,6 +5272,13 @@ def build_kaggle_ensemble_assets(members: list, out_dir, kaggle_user: str,
     every run's train.py defines a class called SliceModel.
     """
     out = Path(out_dir)
+    # WIPE the staging directory first. `exist_ok=True` alone leaves every file a previous,
+    # larger ensemble wrote, so a 12-member build followed by an 8-member one uploads
+    # m8_model.pt and m9_model.pt that belong to neither - dead weight in the dataset, and a
+    # trap for anything that counts files to decide what shipped.
+    import shutil as _shutil
+    if out.exists():
+        _shutil.rmtree(out, ignore_errors=True)
     (out / "weights").mkdir(parents=True, exist_ok=True)
     (out / "notebook").mkdir(parents=True, exist_ok=True)
     w = out / "weights"
@@ -6241,19 +6331,43 @@ def _kaggle(*args, check=True, quiet=False, cwd=None):
     return out
 
 
-def _wait_for_dataset(user: str, slug: str, tries: int = 20, secs: int = 30):
-    """Block until kaggle finishes processing the upload.
+def _wait_for_dataset(user: str, slug: str, tries: int = 20, secs: int = 30,
+                      expect_models: int = 0):
+    """Block until kaggle finishes processing the upload, and check EVERY member landed.
 
-    Push the notebook too early and the dataset simply is not mounted — the kernel
-    dies with ModuleNotFoundError and you lose ten minutes working out why.
+    Push the notebook too early and the dataset is not mounted — the kernel dies with
+    ModuleNotFoundError and you lose ten minutes working out why.
+
+    `expect_models` matters more than the wait. This used to accept the dataset as soon as
+    the string "model.pt" appeared anywhere in the listing, which is true once m0 lands. A
+    real submission was lost that way: kaggle reported "Upload successful: m2_model.pt
+    (357MB)", silently dropped it during ingest, and the check passed on m0 - so the notebook
+    ran, failed on a missing file, and the whole kernel run was wasted. Name every file we
+    expect and refuse to continue until all of them are listed.
     """
+    want = ["m%d_model.pt" % i for i in range(expect_models)] or ["model.pt"]
+    missing = list(want)
     for i in range(tries):
         time.sleep(secs)
-        out = _kaggle("datasets", "files", f"{user}/{slug}", quiet=True, check=False)
-        if "model.pt" in out and "error" not in out.lower():
-            print(f"      ✅ dataset ready after {(i + 1) * secs}s")
+        # --page-size 100: the listing PAGINATES at 20 rows by default, and this dataset has
+        # ~30 files (N models + N configs + N defs + licences + wheels + shared_code.py). With
+        # the default page, m5/m6/m7_model.pt sort onto page 2 and simply are not returned -
+        # which reads exactly like kaggle dropped them. It cost two false alarms and a wasted
+        # kernel run before the cause was pagination rather than ingest.
+        out = _kaggle("datasets", "files", f"{user}/{slug}", "--page-size", "100",
+                      quiet=True, check=False)
+        if "error" in out.lower():
+            continue
+        missing = [w for w in want if w not in out]
+        if not missing:
+            print(f"      ✅ dataset ready after {(i + 1) * secs}s "
+                  f"({len(want)} model file(s) confirmed)")
             return
-    print("      ⚠️  dataset still processing, pushing the notebook anyway")
+    raise SystemExit(
+        "❌ kaggle never listed %d of the %d model files after %ds: %s\n"
+        "   The upload reported success and ingest dropped them. Re-push the dataset "
+        "before running the notebook - continuing would waste the kernel run."
+        % (len(missing), len(want), tries * secs, ", ".join(missing)))
 
 
 def submission_message(cfg: dict, exp_dir) -> str:
@@ -6313,7 +6427,7 @@ def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
         _kaggle("datasets", "version", "-p", ".", "-m", message, cwd=w)
     elif "error" in out.lower() or "forbidden" in out.lower():
         raise SystemExit("❌ dataset upload failed")
-    _wait_for_dataset(user, dataset_slug)
+    _wait_for_dataset(user, dataset_slug, expect_models=len(list(w.glob("m*_model.pt"))))
 
     print(f"\n  2/4 notebook {user}/{notebook_slug}")
     out = _kaggle("kernels", "push", "-p", str(assets / "notebook"))

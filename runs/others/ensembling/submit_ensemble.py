@@ -66,24 +66,22 @@ from pathlib import Path
 # 6.9-8.3 h of the 9 h cap against 5.5-6.6 h for these six, and +0.0004 val is well inside
 # the 0.0055 noise. A timeout forfeits the run, so the cap decides. See runtime_budget.py.
 MEMBERS = [
-    # THE 0.932 SEVEN, UNCHANGED, PLUS THE FIVE FOLDS AS ONE EXTRA VOTE.
-    # Built on the seven that actually scored 0.932 (submission 56256423), NOT on the nine
-    # that scored 0.931 - the nine is the one configuration we know did worse.
-    # Nothing proven is removed, so if this beats 0.932 the folds are the cause.
-    # The folds share the 18-slice/336 px geometry with convnext_base_25d_18slices and
-    # convnext_base_25d_poolattn, so they add NO decode pass: still 2 groups.
-    ("convnext_base_relabel", "best"),
+    # THE 0.932 SEVEN, with Synovitis handed entirely to convnext_base_fluid.
+    # convnext_base_full replaces convnext_base_relabel here: same architecture, same 512/24
+    # geometry, refit on ALL 4,400 labelled studies (+20.9%), 0.920 solo against relabel's
+    # 0.918. It trained on the whole val AND audit sets, so this swap cannot be validated
+    # locally - but no leakage exists on the hidden test set, which is where it runs.
+    # The Synovitis routing itself was measured with relabel: +0.0014 macro, 10/10
+    # cross-fitted seeds, +0.0096 on audit-58.
+    # Order MUST match synovitis_route_weights_full.json exactly.
+    ("convnext_base_full", "best"),
     ("mricore_vitb_cross_attention", "best"),
     ("mricore_vitb_mae_cross_attention", "best"),
     ("dinov3_convnext_base", "best"),
     ("convnext_base_25d_18slices", "best"),
     ("swinv2_base_in22k", "best"),
     ("convnext_base_25d_poolattn", "best"),
-    ("convnext_base_25d_18slices_f0", "best"),
-    ("convnext_base_25d_18slices_f1", "best"),
-    ("convnext_base_25d_18slices_f2", "best"),
-    ("convnext_base_25d_18slices_f3", "best"),
-    ("convnext_base_25d_18slices_f4", "best"),
+    ("convnext_base_fluid", "best"),
 ]
 # RadImageNet is deliberately ABSENT: its licence is "personal, non-commercial (e.g.,
 # academic) research purposes only... any commercial use, sale, or other monetization is
@@ -97,7 +95,7 @@ MEMBERS = [
 # worse than the one measured, including the 6-member that scored 0.922. Fixed: best.pt
 # is now step 2600 and its `score` matches val_log's peak. ALWAYS check that before a
 # submission - it is silent otherwise.
-BLEND_WEIGHTS = "fold_group_weights.json"   # 7 standalone at 1/8, the 5 folds sharing one 1/8
+BLEND_WEIGHTS = "synovitis_route_weights_full.json"   # Synovitis -> fluid, rest 1/7
                                # per-class matrix; verified identical to the
                                # nested form (max logit gap 4.8e-07).
 _OLD = None                    # FLAT. The per-class search is fitting noise now: its
@@ -105,36 +103,41 @@ _OLD = None                    # FLAT. The per-class search is fitting noise now
                                # For the 9-member branch-group construct instead, set this
                                # to "branch_group_weights.json" (make_branch_group_weights.py
                                # writes it; check_partial_head_blend.py verifies it).
-STRESS       = 0               # >0 = MEASUREMENT run: repeat the 3 public studies this
+STRESS       = 0                 # >0 = MEASUREMENT run: repeat the 3 public studies this
                               # many times to get a marginal per-study rate, and write
                               # no submission.csv. Use with SUBMIT = False.
 PUBLISH      = True
 WAIT_FOR_RUN = True
-SUBMIT       = True            # REAL SUBMISSION: costs one of the day's 5.
+SUBMIT       = True              # REAL SUBMISSION: costs one of the day's 5.
                               # False = push and run the kernel, then stop. Kernel runs are
                               # FREE, so always do that first and read inference_log.txt:
                               # it names every member that scored and the decode-pass count.
                               # Set STRESS > 0 with SUBMIT = False to get marginal per-study
                               # rates before committing to the 9 h cap.
 KAGGLE_USER  = "mamounhussam"
-SLUG         = "knee-7plus5fold"
+SLUG         = "knee-syn-route-full"
 # KEEP THIS IN STEP WITH MEMBERS. Submission 56234763 shipped the 18-slice member while
 # this text still named the 24-slice one, because the swap changed MEMBERS and SLUG and
 # missed NOTE. Kaggle descriptions cannot be edited after submitting, so that record is
 # permanently wrong. Re-read this string whenever MEMBERS changes.
-NOTE         = ("The 0.932 SEVEN plus the five CV folds as ONE shared vote. Built on the "
-                "seven that actually scored 0.932 (56256423), NOT the nine that scored 0.931, "
-                "so nothing proven is removed and a gain is attributable to the folds. "
-                "Weights: each of the 7 standalone members 1/8; the 5 folds share a single "
-                "1/8 (1/40 each) because they are ONE model family differing only in which "
-                "80% of the 4,342 studies they saw - a flat 12-way average would hand that "
-                "family 42% of the ensemble. Collectively the folds have seen EVERY labelled "
-                "study, ~19% more data than any member of the seven. They cannot be scored "
-                "pre-submission: 559-589 of the standard 704 val studies sit in each fold's "
-                "training data. OOF over all 4,342 = 0.8943; on audit-58 (leak-free, 0/58 in "
-                "any fold train split) the 5-fold average 0.9090 beats every single fold and "
-                "the parent 0.9054. MEASURED on a T4: 14.840 s/study over 20 studies, 12/12 "
-                "members, 2 decode passes = 6.18 h of the 9 h cap. | Built with DINOv3")
+NOTE         = ("SYNOVITIS ROUTED TO ITS SPECIALIST. Members, each 1/7 on the other 11 "
+                "findings: convnext_base_full, mricore_vitb_cross_attention, "
+                "mricore_vitb_mae_cross_attention, dinov3_convnext_base, "
+                "convnext_base_25d_18slices, swinv2_base_in22k, convnext_base_25d_poolattn. "
+                "SYNOVITIS is taken entirely by convnext_base_fluid (weight 1.0; the seven "
+                "are switched off on that column and it votes on nothing else). "
+                "Why: Synovitis is the ONLY finding of twelve where a single model beats the "
+                "whole ensemble - the fluid specialist scores 0.8767 there against 0.8597. "
+                "Measured with convnext_base_relabel in place of convnext_base_full: macro "
+                "0.9164 -> 0.9178, 10/10 cross-fitted seeds, weight 1.0 chosen in 44/50 fits, "
+                "+0.0096 on the independent audit-58. It is restricted to Synovitis because it "
+                "is WORSE than the ensemble on Effusion (-0.0067), the other finding it was "
+                "fine-tuned on; three further columns looked winnable on val but were chosen by "
+                "searching the val table and two reversed sign on audit. convnext_base_full is "
+                "convnext_base_relabel refit on all 4,400 studies (+20.9%), 0.920 solo vs 0.918; "
+                "it trained on the whole val and audit sets so the swap is unverifiable locally, "
+                "but no leakage exists on the hidden test set. MEASURED 15.618 s/study = 6.51 h "
+                "of the 9 h cap, 8/8 members, 2 decode passes. | Built with DINOv3")
 # ===========================================================================
 
 PKG_ROOT = Path(__file__).resolve().parent.parent.parent      # <repo>/runs
@@ -195,6 +198,37 @@ def main():
         raise SystemExit("the generated notebook would crash on Kaggle:\n  "
                          + "\n  ".join(bad))
     print("  ✅ notebook lint: no undefined names")
+
+    # --- PREFLIGHT: everything that has actually gone wrong with a submission ----------
+    # Each of these cost a real kernel run or, worse, shipped something that was not what
+    # the record says it was.
+    problems = []
+
+    built = sorted((out / "weights").glob("m*_model.pt"))
+    if len(built) != len(MEMBERS):
+        problems.append("built %d model files for %d MEMBERS: %s"
+                        % (len(built), len(MEMBERS), [p.name for p in built]))
+
+    # NOTE is the permanent public record and CANNOT be edited after submitting. Submission
+    # 56234763 shipped the 18-slice member while its description named the 24-slice one,
+    # because the swap changed MEMBERS and SLUG and missed NOTE.
+    note_l = NOTE.lower()
+    unnamed = [n for n, _ in MEMBERS if n.lower() not in note_l]
+    if SUBMIT and len(unnamed) > len(MEMBERS) // 2:
+        problems.append("NOTE names only %d of the %d members - is it stale? missing: %s"
+                        % (len(MEMBERS) - len(unnamed), len(MEMBERS), unnamed[:4]))
+
+    # a blend that ignores a member it was handed is almost always a wiring mistake
+    if blend:
+        for name, _ in MEMBERS:
+            if all(abs(row.get(name, 0.0)) < 1e-12 for row in blend.values()):
+                problems.append("%s carries ZERO weight on every finding - why ship it?"
+                                % name)
+
+    if problems:
+        raise SystemExit("preflight failed:\n  - " + "\n  - ".join(problems))
+    print("  ✅ preflight: %d weight files, NOTE matches MEMBERS, every member votes"
+          % len(built))
 
     if not PUBLISH:
         print("PUBLISH is False - assets built, nothing uploaded")

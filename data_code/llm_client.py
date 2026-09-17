@@ -13,6 +13,7 @@ Credentials live in the repo `.env`, which is gitignored.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 import time
@@ -43,6 +44,13 @@ def load_env(path: Path | None = None) -> dict:
         if line and not line.startswith("#") and "=" in line:
             k, v = line.split("=", 1)
             env[k.strip()] = v.strip()
+    # REAL environment variables win over .env. Pointing a single run at a different
+    # endpoint (an Ollama Cloud model, say) should not mean editing the file that holds the
+    # Modal credentials every other run depends on.
+    for k in ("MODAL_LLM_BASE_URL", "MODAL_LLM_MODEL", "MODAL_KEY", "MODAL_SECRET",
+              "OLLAMA_API_KEY", "MODAL_SESSIONS"):
+        if os.environ.get(k):
+            env[k] = os.environ[k]
     env.setdefault("MODAL_KEY", "")
     env.setdefault("MODAL_SECRET", "")
     _cfg = {
