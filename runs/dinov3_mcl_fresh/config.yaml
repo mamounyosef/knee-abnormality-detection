@@ -108,6 +108,15 @@ modal:
 # step 5000 and repeat the 800 steps already paid for.
 resume: "last"
 
+
+evaluation:
+  # FLAT 200 steps for the whole run. shared_config ramps 400 -> 200 -> 100 by epoch, which
+  # scores the first four epochs at half the resolution of the last two. All three tiers set
+  # to the same value makes the epoch thresholds irrelevant.
+  eval_every_steps_before: 200
+  eval_every_steps_mid: 200
+  eval_every_steps_after: 200
+
 input:
   # MCL-specific slot set. The ligament is a flat band on the INNER side of the knee and is
   # read on CORONAL images, so both coronal scans come first: cor_fluid shows the swelling
