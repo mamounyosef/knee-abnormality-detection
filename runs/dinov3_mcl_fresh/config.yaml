@@ -90,7 +90,10 @@ dataloader:
                                     # 1 x 8 keeps the effective batch at the parent's 8
                                     # studies per update. ConvNeXt is LayerNorm-only, so a
                                     # batch of 1 study changes no normalisation statistic.
-  val_batch_size: 2                 # no backward pass, so no stored activations
+  val_batch_size: 3                 # forward-only, no stored activations: 3 x 120 = 360
+                                    # images, just under the 384 the parent ran in validation.
+                                    # Validation is 31% of this run's cost at a flat 200-step
+                                    # cadence, so the pass width matters here.
   num_workers: 26
   val_num_workers: null
   prefetch_factor: 6
@@ -110,13 +113,15 @@ resume: "last"
 
 
 evaluation:
-  # FLAT 200 steps for the whole run. shared_config ramps 400 -> 200 -> 100 by epoch, which
-  # scores the first four epochs at half the resolution of the last two. All three tiers set
-  # to the same value makes the epoch thresholds irrelevant.
-  eval_every_steps_before: 200
-  eval_every_steps_mid: 200
-  eval_every_steps_after: 200
-
+  # 200 steps for epochs 1-2, then every 100 from epoch 3 onward. The MID tier is set to
+  # null so the three tiers collapse to two and the split lands exactly on epoch 3.
+  # Validation is the expensive half of this run (762 studies x 120 images a pass), so the
+  # resolution goes where the best checkpoint actually turns up.
+  eval_every_steps_before: 200            # epochs 1-2
+  eval_every_steps_mid: 100               # unused while the mid threshold is null
+  eval_every_steps_epoch_mid_threshold: null
+  eval_every_steps_after: 100             # epoch 3 onward
+  eval_every_steps_epoch_threshold: 3
 input:
   # MCL-specific slot set. The ligament is a flat band on the INNER side of the knee and is
   # read on CORONAL images, so both coronal scans come first: cor_fluid shows the swelling
