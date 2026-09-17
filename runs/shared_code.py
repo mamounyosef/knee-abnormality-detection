@@ -2231,6 +2231,27 @@ def eval_interval(cfg: dict, epoch: int) -> int:
     return int(e.get(key) or 0)
 
 
+def eval_due(cfg: dict, epoch: int, gstep: int, resume_eval: list) -> str | None:
+    """Should this step be validated, and what should the log call the trigger?
+
+    Returns the trigger label, or None to skip. `resume_eval` is a one-element list used
+    as a mutable flag: the one-off `evaluation.validate_on_resume` validation DISARMS the
+    moment it is consumed, whichever branch consumes it, so it can never fire twice and a
+    resume landing exactly on a cadence step scores once, not twice.
+
+    Split out of the training loop so it can be tested without a GPU. The loop must not
+    re-implement this - a copy is a copy that drifts.
+    """
+    ev = eval_interval(cfg, epoch)
+    if ev and gstep % ev == 0:
+        resume_eval[0] = False
+        return "every %d steps" % ev
+    if resume_eval[0]:
+        resume_eval[0] = False
+        return "first step after resume"
+    return None
+
+
 @torch.no_grad()                                   # no gradients: eval only, saves memory
 def evaluate(model, loader, loss_fn, cfg, device, collect: dict | None = None) -> dict:
     """Run the whole loader and return macro AUROC, per-label AUROC and mean loss.
@@ -3566,11 +3587,8 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                 ce = int(cfg["output"].get("commit_every_steps", 0) or 0)
                 if ce and gstep % ce == 0:
                     persist()                  # async: never blocks the step loop
-                ev = eval_interval(cfg, epoch)
-                due = bool(ev and gstep % ev == 0)
-                if due or resume_eval[0]:
-                    trig = f"every {ev} steps" if due else "first step after resume"
-                    resume_eval[0] = False        # one time only, never re-arms
+                trig = eval_due(cfg, epoch, gstep, resume_eval)
+                if trig:
                     _validate_and_checkpoint(epoch, gstep, trig)
                     if stop_now[0]:
                         break             # stop AT patience, not at the next epoch end
