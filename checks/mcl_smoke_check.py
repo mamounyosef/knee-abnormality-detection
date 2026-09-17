@@ -31,7 +31,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "runs"))
 import shared_code as sc  # noqa: E402
 
-ARMS = ["dinov3_mcl_slice_ft"]
+ARMS = ["dinov3_mcl_accum32"]
 SUBSET = 6          # studies per split - enough to exercise every code path, fast enough to run
 fails = []
 
