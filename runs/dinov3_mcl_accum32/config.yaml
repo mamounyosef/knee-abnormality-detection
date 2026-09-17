@@ -168,5 +168,14 @@ input:
                                     # band with 100% of passes still on a distinct slice;
                                     # 32 wastes 6% of passes, 36 wastes 17%, for +12% cover.
 
+output:
+  # Every knob here counts OPTIMIZER steps, and a step is now 32 studies instead of 8, so
+  # the shared defaults fire a quarter as often in wall-clock terms. All three scaled by 4.
+  console_log_every: 10             # was 20 = every 640 studies; now every 320
+  checkpoint_every_steps: 25        # was 100, which over 339 total steps is only three
+                                    # rolling checkpoints. 25 lands one with each validation.
+  commit_every_steps: 10            # flush logs to the Modal volume; was 25, which at 113
+                                    # steps/epoch is only 4 flushes an epoch
+
 tasks:
   - MCL
