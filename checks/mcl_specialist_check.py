@@ -86,11 +86,11 @@ check("changed exactly the intended keys", diff == WANT_DIFF,
       "unexpected %s, missing %s" % (sorted(diff - WANT_DIFF), sorted(WANT_DIFF - diff)))
 o = cfg["training"]["optimizer"]
 head_lr = o["lr"] / o["backbone_lr_mult"]
-check("backbone lr is 6.0e-6", abs(o["lr"] - 6.0e-6) < 1e-12, "%.2e" % o["lr"])
-check("head lr is 8.0e-6", abs(head_lr - 8.0e-6) < 1e-12, "%.2e" % head_lr)
+check("backbone lr is 5.0e-6", abs(o["lr"] - 5.0e-6) < 1e-12, "%.2e" % o["lr"])
+check("head lr is 7.0e-6", abs(head_lr - 7.0e-6) < 1e-12, "%.2e" % head_lr)
 check("the head is no longer on a fresh-head multiplier", head_lr / o["lr"] < 2.0,
       "head is %.2fx the trunk" % (head_lr / o["lr"]))
-check("grad_clip is 20, not a throttle", cfg["training"]["grad_clip"] == 20.0,
+check("grad_clip is 10, not a throttle", cfg["training"]["grad_clip"] == 10.0,
       str(cfg["training"]["grad_clip"]))
 check("grad_clip stays above the floor of 3", cfg["training"]["grad_clip"] >= 3.0)
 check("validate_on_resume is OFF for a clean start",

@@ -47,30 +47,31 @@ model:
 
 training:
   epochs: 6
-  grad_clip: 20.0                   # MEASURED, not guessed: over 1362 steps of
-                                    # the first attempt gnorm ran median 9.8,
-                                    # p90 22.0, p99 41.3. grad_clip 3.0 therefore
-                                    # clipped 88.4% of steps to 0.30x - a throttle
-                                    # on every step, not a guard against spikes.
-                                    # At 20 it catches the top 12%. One step hit
-                                    # gnorm inf, so the spikes are real.
+  grad_clip: 10.0                   # MEASURED, not guessed: over 1362 steps of the
+                                    # first attempt gnorm ran median 9.8, p90 22.0,
+                                    # p99 41.3, with one step at inf. grad_clip 3.0
+                                    # therefore clipped 88.4% of steps to 0.30x - a
+                                    # throttle on every step, not a spike guard.
+                                    # 10 sits just above the median, so the typical
+                                    # step passes and the upper half is capped. A
+                                    # tighter guard than 20 (12% clipped), chosen
+                                    # deliberately alongside the 3x lower rate; the
+                                    # smaller steps should pull gnorm down too.
   optimizer:
     name: "adamw"
     weight_decay: 0.05
-    lr: 6.0e-6                      # BACKBONE. 0.40x the first attempt's 1.5e-5
-                                    # and 0.75x the parent's own extension peak,
-                                    # which is a rate this trunk already tolerated
-                                    # after converging. The first attempt peaked
-                                    # at epoch 3 (0.8837) then fell to 0.8447.
-                                    # this is a restart, not a fresh schedule: the parent's
-                                    # own extension restarted at 8.0e-6 and gained. A little
-                                    # above that, because one slot (cor_plain) is new.
-    backbone_lr_mult: 0.75          # head = lr / 0.75 = 8.0e-6, only 1.33x the
-                                    # trunk. The SLICED head already reproduces
-                                    # the parent's MCL logits exactly, so it has
-                                    # nothing to relearn; the old 2.5x multiplier
-                                    # came from a recipe built for a FRESH head.
-                                    # arm's head starts random and has the most to learn.
+    lr: 5.0e-6                      # BACKBONE. 0.33x the first attempt's 1.5e-5
+                                    # and 0.63x the parent's own extension peak,
+                                    # which is the lowest rate this trunk is known
+                                    # to have moved under. The first attempt peaked
+                                    # at epoch 3 (0.8837) then fell to 0.8447, so
+                                    # the risk being bought down is overshooting a
+                                    # trunk that is ALREADY converged.
+    backbone_lr_mult: 0.7142857142857143   # head = lr / mult = 7.0e-6, 1.40x the
+                                    # trunk. The SLICED head already reproduces the
+                                    # parent's MCL logits exactly, so it has nothing
+                                    # to relearn; the old 2.5x multiplier came from
+                                    # a recipe built for a FRESH head.
     layer_decay: null
   scheduler:
     name: "cosine"
