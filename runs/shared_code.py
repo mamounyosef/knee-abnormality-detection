@@ -3352,6 +3352,25 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     resume_eval = [bool(ck) and bool(cfg["evaluation"].get("validate_on_resume"))]
     if resume_eval[0]:
         print("  \U0001F501 validate_on_resume: scoring once on the first step back")
+
+    # evaluation.validate_before_training: score at step 0, before ANY gradient has been
+    # applied. For a branch run this is the only way to see what the seeded weights are
+    # actually worth on THIS run's inputs - every other number is confounded with training.
+    # A branch that keeps the parent's slots should reproduce the parent's score exactly;
+    # if it does not, the seeding or the eval path is broken, not the recipe.
+    # Set it to "only" to stop right there: the probe then costs ONE validation pass and no
+    # training at all, which is the whole point when the question is "what are these weights
+    # worth on these inputs" rather than "can they be improved".
+    _vbt = cfg["evaluation"].get("validate_before_training")
+    if _vbt and not ck:
+        print("\n  \U0001F9EA validate_before_training: scoring the SEEDED weights at step 0, "
+              "before any gradient step")
+        _validate_and_checkpoint(0, 0, "step 0, before training")
+        if str(_vbt).lower() == "only":
+            print("  \U0001F9EA validate_before_training: 'only' - stopping without training")
+            if persist_fn:
+                persist_fn()
+            return {"probe": True, "history": history}
     for epoch in range(start_epoch, epochs + 1):
         print("\n" + "=" * 70)
         print(f"\U0001F4DA EPOCH {epoch}/{epochs}")

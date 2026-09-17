@@ -190,6 +190,13 @@ evaluation:
   eval_every_steps_after: 100             # epoch 7 onward
   eval_every_steps_epoch_threshold: 7     # first epoch on the "after" rate
   eval_every_epochs: null                 # null = no extra epoch-end validation
+  validate_before_training: false         # score at step 0, before ANY gradient step.
+                                          # For a BRANCH run this is the only clean
+                                          # reading of what the seeded weights are worth
+                                          # on this run's own inputs; every later number
+                                          # mixes that with training. Keep the parent's
+                                          # slots and it must reproduce the parent's
+                                          # score exactly - a control on the whole path.
   validate_on_resume: false               # score ONCE on the first step after a resume,
                                           # then carry on with the normal cadence. The
                                           # cadence is a modulo on the global step, so a

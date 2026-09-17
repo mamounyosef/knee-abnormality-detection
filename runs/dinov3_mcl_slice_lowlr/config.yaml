@@ -136,7 +136,7 @@ evaluation:
   eval_every_steps_mid: 100               # unused while the mid threshold is null
   eval_every_steps_epoch_mid_threshold: null
   eval_every_steps_after: 100             # epoch 3 onward
-  eval_every_steps_epoch_threshold: 3
+  eval_every_steps_epoch_threshold: 2
   validate_on_resume: false               # clean start: nothing to catch up on
 input:
   # MCL-specific slot set. The ligament is a flat band on the INNER side of the knee and is

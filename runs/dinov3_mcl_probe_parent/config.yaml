@@ -1,0 +1,154 @@
+# ConvNeXt-Base, but with DINOv3 weights instead of ImageNet-22k supervised weights.
+#
+# This is the cleanest controlled experiment available to us: convnext_base_relabel is the
+# SAME architecture, SAME data, SAME hyper-parameters, SAME split. The only thing that
+# changes is where the starting weights came from. So it answers one question exactly -
+# does the pretraining recipe matter once the architecture is held fixed?
+#
+#   convnext_base_relabel : ImageNet-22k, supervised classification, 14M labelled images
+#   this run              : LVD-1689M, self-supervised, 1.7B unlabelled natural images,
+#                           distilled down from a 7B-parameter DINOv3 teacher
+#
+# Beat: convnext_base_relabel, val 0.9050 / audit 0.9130 - our best single model.
+#
+# We do NOT use the 7B teacher directly. It cannot be fine-tuned in our memory budget, so
+# it could only be used frozen, and the "Resolution scaling governs DINOv3 transfer" paper
+# found frozen 7B features LOSING to a fully fine-tuned 86M backbone. The distilled
+# ConvNeXt is that teacher's knowledge in a body we can actually train.
+#
+# LICENSE: DINOv3 is a custom Meta license, not Apache-2.0. Commercial use is permitted but
+# it requires the "Built with DINOv3" attribution and passes its terms along to anyone we
+# redistribute the weights to - which includes shipping them inside a Kaggle dataset.
+# Confirm that against the competition rules before this model goes in a prize submission.
+
+experiment:
+  name: "dinov3_mcl_probe_parent"
+
+paths:
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+
+model:
+  name: "convnext_base.dinov3_lvd1689m"   # ungated - verified downloading with no HF token
+  pretrained: true
+  pool: "mean"
+  drop_rate: 0.1
+  feat_norm: true                       # a fresh LayerNorm between the pooled features and
+                                        # the head. Measured: this checkpoint's own final
+                                        # LayerNorm has a learned gain averaging 1.96 against
+                                        # ImageNet-22k's 1.13, so its features reach the head
+                                        # at std 1.53 vs 0.32 - 4.8x. That saturates the logits
+                                        # (sigmoid 0.24-0.82 at init vs 0.45-0.59) and scales
+                                        # head gradients by the same factor, since dL/dW
+                                        # carries f. Without this the run is not a test of
+                                        # DINOv3, it is a test of a head tuned for another
+                                        # feature scale.
+  # fully convolutional, so 512px needs no img_size argument and costs nothing structurally
+
+training:
+  epochs: 6
+  grad_clip: 10.0                   # MEASURED, not guessed: over 1362 steps of the
+                                    # first attempt gnorm ran median 9.8, p90 22.0,
+                                    # p99 41.3, with one step at inf. grad_clip 3.0
+                                    # therefore clipped 88.4% of steps to 0.30x - a
+                                    # throttle on every step, not a spike guard.
+                                    # 10 sits just above the median, so the typical
+                                    # step passes and the upper half is capped. A
+                                    # tighter guard than 20 (12% clipped), chosen
+                                    # deliberately alongside the 3x lower rate; the
+                                    # smaller steps should pull gnorm down too.
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-6                      # BACKBONE. 0.33x the first attempt's 1.5e-5
+                                    # and 0.63x the parent's own extension peak,
+                                    # which is the lowest rate this trunk is known
+                                    # to have moved under. The first attempt peaked
+                                    # at epoch 3 (0.8837) then fell to 0.8447, so
+                                    # the risk being bought down is overshooting a
+                                    # trunk that is ALREADY converged.
+    backbone_lr_mult: 0.7142857142857143   # head = lr / mult = 7.0e-6, 1.40x the
+                                    # trunk. The SLICED head already reproduces the
+                                    # parent's MCL logits exactly, so it has nothing
+                                    # to relearn; the old 2.5x multiplier came from
+                                    # a recipe built for a FRESH head.
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05
+    min_lr_mult: 0.02
+  loss:
+    name: "bce"
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  extend:
+    enable: false                   # OFF: this IS the extension. The parent's extend block
+                                    # was for its own 12-epoch schedule.
+    epochs: 5
+    lr: 8.0e-6
+    warmup_frac: 0.03
+    min_lr_mult: 0.05
+    reset_optimizer: false
+    reset_patience: true
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"      # one task, so this IS the MCL AUROC
+    mode: "max"
+    patience: 6
+
+dataloader:
+  batch_size: 1                     # 4 slots x 30 slices = 120 images @512. The parent ran
+  accum_steps: 8                    # 96 images at ~125 GB of the H200's 141 GB, i.e. about
+                                    # 1.3 GB/image, so 2 x 120 = 240 images would not fit.
+                                    # 1 x 8 keeps the effective batch at the parent's 8
+                                    # studies per update. ConvNeXt is LayerNorm-only, so a
+                                    # batch of 1 study changes no normalisation statistic.
+  val_batch_size: 3                 # forward-only, no stored activations: 3 x 120 = 360
+                                    # images, just under the 384 the parent ran in validation.
+                                    # Validation is 31% of this run's cost at a flat 200-step
+                                    # cadence, so the pass width matters here.
+  num_workers: 26
+  val_num_workers: null
+  prefetch_factor: 6
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+modal:
+  gpu: "H200"
+  cpu: 14.0
+  memory_gb: 64
+
+# last.pt now. The 8e-6 extension is already under way and its state lives there, so this
+# continues that same cosine into its anneal. best.pt here would restart the extension from
+# step 5000 and repeat the 800 steps already paid for.
+resume: "last"
+
+
+evaluation:
+  # 200 steps for epochs 1-2, then every 100 from epoch 3 onward. The MID tier is set to
+  # null so the three tiers collapse to two and the split lands exactly on epoch 3.
+  # Validation is the expensive half of this run (762 studies x 120 images a pass), so the
+  # resolution goes where the best checkpoint actually turns up.
+  eval_every_steps_before: 200            # epochs 1-2
+  eval_every_steps_mid: 100               # unused while the mid threshold is null
+  eval_every_steps_epoch_mid_threshold: null
+  eval_every_steps_after: 100             # epoch 3 onward
+  eval_every_steps_epoch_threshold: 2
+  validate_before_training: "only"        # score the seeded weights, then stop
+  validate_on_resume: false
+input:
+  # MCL-specific slot set. The ligament is a flat band on the INNER side of the knee and is
+  # read on CORONAL images, so both coronal scans come first: cor_fluid shows the swelling
+  # (fat-suppressed, water glows), cor_plain shows the fibres (sharp anatomy contrast).
+  # ax_fluid is the cross-sectional confirm and exists for 100% of studies. sag_fluid fills
+  # the fourth slot; sagittal sees the MCL edge-on, so it is there to keep the input count
+  # the backbone was trained with, replacing the parent's sag_plain.
+  # cor_plain is the one slot the parent never saw. It exists for 77.3% of studies.
+  slots: ["sag_plain", "sag_fluid", "cor_fluid", "ax_fluid"]
+  n_slices: 24
+
+tasks:
+  - MCL

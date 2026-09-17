@@ -36,7 +36,10 @@ SPECIALIST = {"convnext_base_trauma": ["ACL", "MCL", "Contusion", "Fracture"],
               "convnext_base_wear": ["Medial Meniscus", "Lateral Meniscus", "Medial OA",
                                      "Lateral OA", "PF OA", "Baker's"],
               "convnext_base_fluid": ["Effusion", "Synovitis"],
-              "convnext_base_5slot": ["MCL", "ACL"]}
+              "convnext_base_5slot": ["MCL", "ACL"],
+              # the dedicated MCL run: sliced head off dinov3_convnext_base step5600,
+              # coronal-weighted slots, 512px/30 slices. Best checkpoint 0.8837 MCL.
+              "dinov3_mcl_slice": ["MCL"]}
 
 SEVEN = ["convnext_base_relabel", "mricore_vitb_cross_attention",
          "mricore_vitb_mae_cross_attention", "dinov3_convnext_base",
