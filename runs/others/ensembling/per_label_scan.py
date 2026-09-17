@@ -72,8 +72,19 @@ def auc(y, p):
 # --------------------------------------------------------------------------------------
 # load every scored checkpoint, aligned to one study order
 # --------------------------------------------------------------------------------------
+CACHE = ROOT / "runs" / "others" / "ensembling" / ".per_label_cache.npz"
+
+
 def load_all(verbose=True):
     files = sorted(glob.glob(str(RUNS / "*" / "results" / "predictions" / "*_val_s*.npz")))
+    if CACHE.exists():
+        z = np.load(CACHE, allow_pickle=True)
+        if int(z["nfiles"]) == len(files):
+            if verbose:
+                print("loaded %d checkpoints from cache (%s)" % (len(z["names"]), CACHE.name))
+            cands = [(str(nm), str(rn), mm) for nm, rn, mm
+                     in zip(z["names"], z["runs"], z["mats"])]
+            return z["y"], cands, {s: i for i, s in enumerate(list(z["ids"]))}
     ref = None
     for f in files:                                  # a 12-task run fixes the order
         z = np.load(f, allow_pickle=True)
@@ -110,6 +121,11 @@ def load_all(verbose=True):
     if verbose:
         print("loaded %d checkpoints from %d runs (%d skipped: leaky, or a different split)"
               % (len(cands), len({c[1] for c in cands}), skipped))
+    np.savez_compressed(CACHE, y=y, nfiles=len(files),
+                        ids=np.array(list(order), dtype=object),
+                        names=np.array([c[0] for c in cands], dtype=object),
+                        runs=np.array([c[1] for c in cands], dtype=object),
+                        mats=np.stack([c[2] for c in cands]))
     return y, cands, order
 
 

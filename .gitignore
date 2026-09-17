@@ -297,3 +297,4 @@ temp.txt
 
 # derived report-embedding target: 32 MB, regenerate with runs/others/encode_reports.py
 data/11_report_emb.npz
+.per_label_cache.npz
