@@ -122,6 +122,13 @@ evaluation:
   eval_every_steps_epoch_mid_threshold: null
   eval_every_steps_after: 100             # epoch 3 onward
   eval_every_steps_epoch_threshold: 3
+  validate_on_resume: true               # ONE-OFF. The cadence changed from
+                                        # flat 200 to 100-from-epoch-3 while
+                                        # this run was already at epoch 3, so
+                                        # the checkpoint sits past the last
+                                        # validation under a schedule that no
+                                        # longer applies. Scores once on the
+                                        # first step back, then normal.
 input:
   # MCL-specific slot set. The ligament is a flat band on the INNER side of the knee and is
   # read on CORONAL images, so both coronal scans come first: cor_fluid shows the swelling

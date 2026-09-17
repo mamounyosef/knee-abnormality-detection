@@ -190,6 +190,13 @@ evaluation:
   eval_every_steps_after: 100             # epoch 7 onward
   eval_every_steps_epoch_threshold: 7     # first epoch on the "after" rate
   eval_every_epochs: null                 # null = no extra epoch-end validation
+  validate_on_resume: false               # score ONCE on the first step after a resume,
+                                          # then carry on with the normal cadence. The
+                                          # cadence is a modulo on the global step, so a
+                                          # checkpoint landing between two validations
+                                          # leaves a gap - and changing the cadence
+                                          # mid-run widens it. Off by default: a run
+                                          # configured correctly from the start has no gap.
   audit:
     enable: true                    # report-only, never drives best.pt (58 studies, +/-0.05)
     csv: "05_audit58.csv"

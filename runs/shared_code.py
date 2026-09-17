@@ -3323,6 +3323,14 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     flops_per_img = [None]
     last_print = [None, None]       # (elapsed, gstep) of the previous console line
     _peak = _peak_tflops(torch.cuda.get_device_name(0)) if device.type == "cuda" else 0.0
+    # evaluation.validate_on_resume: score ONCE on the first step back, then behave normally.
+    # The cadence is a modulo on the global step, so a checkpoint that lands between two
+    # validations leaves a gap on resume - and changing the cadence mid-run widens it,
+    # because the schedule the earlier steps followed no longer applies. This closes that
+    # gap without special-casing anything downstream.
+    resume_eval = [bool(ck) and bool(cfg["evaluation"].get("validate_on_resume"))]
+    if resume_eval[0]:
+        print("  \U0001F501 validate_on_resume: scoring once on the first step back")
     for epoch in range(start_epoch, epochs + 1):
         print("\n" + "=" * 70)
         print(f"\U0001F4DA EPOCH {epoch}/{epochs}")
@@ -3559,8 +3567,11 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                 if ce and gstep % ce == 0:
                     persist()                  # async: never blocks the step loop
                 ev = eval_interval(cfg, epoch)
-                if ev and gstep % ev == 0:
-                    _validate_and_checkpoint(epoch, gstep, f"every {ev} steps")
+                due = bool(ev and gstep % ev == 0)
+                if due or resume_eval[0]:
+                    trig = f"every {ev} steps" if due else "first step after resume"
+                    resume_eval[0] = False        # one time only, never re-arms
+                    _validate_and_checkpoint(epoch, gstep, trig)
                     if stop_now[0]:
                         break             # stop AT patience, not at the next epoch end
                 every = cfg["output"].get("checkpoint_every_steps", 0)
