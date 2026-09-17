@@ -67,14 +67,17 @@ from pathlib import Path
 # the 0.0055 noise. A timeout forfeits the run, so the cap decides. See runtime_budget.py.
 MEMBERS = [
     # THE 0.932 SEVEN, with Synovitis handed entirely to convnext_base_fluid.
-    # convnext_base_full replaces convnext_base_relabel here: same architecture, same 512/24
-    # geometry, refit on ALL 4,400 labelled studies (+20.9%), 0.920 solo against relabel's
-    # 0.918. It trained on the whole val AND audit sets, so this swap cannot be validated
-    # locally - but no leakage exists on the hidden test set, which is where it runs.
-    # The Synovitis routing itself was measured with relabel: +0.0014 macro, 10/10
-    # cross-fitted seeds, +0.0096 on audit-58.
-    # Order MUST match synovitis_route_weights_full.json exactly.
-    ("convnext_base_full", "best"),
+    # This is the CLEAN isolation test. Submission 56299088 shipped this same routing but
+    # ALSO swapped convnext_base_full in for convnext_base_relabel, and scored 0.931. Those
+    # are two changes: the routing moves ONE finding by a measured +0.0014 macro, the member
+    # swap moves ALL TWELVE and was never validated, because convnext_base_full trained on
+    # all 704 val AND all 58 audit studies and so cannot be scored on either. An unmeasured
+    # twelve-column change swamps a measured one-column change, so 0.931 said nothing about
+    # the routing.
+    # convnext_base_relabel is back, which makes this EXACTLY the configuration measured at
+    # val 0.9178 / audit 0.9160. The routing is now the only difference from the 0.932 seven.
+    # Order MUST match synovitis_route_weights.json exactly.
+    ("convnext_base_relabel", "best"),
     ("mricore_vitb_cross_attention", "best"),
     ("mricore_vitb_mae_cross_attention", "best"),
     ("dinov3_convnext_base", "best"),
@@ -95,7 +98,7 @@ MEMBERS = [
 # worse than the one measured, including the 6-member that scored 0.922. Fixed: best.pt
 # is now step 2600 and its `score` matches val_log's peak. ALWAYS check that before a
 # submission - it is silent otherwise.
-BLEND_WEIGHTS = "synovitis_route_weights_full.json"   # Synovitis -> fluid, rest 1/7
+BLEND_WEIGHTS = "synovitis_route_weights.json"        # Synovitis -> fluid, rest 1/7
                                # per-class matrix; verified identical to the
                                # nested form (max logit gap 4.8e-07).
 _OLD = None                    # FLAT. The per-class search is fitting noise now: its
@@ -115,29 +118,27 @@ SUBMIT       = True              # REAL SUBMISSION: costs one of the day's 5.
                               # Set STRESS > 0 with SUBMIT = False to get marginal per-study
                               # rates before committing to the 9 h cap.
 KAGGLE_USER  = "mamounhussam"
-SLUG         = "knee-syn-route-full"
+SLUG         = "knee-syn-route-relabel"
 # KEEP THIS IN STEP WITH MEMBERS. Submission 56234763 shipped the 18-slice member while
 # this text still named the 24-slice one, because the swap changed MEMBERS and SLUG and
 # missed NOTE. Kaggle descriptions cannot be edited after submitting, so that record is
 # permanently wrong. Re-read this string whenever MEMBERS changes.
-NOTE         = ("SYNOVITIS ROUTED TO ITS SPECIALIST. Members, each 1/7 on the other 11 "
-                "findings: convnext_base_full, mricore_vitb_cross_attention, "
-                "mricore_vitb_mae_cross_attention, dinov3_convnext_base, "
-                "convnext_base_25d_18slices, swinv2_base_in22k, convnext_base_25d_poolattn. "
-                "SYNOVITIS is taken entirely by convnext_base_fluid (weight 1.0; the seven "
-                "are switched off on that column and it votes on nothing else). "
+NOTE         = ("SYNOVITIS ROUTED TO ITS SPECIALIST - clean isolation test. Members, each "
+                "1/7 on the other 11 findings: convnext_base_relabel, "
+                "mricore_vitb_cross_attention, mricore_vitb_mae_cross_attention, "
+                "dinov3_convnext_base, convnext_base_25d_18slices, swinv2_base_in22k, "
+                "convnext_base_25d_poolattn. SYNOVITIS is taken entirely by "
+                "convnext_base_fluid (weight 1.0; the seven are switched off on that column "
+                "and it votes on nothing else). "
                 "Why: Synovitis is the ONLY finding of twelve where a single model beats the "
                 "whole ensemble - the fluid specialist scores 0.8767 there against 0.8597. "
-                "Measured with convnext_base_relabel in place of convnext_base_full: macro "
-                "0.9164 -> 0.9178, 10/10 cross-fitted seeds, weight 1.0 chosen in 44/50 fits, "
-                "+0.0096 on the independent audit-58. It is restricted to Synovitis because it "
-                "is WORSE than the ensemble on Effusion (-0.0067), the other finding it was "
-                "fine-tuned on; three further columns looked winnable on val but were chosen by "
-                "searching the val table and two reversed sign on audit. convnext_base_full is "
-                "convnext_base_relabel refit on all 4,400 studies (+20.9%), 0.920 solo vs 0.918; "
-                "it trained on the whole val and audit sets so the swap is unverifiable locally, "
-                "but no leakage exists on the hidden test set. MEASURED 15.618 s/study = 6.51 h "
-                "of the 9 h cap, 8/8 members, 2 decode passes. | Built with DINOv3")
+                "Routing it is +0.0014 macro, stable across 10/10 cross-fitted seeds, weight "
+                "1.0 in 44/50 fits, and +0.0096 on the independent 58-study panel set. "
+                "This differs from submission 56299088 in ONE thing: convnext_base_relabel "
+                "replaces convnext_base_full. 56299088 changed the routing AND that member "
+                "together and scored 0.931, so it could not attribute the result. This is the "
+                "exact configuration measured at val 0.9178, making the routing the only "
+                "difference from the 0.932 seven.")
 # ===========================================================================
 
 PKG_ROOT = Path(__file__).resolve().parent.parent.parent      # <repo>/runs

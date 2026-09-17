@@ -1,0 +1,2 @@
+run_id,epoch,step,trigger,val_loss,val_macro_auroc,val_macro_auprc,val_f1,val_precision,val_recall,val_specificity,val_secs,val_auroc_MCL,val_auprc_MCL,audit_macro_auroc,audit_secs,audit_auroc_MCL,elapsed_s
+run001,0,0,"step 0, before training",0.396325,0.868504,0.571836,0.4681,0.6875,0.3548,0.9755,133.7,0.868504,0.571836,0.954649,23.3,0.954649,0.0
