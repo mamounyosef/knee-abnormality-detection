@@ -1,4 +1,4 @@
-r"""mcl_smoke_check.py - run the MCL arms end to end on this PC before paying for a GPU.
+r"""mcl_smoke_check.py - run the MCL specialist end to end on this PC before paying for a GPU.
 
 The static check (mcl_specialist_check.py) proves the WEIGHTS are right. This proves the
 DATA path is right, which is the half that has broken before: a run can load a perfectly
@@ -31,7 +31,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "runs"))
 import shared_code as sc  # noqa: E402
 
-ARMS = ["dinov3_mcl_slice", "dinov3_mcl_fresh"]
+ARMS = ["dinov3_mcl_slice_lowlr"]
 SUBSET = 6          # studies per split - enough to exercise every code path, fast enough to run
 fails = []
 
@@ -137,4 +137,4 @@ print("\n" + "=" * 74)
 if fails:
     print("FAILED: " + ", ".join(fails))
     raise SystemExit(1)
-print("both MCL arms load their own config, their own slots, and produce one MCL logit")
+print("the MCL run loads its own config, its own slots, and produces one MCL logit")
