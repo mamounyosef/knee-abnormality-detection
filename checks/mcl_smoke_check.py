@@ -31,7 +31,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "runs"))
 import shared_code as sc  # noqa: E402
 
-ARMS = ["convnext_base_25d_pfoa"]
+ARMS = ["convnext_base_25d_mil_emb", "convnext_base_25d_mil_inst", "dinov3_pfoa"]
 SUBSET = 6          # studies per split - enough to exercise every code path, fast enough to run
 fails = []
 
@@ -136,8 +136,11 @@ for arm in ARMS:
         # the shape it expects at a smaller side - the architecture is fully convolutional
         small = torch.zeros(want_imgs, 3, 64, 64)
         out = model(small)
-    check("forward gives (1 study, 1 logit)", tuple(out.shape) == (1, 1), str(tuple(out.shape)))
-    check("logit is finite", bool(torch.isfinite(out).all()), "%.4f" % float(out))
+    n_out = len(cfg["tasks"])
+    check("forward gives (1 study, %d logit(s))" % n_out,
+          tuple(out.shape) == (1, n_out), str(tuple(out.shape)))
+    check("logits are finite", bool(torch.isfinite(out).all()),
+          " ".join("%.3f" % v for v in out[0][:4].tolist()))
 
 print("\n" + "=" * 74)
 if fails:

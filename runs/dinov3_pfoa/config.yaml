@@ -1,0 +1,144 @@
+# ConvNeXt-Base, but with DINOv3 weights instead of ImageNet-22k supervised weights.
+#
+# This is the cleanest controlled experiment available to us: convnext_base_relabel is the
+# SAME architecture, SAME data, SAME hyper-parameters, SAME split. The only thing that
+# changes is where the starting weights came from. So it answers one question exactly -
+# does the pretraining recipe matter once the architecture is held fixed?
+#
+#   convnext_base_relabel : ImageNet-22k, supervised classification, 14M labelled images
+#   this run              : LVD-1689M, self-supervised, 1.7B unlabelled natural images,
+#                           distilled down from a 7B-parameter DINOv3 teacher
+#
+# Beat: convnext_base_relabel, val 0.9050 / audit 0.9130 - our best single model.
+#
+# We do NOT use the 7B teacher directly. It cannot be fine-tuned in our memory budget, so
+# it could only be used frozen, and the "Resolution scaling governs DINOv3 transfer" paper
+# found frozen 7B features LOSING to a fully fine-tuned 86M backbone. The distilled
+# ConvNeXt is that teacher's knowledge in a body we can actually train.
+#
+# LICENSE: DINOv3 is a custom Meta license, not Apache-2.0. Commercial use is permitted but
+# it requires the "Built with DINOv3" attribution and passes its terms along to anyone we
+# redistribute the weights to - which includes shipping them inside a Kaggle dataset.
+# Confirm that against the competition rules before this model goes in a prize submission.
+
+experiment:
+  name: "dinov3_pfoa"
+
+paths:
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+
+model:
+  name: "convnext_base.dinov3_lvd1689m"   # ungated - verified downloading with no HF token
+  pretrained: true
+  pool: "mean"
+  drop_rate: 0.1
+  feat_norm: true                       # a fresh LayerNorm between the pooled features and
+                                        # the head. Measured: this checkpoint's own final
+                                        # LayerNorm has a learned gain averaging 1.96 against
+                                        # ImageNet-22k's 1.13, so its features reach the head
+                                        # at std 1.53 vs 0.32 - 4.8x. That saturates the logits
+                                        # (sigmoid 0.24-0.82 at init vs 0.45-0.59) and scales
+                                        # head gradients by the same factor, since dL/dW
+                                        # carries f. Without this the run is not a test of
+                                        # DINOv3, it is a test of a head tuned for another
+                                        # feature scale.
+  # fully convolutional, so 512px needs no img_size argument and costs nothing structurally
+
+training:
+  # every value below is byte-identical to convnext_base_relabel, on purpose - the weights
+  # are the only variable
+  epochs: 6
+  grad_clip: 3.0                    # see shared_config: 1.0 throttled this trunk on 88% of steps
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 8.0e-6                      # dinov3's OWN extension peak - the rate it
+                                    # restarted at after converging, and gained
+                                    # from. Same shape as convnext_base_fluid
+                                    # (+0.0215 on its two findings).
+    backbone_lr_mult: 0.4           # head = lr / 0.4 = 2.0e-5. One task means the
+                                    # PF OA gradient is 12x what it was inside the
+                                    # 12-task loss, so the trunk rate stays low.
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.025              # the trunk is already warm
+    min_lr_mult: 0.01
+  loss:
+    name: "bce"
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  # It finished the 12-epoch cosine still climbing - 0.8964, 0.8969, 0.8991, 0.9011 over the
+  # last four epochs, no flattening, early stopping never fired. convnext_base_relabel had
+  # levelled off by this point, so the gap may be partly schedule rather than weights.
+  # A plain resume would sit at 1% of peak (5e-7) and do nothing; extend keeps the weights and
+  # the AdamW moments and runs a NEW cosine over the extra epochs.
+  # Second extension, and a real one. The first ran at 1.5e-6 - 3% of base - and went flat
+  # across every validation before stopping. That established the schedule was exhausted, NOT
+  # that the model was: the update/weight ratio fell to -5.7 simply because the lr had annealed
+  # to nothing, which is circular evidence. This tests the actual question at 8.0e-6 (16% of
+  # base, half what mricore_vitb_relabel used when it was extended for the same reason).
+  #
+  # resume was "best" for the FIRST launch of this extension (see the note at the bottom -
+  # it is "last" now that the extension is under way). last.pt carries
+  # ext_state={base_epoch:12, epochs:4, lr:1.5e-6}, and the engine reads the lr from there and
+  # ignores this block whenever an extension is already under way. best.pt (step 5000, epoch 12,
+  # 0.9011) has an empty ext_state, so this starts a genuinely new extension - and from the peak
+  # weights rather than the drifted-down tail.
+  extend:
+    enable: false
+    epochs: 5                         # 13-17 from the epoch-12 peak
+    lr: 8.0e-6                        # new PEAK. 5.3x the failed attempt
+    warmup_frac: 0.03                 # ~68 steps of re-warm off 1.4e-6
+    min_lr_mult: 0.05                 # ends at 4.0e-7, not 8.0e-8
+    reset_optimizer: false            # moments are well-conditioned
+    reset_patience: true              # fires on a NEW extension, so `bad` starts at 0
+
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 6
+                                      # in, still climbing back from the lr bump
+                                      # (0.8967 -> 0.8972 -> 0.9002), and it never reached the
+                                      # anneal - the part that decides whether it beats 0.9011.
+                                      # reset_patience does NOT fire on a CONTINUING extension,
+                                      # so `bad` returns from the checkpoint at 4; ~8 validations
+                                      # remain, so anything under 12 stops early again.
+
+dataloader:
+  batch_size: 2                         # same shape as convnext_base_relabel: ~125 GB of
+                                        # the H200's 141 GB
+  accum_steps: 4                        # effective 8 studies per update
+  val_batch_size: 4
+  num_workers: 26
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+modal:
+  gpu: "H200"
+  cpu: 12.0
+  memory_gb: 64
+
+# last.pt now. The 8e-6 extension is already under way and its state lives there, so this
+# continues that same cosine into its anneal. best.pt here would restart the extension from
+# step 5000 and repeat the 800 steps already paid for.
+resume: "last"
+
+evaluation:
+  validate_before_training: true          # record the 0.8880 starting point in this run's
+                                          # OWN val_log, so the gain is measured not inferred
+  eval_every_steps_before: 100            # flat 100 for the whole run
+  eval_every_steps_mid: 100
+  eval_every_steps_epoch_mid_threshold: null
+  eval_every_steps_after: 100
+  eval_every_steps_epoch_threshold: 1
+
+tasks:
+  - PF OA

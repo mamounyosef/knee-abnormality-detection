@@ -133,7 +133,66 @@ class GRUJoint(nn.Module):
         return self.head(self.norm((h * w).sum(1)))
 
 
-HEADS = {"mean": Mean, "attn": Attn, "gru": GRUHead, "tfm": TfmHead, "gru_joint": GRUJoint}
+
+class TopK(nn.Module):
+    """Mean of the k strongest slices per feature. A focal finding lives on a few slices, so
+    a mean over 96 dilutes it; the probe showed Fracture at 0.9244 with k=4 against 0.8981
+    with a mean."""
+
+    def __init__(self, d, n_slots, n_slices, n_out, k=4):
+        super().__init__()
+        self.k = k
+        self.head = nn.Linear(d, n_out)
+
+    def forward(self, x):
+        f = x.flatten(1, 2)
+        return self.head(f.topk(self.k, dim=1).values.mean(1))
+
+
+class Dual(nn.Module):
+    """Give the head BOTH poolings and let it choose per finding through its own weights.
+
+    This is the notebook's per-finding pooling idea without its two problems: no hand-picked
+    assignment per class (which cost -0.0090 when copied outright) and no routing (which lost
+    on the leaderboard three times). One model, one head, 2048 -> 12 instead of 1024 -> 12.
+    """
+
+    def __init__(self, d, n_slots, n_slices, n_out):
+        super().__init__()
+        self.norm = nn.LayerNorm(2 * d)
+        self.head = nn.Linear(2 * d, n_out)
+
+    def forward(self, x):
+        f = x.flatten(1, 2)
+        return self.head(self.norm(torch.cat([f.mean(1), f.max(1).values], dim=-1)))
+
+
+class Trio(nn.Module):
+    """mean + max + top4, in case top-k carries something max alone does not."""
+
+    def __init__(self, d, n_slots, n_slices, n_out):
+        super().__init__()
+        self.norm = nn.LayerNorm(3 * d)
+        self.head = nn.Linear(3 * d, n_out)
+
+    def forward(self, x):
+        f = x.flatten(1, 2)
+        return self.head(self.norm(torch.cat(
+            [f.mean(1), f.max(1).values, f.topk(4, dim=1).values.mean(1)], dim=-1)))
+
+
+class MaxPool(nn.Module):
+    def __init__(self, d, n_slots, n_slices, n_out):
+        super().__init__()
+        self.head = nn.Linear(d, n_out)
+
+    def forward(self, x):
+        return self.head(x.flatten(1, 2).max(1).values)
+
+
+HEADS = {"mean": Mean, "attn": Attn, "gru": GRUHead, "tfm": TfmHead,
+         "gru_joint": GRUJoint, "max": MaxPool, "top4": TopK,
+         "dual": Dual, "trio": Trio}
 
 
 # --------------------------------------------------------------------------- data
