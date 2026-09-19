@@ -1,0 +1,52 @@
+{
+  "split": "val",
+  "shipped": [
+    "convnext_base_relabel",
+    "mricore_vitb_cross_attention",
+    "mricore_vitb_mae_cross_attention",
+    "dinov3_convnext_base",
+    "convnext_base_25d_18slices",
+    "swinv2_base_in22k",
+    "convnext_base_25d_poolattn"
+  ],
+  "shipped_val": 0.9163913455675212,
+  "best_val": 0.9187178378924911,
+  "best_structure": [
+    "convnext_base_25d_perfinding_slots_and_pooling",
+    "mricore_vitb_cross_attention",
+    "mricore_vitb_mae_cross_attention_full",
+    [
+      "dinov3_convnext_base",
+      "eva02_base_448",
+      "mricore_vitb_mae_cross_attention"
+    ],
+    [
+      "convnext_base_25d_18slices",
+      "convnext_small_aucm_m20",
+      "coatnet_rmlp2_384"
+    ],
+    "swinv2_base_in22k",
+    [
+      "convnext_base_25d_poolattn",
+      "convnext_small_transformer_pool"
+    ],
+    "radimagenet_resnet50_relabel"
+  ],
+  "cross_fitted": 0.9169574693882557,
+  "shipped_cross_fitted": 0.9172329436461348,
+  "honest_delta": -0.00027547425787910473,
+  "fold_heldout": [
+    0.9254322153751146,
+    0.9141305249184706,
+    0.916306213744158,
+    0.9138949729570438,
+    0.915023419946492
+  ],
+  "fold_heldout_shipped": [
+    0.9257608351256496,
+    0.9120091021306435,
+    0.9194842599802793,
+    0.9129362433928913,
+    0.9159742776012104
+  ]
+}
