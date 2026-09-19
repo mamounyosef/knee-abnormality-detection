@@ -668,6 +668,24 @@ def _load_report_targets(cfg: dict):
     return {s: torch.from_numpy(E[i]) for i, s in enumerate(ids)}
 
 
+def _sides_from_ipp(index: pd.DataFrame) -> dict:
+    """{study: 'left'|'right'} from the x of ImagePositionPatient, per study.
+
+    DICOM patient coordinates put +x toward the patient's LEFT, and a knee sits well off
+    the midline, so the mean x over a study's series is solidly signed. This is the same
+    rule runs/others/extract_laterality.py applied to the shard metadata to build
+    data/12_laterality.csv, which agreed with 542 explicitly labelled studies 97.8% of the
+    time. Studies with no usable x are simply absent, so they never get flipped.
+    """
+    if "ipp_x" not in index.columns:
+        return {}
+    df = index[["study", "ipp_x"]].dropna()
+    if df.empty:
+        return {}
+    m = df.groupby("study")["ipp_x"].mean()
+    return {s: ("left" if x > 0 else "right") for s, x in m.items()}
+
+
 class KneeShardDataset(Dataset):
     """One item = one study: 4 slot volumes of n_slices each, plus its 12 labels."""
 
@@ -701,10 +719,10 @@ class KneeShardDataset(Dataset):
         # knob is off, and the flip below is then a dict lookup that never matches.
         self.flip_side = i.get("laterality_flip")
         self.sides = {}
-        if self.flip_side:
-            if self.flip_side not in ("left", "right"):
-                raise ValueError("input.laterality_flip must be 'left', 'right' or null, "
-                                 "got %r" % (self.flip_side,))
+        if self.flip_side and self.flip_side not in ("left", "right"):
+            raise ValueError("input.laterality_flip must be 'left', 'right' or null, "
+                             "got %r" % (self.flip_side,))
+        if self.flip_side and dicom is None:
             lat = pd.read_csv(resolve(cfg["paths"]["laterality_csv"], cfg))
             self.sides = dict(zip(lat["StudyInstanceUID"], lat["side"]))
         # (index, {series: [files]}) at submission time: the same volumes come from
@@ -719,6 +737,16 @@ class KneeShardDataset(Dataset):
         if dicom is not None:
             dicom_index, self.dicom_files = dicom
             self.geo = dicom_index.set_index("series")[["pixel_spacing_c", "pixel_spacing_r"]]
+            if self.flip_side:
+                # Submission has no 12_laterality.csv - the test studies were never in it.
+                # Same rule as extract_laterality.py, from the headers build_dicom_index
+                # already read: mean x of ImagePositionPatient over the study's series,
+                # +x pointing to the patient's LEFT. A study with no usable x stays
+                # unflipped, which is the majority orientation and so the safer default.
+                self.sides = _sides_from_ipp(dicom_index)
+                print("  laterality_flip=%r: %d/%d studies sided from DICOM"
+                      % (self.flip_side, len(self.sides), dicom_index["study"].nunique()),
+                      flush=True)
             return
         # per-series mm-per-pixel, needed to rescale every scan to one physical scale
         self.geo = (pd.read_csv(resolve(cfg["paths"]["series_index"], cfg))
@@ -5189,11 +5217,17 @@ def scan_dicom_index(dicom_root, series_csv: pd.DataFrame) -> tuple[pd.DataFrame
     def _geom(ds, study_uid):
         ps = ds.get("PixelSpacing") or [1.0, 1.0]
         thick = float(ds.get("SliceThickness", 0) or 0)
+        # x of ImagePositionPatient. DICOM patient coordinates put +x toward the patient's
+        # LEFT, and a knee sits well off the midline, so its sign names the leg. Carried
+        # here so input.laterality_flip works at SUBMISSION time, where there is no
+        # 12_laterality.csv - the test studies are not in it.
+        ipp = ds.get("ImagePositionPatient")
+        ipp_x = float(ipp[0]) if ipp is not None and len(ipp) == 3 else float("nan")
         return {"pixel_spacing_r": float(ps[0]), "pixel_spacing_c": float(ps[1]),
                 "slice_thickness": thick,
                 "spacing_between": float(ds.get("SpacingBetweenSlices", 0) or 0) or thick,
                 "rows": int(ds.get("Rows", 0)), "cols": int(ds.get("Columns", 0)),
-                "study": study_uid}
+                "ipp_x": ipp_x, "study": study_uid}
 
     # fast path: the layout is <root>/<study>/<series>/<file>.dcm, so the UIDs are
     # already in the path and one header per series is enough for the geometry.
@@ -5287,6 +5321,7 @@ def scan_dicom_index(dicom_root, series_csv: pd.DataFrame) -> tuple[pd.DataFrame
                      "pixel_spacing_c": g["pixel_spacing_c"],
                      "slice_thickness": g["slice_thickness"],
                      "spacing_between": g["spacing_between"],
+                     "ipp_x": g.get("ipp_x", float("nan")),
                      "depth_mm": g["spacing_between"] * n})
     return pd.DataFrame(rows), files_by_series
 
