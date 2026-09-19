@@ -34,6 +34,14 @@ def check(name, cond, detail=""):
     print("  %s %s%s" % ("PASS" if cond else "FAIL", name, ("  " + detail) if detail else ""))
 
 
+def cfg_for(flip, _cfg=[None]):
+    """A copy of the run config with laterality_flip set to `flip`."""
+    import copy
+    c = copy.deepcopy(_cfg[0])
+    c["input"]["laterality_flip"] = flip
+    return c
+
+
 def build(cfg_flip, df, cfg, plan):
     c = sc.deep_merge(cfg, {"input": {"laterality_flip": cfg_flip}}) \
         if hasattr(sc, "deep_merge") else None
@@ -68,6 +76,7 @@ def main():
     print("  using %d studies: %s" % (len(df), df_sides))
 
     plan = sc.plan_slots(pd.read_csv(sc.resolve(cfg["paths"]["series_index"], cfg)), cfg)
+    cfg_for.__defaults__[0][0] = cfg          # so cfg_for can make copies of it
 
     ds_off = build(None, df, cfg, plan)
     ds_r = build("right", df, cfg, plan)
@@ -116,6 +125,30 @@ def main():
                     check("study %d, sagittal reversed slices, NOT width" % i,
                           np.array_equal(b[si], a[si][::-1])
                           and not np.array_equal(b[si], a[si][:, :, ::-1]))
+
+    # 3b. THE FLIP MUST APPLY TO EVERY SPLIT, NOT JUST TRAINING.
+    # Augmentation in this engine IS train-only (self.aug is gated on `train`), so there is
+    # real precedent for a transform that silently skips validation. If the flip did that,
+    # the model would train on normalised knees and be scored on un-normalised ones: the
+    # val number would measure a train/test mismatch and the whole experiment would be void.
+    for train_flag in (True, False):
+        ds_t = sc.KneeShardDataset(df, cfg_for("left"), plan, train=train_flag)
+        ds_n = sc.KneeShardDataset(df, cfg_for(None), plan, train=train_flag)
+        moved = [i for i in range(len(df))
+                 if not np.array_equal(ds_t[i][0].numpy(), ds_n[i][0].numpy())]
+        want = [i for i, sd in enumerate(df_sides) if sd == "left"]
+        check("split=%s: the flip applies (%d of %d studies moved)"
+              % ("train" if train_flag else "val/audit", len(moved), len(df)),
+              moved == want, "moved %s, expected %s" % (moved, want))
+    # and the dataset must not be reading `train` when it decides to mirror
+    # the two lines that actually decide a mirror must not mention `train`. A wider slice
+    # catches the unrelated `if train and dicom is None` that loads the auxiliary head.
+    src = (ROOT / "runs" / "shared_code.py").read_text(encoding="utf-8")
+    decide = [ln for ln in src.splitlines()
+              if "flip_side" in ln or "_mirror_slot(v, slot" in ln]
+    check("nothing in the mirror decision consults `train`",
+          decide and not any("train" in ln for ln in decide),
+          "%d lines checked" % len(decide))
 
     # 4. labels untouched
     check("labels identical under flip",
