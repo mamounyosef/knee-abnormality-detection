@@ -8,6 +8,7 @@ paths:
   val_csv:      "05_val.csv"            # 704 studies, soft LLM labels
   audit_csv:    "05_audit58.csv"        # 58 studies, the panel's 0/1 labels
   series_index: "07_series_index.csv"
+  laterality_csv: "12_laterality.csv"   # which knee each study is, left or right
 
 # order fixes every label tensor, metric vector and submission column
 tasks:
@@ -31,6 +32,14 @@ input:
   fallback_same_plane: true         # covers the 12.6% missing a slot
   duplicate_rule: "coverage"        # which series wins when several fit one slot
                                     # coverage | resolution | slices | series_number | random
+
+  # Laterality normalisation. "Medial" means the inner side of the leg, which is the LEFT
+  # of the image for a right knee and the RIGHT of it for a left knee, so the four
+  # side-specific findings (Medial/Lateral Meniscus, Medial/Lateral OA) sit on opposite
+  # halves of the frame depending on which leg was scanned. Set this to "right" or "left"
+  # to mirror that side so every study faces the same way. null = off, which is what every
+  # run so far trained with.
+  laterality_flip: null
 
   n_slices: 24                      # real slices, never interpolated
   slice_margin: 0.05                # skip the outer 5% of the stack (edge slices are empty)

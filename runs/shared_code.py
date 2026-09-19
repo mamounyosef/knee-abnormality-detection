@@ -696,6 +696,17 @@ class KneeShardDataset(Dataset):
         # context. Costs nothing extra - those channels already existed, just wasted.
         self.ctx = 3 if i.get("slice_context") == "neighbours" else 1
         self.ctx_stride = int(i.get("slice_context_stride", 1))
+        # Laterality normalisation. Mirror one side so every study faces the same way, so
+        # "medial" is always the same half of the frame. self.sides stays empty when the
+        # knob is off, and the flip below is then a dict lookup that never matches.
+        self.flip_side = i.get("laterality_flip")
+        self.sides = {}
+        if self.flip_side:
+            if self.flip_side not in ("left", "right"):
+                raise ValueError("input.laterality_flip must be 'left', 'right' or null, "
+                                 "got %r" % (self.flip_side,))
+            lat = pd.read_csv(resolve(cfg["paths"]["laterality_csv"], cfg))
+            self.sides = dict(zip(lat["StudyInstanceUID"], lat["side"]))
         # (index, {series: [files]}) at submission time: the same volumes come from
         # raw DICOM instead of a shard, everything downstream is identical
         self.dicom_files = None
@@ -824,6 +835,8 @@ class KneeShardDataset(Dataset):
         rng = np.random.default_rng([self.seed, int(_EPOCH.value), i] if self.train
                                     else [self.seed, hash(study) & 0xFFFFFFFF])
         chosen = self.plan.get(study, {})               # {slot: series} picked by plan_slots
+        # mirror this study if it is the side we normalise away. Unknown side = leave it.
+        mirror = bool(self.flip_side) and self.sides.get(study) == self.flip_side
 
         vols = []
         for slot in self.slots:
@@ -844,6 +857,10 @@ class KneeShardDataset(Dataset):
                         v = blank
                     else:
                         raise
+            # before augment, so a later warp acts on the normalised image the way it
+            # would in a run that trained this way from the start
+            if mirror:
+                v = v[:, :, ::-1].copy()
             if self.aug is not None:
                 v = self._augment(v, rng)             # same warp across a slice's channels
             if self.ctx > 1:
