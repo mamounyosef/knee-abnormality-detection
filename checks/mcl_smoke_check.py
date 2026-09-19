@@ -31,7 +31,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "runs"))
 import shared_code as sc  # noqa: E402
 
-ARMS = ["dinov3_mcl_accum32"]
+ARMS = ["convnext_base_25d_pfoa"]
 SUBSET = 6          # studies per split - enough to exercise every code path, fast enough to run
 fails = []
 
@@ -65,7 +65,9 @@ for arm in ARMS:
           cfg["experiment"]["name"])
 
     slots, ns = cfg["input"]["slots"], cfg["input"]["n_slices"]
-    want_imgs = len(slots) * ns
+    # NOT slots*slices: a 2.5D run packs `slices_as_channels` slices into each 3-channel
+    # image, so 4 slots x 18 slices becomes 24 images, not 72. The engine knows the answer.
+    want_imgs = sc.images_per_study(cfg)
 
     # 2. the real slot planner and the real dataset, over whatever shards are on this PC.
     # Only part of the corpus is mirrored locally, so each split is filtered to the studies
@@ -106,13 +108,17 @@ for arm in ARMS:
         # the channel replication, and it is the SAME call the training loop makes
         x = sc.prepare_batch(x, tcfg, "cpu")
         n, c, h, w = x.shape
-        check("%s batch is %d images (%d slots x %d slices)" % (split, want_imgs,
-                                                                len(slots), ns),
+        check("%s batch is %d images (%d slots, %d slices, 2.5D=%s)"
+              % (split, want_imgs, len(slots), ns,
+                 cfg["input"].get("slices_as_channels") or "no"),
               n == want_imgs, str(tuple(x.shape)))
-        check("%s images are 3-channel %dpx" % (split, cfg["input"]["size"]),
-              (c, h, w) == (3, cfg["input"]["size"], cfg["input"]["size"]),
+        want_c = (cfg["input"]["n_slices"] // cfg["input"]["slices_as_channels"]
+                  if cfg["input"].get("slices_as_channels") else 3)
+        check("%s images are %d-channel %dpx" % (split, want_c, cfg["input"]["size"]),
+              (c, h, w) == (want_c, cfg["input"]["size"], cfg["input"]["size"]),
               str((c, h, w)))
-        check("%s labels are one column (MCL only)" % split, y.shape[-1] == 1,
+        check("%s labels are one column (%s)" % (split, cfg["tasks"][0]),
+              y.shape[-1] == len(cfg["tasks"]),
               str(tuple(y.shape)))
         check("%s pixels are finite" % split, bool(torch.isfinite(x).all()))
         blank = int((x.view(want_imgs, -1).std(dim=1) < 1e-6).sum())
@@ -137,4 +143,4 @@ print("\n" + "=" * 74)
 if fails:
     print("FAILED: " + ", ".join(fails))
     raise SystemExit(1)
-print("the MCL run loads its own config, its own slots, and produces one MCL logit")
+print("the run loads its own config, its own slots, and produces its own logits")
