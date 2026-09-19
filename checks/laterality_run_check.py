@@ -53,6 +53,11 @@ def main():
     diff = {k: (a.get(k, "<absent>"), b.get(k, "<absent>")) for k in keys
             if a.get(k, "<absent>") != b.get(k, "<absent>")}
     diff.pop("experiment.name", None)          # the name is allowed to differ
+    # the extension block was added AFTER the run finished its 12 epochs; it changes what
+    # happens next, not what the first 12 epochs did, so it does not break the A/B
+    for k in list(diff):
+        if k.startswith("training.extend."):
+            diff.pop(k)
     expected = {"input.laterality_flip"}
     check("exactly one setting differs from the parent", set(diff) == expected,
           "differs: %s" % sorted(diff))

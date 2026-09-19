@@ -98,6 +98,29 @@ training:
     focal_gamma: 2.0
     aucm_margin: 1.0
     aucm_bce_mix: 0.1
+  # EXTENSION. The run finished all 12 epochs without early stopping, at a backbone lr of
+  # 1.0e-6 (the cosine floor, 1% of the 5.0e-5 peak). Its last four epochs gained +0.0003,
+  # +0.0002, +0.0003, so it is converged rather than cut short - but it was still creeping
+  # UP where the baseline had already peaked at epoch 9 and drifted down, which is the one
+  # reason to spend more on it.
+  #
+  # WHY 8.0e-6 AND NOT SOMETHING NEARER 1.0e-6. "Slightly higher" in absolute terms would be
+  # ~2.0e-6, which is 4% of the original peak and would move almost nothing: the extension
+  # would reproduce the last epoch twelve more times. 8.0e-6 is 16% of the original peak and
+  # 8x the finishing rate, which is the shape that has actually paid in this project -
+  # dinov3_convnext_base restarted at exactly 8.0e-6 after converging and gained, and
+  # convnext_base_fluid gained +0.0215 the same way. It is well short of a restart.
+  extend:
+    enable: true
+    epochs: 6                       # on TOP of the 12 already done
+    lr: 8.0e-6                      # new PEAK. Every group scales by the same ratio, so the
+                                    # 0.5 backbone_lr_mult survives: head becomes 1.6e-5.
+    warmup_frac: 0.02               # short re-warm so the jump from 1.0e-6 is not a shock
+    min_lr_mult: 0.10               # NOT the run's 0.01. Six epochs at a 1% floor spends most
+                                    # of them below 1e-7, doing nothing. 10% keeps them working.
+    reset_optimizer: false          # keep the AdamW moments; the weights are not being reset
+    reset_patience: true            # early stopping starts fresh for the extension
+
   early_stopping:
     enable: true
     monitor: "val_macro_auroc"
