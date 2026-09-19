@@ -52,17 +52,47 @@ input:
   # 24.4% of series are upsampled (median 1.17x).
   size: 336
 
-  # 18 real slices per slot, down from the shared default of 24. This is the ONLY difference
-  # from convnext_base_25d_group3.
-  n_slices: 18
+  # PER-SLOT SLICE COUNTS. Coronal samples 24 real slices, everything else 18.
+  #
+  # WHY CORONAL AND NOTHING ELSE. Coronal slices cut the knee front-to-back, and they are
+  # where the MCL is read: the Medial Collateral Ligament is a flat band on the INNER edge
+  # of the knee whose whole length lies in very few coronal planes. A coronal series carries
+  # 27 usable planes at the median, so sampling 18 skips ONE PLANE IN THREE - and skipping
+  # the plane the MCL sits on means the finding is simply not in the input. MCL is our
+  # weakest column (0.8384 here), has resisted five specialist runs, and both of today's
+  # signals point at it. Medial and Lateral OA are read on coronal too, and joint-space
+  # narrowing is a fine measurement that rewards denser sampling.
+  #
+  # WHY SAGITTAL STAYS AT 18. ACL is already 0.9133, and the menisci need WIDTH of coverage
+  # rather than density, which 18 of 27 planes already provides.
+  #
+  # WHY AXIAL STAYS AT 18. More axial slices is the wrong fix. PF OA is cartilage behind the
+  # kneecap, so it exists only in the kneecap band - roughly the middle third of the axial
+  # stack - and sampling evenly from one end of the stack to the other lands most slices
+  # nowhere near it. That calls for NON-UNIFORM sampling, a separate change, not a bigger
+  # count.
+  #
+  # Cost: 40 windows per study instead of 36, +11%.
+  n_slices:
+    sag_plain: 18
+    sag_fluid: 18
+    cor_plain: 24
+    cor_fluid: 24
+    ax_plain:  18
+    ax_fluid:  18
 
-  # 6 IMAGES PER SLOT, each holding 3 consecutive slices in its 3 channels.
-  # prepare_batch reshapes (B, 4, 18, H, W) -> (B*4*6, 3, H, W). The slice axis splits with
-  # the GROUP as the outer index and the CHANNEL as the inner one, so the groups are
-  # contiguous and non-overlapping: (0,1,2), (3,4,5), ... (15,16,17).
-  # 18 / 6 = 3 means train.py builds the backbone with in_chans=3, i.e. the pretrained stem
-  # exactly as shipped. No filter tiling, no rescaling, no adaptation.
-  slices_as_channels: 6
+  # Images per slot, following n_slices so every slot still yields exactly 3 channels per
+  # image: 18/6 = 3 and 24/8 = 3. Three is the number that matters - it keeps the pretrained
+  # ConvNeXt stem exactly as shipped, with no filter widening, which is what cost the
+  # ch1/ch2/ramp runs 0.025 to 0.038. The engine refuses any mapping where the slots
+  # disagree on channels per image.
+  slices_as_channels:
+    sag_plain: 6
+    sag_fluid: 6
+    cor_plain: 8
+    cor_fluid: 8
+    ax_plain:  6
+    ax_fluid:  6
 
 training:
   epochs: 12
@@ -94,15 +124,16 @@ training:
 # CPU-side loading; decoding shards is the bottleneck and stays one here, though 18 slices
 # is a quarter less to decode per study than 24.
 dataloader:
-  batch_size: 4                     # 4 studies x 6 slots x 6 images = 144 images
-                                    # @336. The 4-slot parent peaked at ~54 GB on
-                                    # 192 images (~0.28 GB/image), so 144 is ~41 GB
-                                    # of the A100-80GB. 8 studies would be 288
-                                    # images, ~81 GB, over the card.
+  batch_size: 4                     # 4 studies x 40 images = 160 images
+                                    # @336 (coronal contributes 8, the rest 6). The
+                                    # 4-slot parent peaked at ~54 GB on 192 images
+                                    # (~0.28 GB/image), so 160 is ~45 GB of the
+                                    # A100-80GB. 8 studies would be 320 images,
+                                    # ~90 GB, over the card.
   accum_steps: 2                    # 4 x 2 = effective 8 studies per update,
                                     # IDENTICAL to every other run, so step counts
                                     # and the lr schedule compare directly.
-  val_batch_size: 8                 # 8 x 36 = 288 images, but no backward pass
+  val_batch_size: 8                 # 8 x 40 = 320 images, but no backward pass
                                     # means no stored activations.
 
   num_workers: 26                   # the GPU does a quarter of convnext_base_336px's work

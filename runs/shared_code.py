@@ -173,7 +173,9 @@ def print_config(cfg: dict):
     m, dl, aug = cfg.get("modal", {}), cfg.get("dataloader", {}), cfg["augmentation"]
     mo = cfg.get("model", {})
     _es = t.get("early_stopping", {}) or {}
-    n_img = len(i["slots"]) * i["n_slices"]
+    n_img = images_per_study(cfg)
+    _sl = (", ".join("%s=%d" % (k, v) for k, v in i["n_slices"].items())
+           if isinstance(i["n_slices"], dict) else i["n_slices"])
     field = i["size"] * (i["mm_per_px"] or 0)
 
     _banner("CONFIGURATION", "\u2699\uFE0F")
@@ -203,7 +205,7 @@ def print_config(cfg: dict):
             for n, sl in enumerate(i["slots"])], "\U0001F5BC\uFE0F")
 
     _kv("geometry & intensity", [
-        ("images per study", f"{len(i['slots'])} slots x {i['n_slices']} slices = {n_img}"),
+        ("images per study", f"{len(i['slots'])} slots x {_sl} slices = {n_img} images"),
         ("resolution", (f"{i['size']}->{i['resize_to']} px" if i.get("resize_to")
                         else f"{i['size']} x {i['size']} px") + f" @ {i['mm_per_px']} mm/px "
                        f"= {field:.0f} mm field"),
@@ -668,6 +670,62 @@ def _load_report_targets(cfg: dict):
     return {s: torch.from_numpy(E[i]) for i, s in enumerate(ids)}
 
 
+def slot_slices(cfg: dict, slot: str) -> int:
+    """How many real slices this slot samples.
+
+    input.n_slices is normally one integer for every slot. It may instead be a mapping
+    {slot: count}, because the planes do not deserve equal sampling: the MCL is a flat band
+    on the inner edge of the knee whose whole length sits in very few CORONAL planes, so
+    skipping coronal planes can miss it outright, while the sagittal and axial findings are
+    either already well covered or limited by WHERE we sample rather than how densely.
+    """
+    n = cfg["input"]["n_slices"]
+    if isinstance(n, dict):
+        if slot not in n:
+            raise ValueError("input.n_slices has no entry for slot %r (has %s)"
+                             % (slot, sorted(n)))
+        return int(n[slot])
+    return int(n)
+
+
+def slot_groups(cfg: dict, slot: str) -> int:
+    """How many IMAGES this slot becomes, i.e. forward passes it costs.
+
+    slices_as_channels packs consecutive slices into one image's channels. It follows
+    n_slices: give it a mapping too when n_slices is one. Channels per image must come out
+    the same for every slot, because the backbone's stem has a single fixed in_chans.
+    """
+    g = cfg["input"].get("slices_as_channels")
+    if isinstance(g, dict):
+        if slot not in g:
+            raise ValueError("input.slices_as_channels has no entry for slot %r" % slot)
+        g = int(g[slot])
+    else:
+        g = int(g or 0)
+    return g if g > 0 else slot_slices(cfg, slot)
+
+
+def per_slot_input(cfg: dict) -> bool:
+    """True when slices are configured per slot, which changes the item layout."""
+    return isinstance(cfg["input"]["n_slices"], dict) or \
+        isinstance(cfg["input"].get("slices_as_channels"), dict)
+
+
+def check_slot_geometry(cfg: dict) -> int:
+    """Validate a per-slot setup and return the channels-per-image every slot agrees on."""
+    chans = set()
+    for s in cfg["input"]["slots"]:
+        n, g = slot_slices(cfg, s), slot_groups(cfg, s)
+        if n % g:
+            raise ValueError("slot %r: slices_as_channels=%d must divide n_slices=%d"
+                             % (s, g, n))
+        chans.add(n // g)
+    if len(chans) != 1:
+        raise ValueError("every slot must yield the same channels per image, got %s. The "
+                         "backbone stem has one in_chans." % sorted(chans))
+    return chans.pop()
+
+
 def _sides_from_ipp(index: pd.DataFrame) -> dict:
     """{study: 'left'|'right'} from the x of ImagePositionPatient, per study.
 
@@ -697,6 +755,15 @@ class KneeShardDataset(Dataset):
         self.shards = Path(cfg["paths"]["shards_dir"])
         i = cfg["input"]
         self.slots, self.n_slices, self.size = i["slots"], i["n_slices"], i["size"]
+        # Per-slot slice counts. The slot volumes then have different depths, so they cannot
+        # be stacked into (slots, D, H, W); __getitem__ groups each slot into its images and
+        # concatenates along the IMAGE axis instead, emitting (1, total_images, C, H, W).
+        # prepare_batch's existing 6-dim branch consumes that unchanged. When n_slices is a
+        # plain integer nothing below changes and the old layout is produced byte for byte.
+        self.per_slot = per_slot_input(cfg)
+        self.slot_n = {s: slot_slices(cfg, s) for s in self.slots}
+        self.slot_g = {s: slot_groups(cfg, s) for s in self.slots}
+        self.slot_chans = check_slot_geometry(cfg) if self.per_slot else None
         self.mm_per_px, self.window = i["mm_per_px"], i["window"]
         # random slice picks while training, fixed even spacing while evaluating
         self.mode = i["train_slice_sampling"] if train else i["slice_sampling"]
@@ -763,13 +830,14 @@ class KneeShardDataset(Dataset):
         with np.load(self.shards / f"{study}.npz") as z:
             return z[series] if series in z.files else None
 
-    def _load(self, study: str, series: str, rng) -> np.ndarray:
+    def _load(self, study: str, series: str, rng, n_slices: int | None = None) -> np.ndarray:
         """One series -> (n_slices * ctx, size, size) float array, resampled and windowed."""
         _t = time.perf_counter()
+        n_slices = self.n_slices if n_slices is None else n_slices
         arr = self._read_series(study, series)
         if arr is None:                                   # series missing for this study
-            return np.zeros((self.n_slices * self.ctx, self.size, self.size), np.float32)
-        idx = pick_slices(arr.shape[0], self.n_slices, self.mode, rng, self.margin)
+            return np.zeros((n_slices * self.ctx, self.size, self.size), np.float32)
+        idx = pick_slices(arr.shape[0], n_slices, self.mode, rng, self.margin)
         if self.ctx > 1:
             # k-stride, k, k+stride, clamped at the ends; flattened slice-major so a
             # later reshape gives (n_slices, ctx, H, W)
@@ -869,12 +937,13 @@ class KneeShardDataset(Dataset):
         vols = []
         for slot in self.slots:
             series = chosen.get(slot)                   # None when this study lacks that view
-            blank = np.zeros((self.n_slices * self.ctx, self.size, self.size), np.float32)
+            n_sl = self.slot_n[slot]
+            blank = np.zeros((n_sl * self.ctx, self.size, self.size), np.float32)
             if series is None:
                 v = blank
             else:
                 try:
-                    v = self._load(study, series, rng)
+                    v = self._load(study, series, rng, n_sl)
                 except Exception as e:
                     # a worker that raises kills the whole DataLoader, and at submission
                     # time that costs every study, not just this one. an unreadable
@@ -892,11 +961,20 @@ class KneeShardDataset(Dataset):
             if self.aug is not None:
                 v = self._augment(v, rng)             # same warp across a slice's channels
             if self.ctx > 1:
-                v = v.reshape(self.n_slices, self.ctx, self.size, self.size)
+                v = v.reshape(n_sl, self.ctx, self.size, self.size)
+            elif self.per_slot:
+                # group this slot's slices into its own images now, since slots with
+                # different depths cannot be stacked and reshaped together later
+                v = v.reshape(self.slot_g[slot], self.slot_chans, self.size, self.size)
             vols.append(v)
 
-        # (slots, D, H, W) normally, (slots, D, ctx, H, W) with 2.5D
-        x = torch.from_numpy(np.stack(vols).astype(np.uint8))
+        if self.per_slot:
+            # (1, total_images, channels, H, W): one pseudo-slot holding every image, which
+            # is exactly the shape prepare_batch's 6-dim branch already expects per study
+            x = torch.from_numpy(np.concatenate(vols, axis=0).astype(np.uint8)[None])
+        else:
+            # (slots, D, H, W) normally, (slots, D, ctx, H, W) with 2.5D
+            x = torch.from_numpy(np.stack(vols).astype(np.uint8))
         y = torch.tensor([float(row[t]) for t in self.tasks], dtype=torch.float32)   # 12 probs in [0,1]
         # "hard" mode turns the soft label probabilities into crisp 0/1 targets
         if self.cfg["target"]["mode"] == "hard":
@@ -934,6 +1012,8 @@ def images_per_study(cfg: dict) -> int:
     slices_as_channels run before this existed.
     """
     i = cfg["input"]
+    if per_slot_input(cfg):
+        return sum(slot_groups(cfg, s) for s in i["slots"])
     g = int(i.get("slices_as_channels") or 0)
     return len(i["slots"]) * (g if g > 0 else int(i["n_slices"]))
 
@@ -2342,6 +2422,8 @@ def save_debug_batch(x_prep: torch.Tensor, cfg: dict, out_dir: Path,
     if cv2 is None:
         return
     i = cfg["input"]
+    if per_slot_input(cfg):
+        return                      # no single slot depth to lay the grid out by
     slots, d = len(i["slots"]), int(i["n_slices"])
     g = int(i.get("slices_as_channels") or 0)       # images per slot; 0 = one image per slice
     per = images_per_study(cfg)                     # images for ONE study, NOT slots * d
@@ -2673,7 +2755,7 @@ def check_aux_wiring(cfg: dict, model: nn.Module):
     try:
         with torch.no_grad():
             i = cfg["input"]
-            n = len(i["slots"]) * i["n_slices"]
+            n = images_per_study(cfg)
             probe_in = torch.zeros(n, i["channels"], model_input_size(cfg),
                                    model_input_size(cfg))
             out = m(probe_in.to(next(m.parameters()).device))

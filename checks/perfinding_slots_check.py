@@ -70,8 +70,16 @@ def main():
     cfg = sc.load_config(ROOT / "runs" / RUN, verbose=False)
     tasks, slots = list(cfg["tasks"]), list(cfg["input"]["slots"])
     per_study = sc.images_per_study(cfg)
-    per_slot = per_study // len(slots)
-    print("  %d windows = %d slots x %d groups" % (per_study, len(slots), per_slot))
+    # slots may contribute different window counts (coronal samples more slices), so a
+    # slot's first window is the running total of the ones before it, not si * stride
+    n_win = [sc.slot_groups(cfg, s) for s in slots]
+    start, acc = [], 0
+    for n in n_win:
+        start.append(acc)
+        acc += n
+    print("  %d windows over %d slots: %s"
+          % (per_study, len(slots),
+             ", ".join("%s=%d" % (s, n) for s, n in zip(slots, n_win))))
 
     # ---- the pooling primitives do what their names say ---------------------------------
     t = torch.tensor([[[1.0], [5.0], [3.0], [2.0]]])          # (1, 4, 1)
@@ -102,9 +110,9 @@ def main():
     # the index arithmetic assumes windows are laid out SLOT-MAJOR
     for j, t_name in enumerate(tasks):
         allowed = [s for s in mod.SLOT_MAP[t_name] if s in slots]
-        want = sorted(si * per_slot + k
+        want = sorted(start[si] + k
                       for si, s in enumerate(slots) if s in allowed
-                      for k in range(per_slot))
+                      for k in range(n_win[si]))
         check("%-17s window indices are its slots, slot-major" % t_name,
               sorted(model.windows[j]) == want,
               "%d windows" % len(model.windows[j]))

@@ -74,10 +74,16 @@ class SliceModel(nn.Module):
 
 
 # --- per-finding pooling, over per-finding VIEWS -------------------------------------
-# POOL_MAP: HOW each finding reduces its windows. A focal finding sits at one spot on a few
-# slices, so the most suspicious window should decide it; a diffuse one is spread across the
-# joint, so the average IS the evidence.
-POOL_MAP = {'max': ['Fracture', 'Contusion', 'Medial Meniscus', 'Lateral Meniscus'], 'top2': ['ACL', 'MCL'], 'mean': ['Medial OA', 'Lateral OA', 'PF OA', 'Effusion', 'Synovitis', "Baker's"]}
+# POOL_MAP: HOW each finding reduces its windows.
+# MAX IS GONE. convnext_base_25d_perfinding_pool_features tested it from scratch and it
+# lost 0 of 4 columns, with the worst single loss being Fracture -0.0175 - the very
+# finding whose 'one suspicious window decides it' story motivated max in the first place.
+# top2 stays, because MCL gained +0.0329 (0.8384 -> 0.8713) in that same run: the MCL is a
+# flat band on the inner edge of the knee, present in very few coronal windows, so
+# averaging all of them dilutes it while 'average the two most suspicious' does not.
+POOL_MAP = {'top2': ['ACL', 'MCL'],
+            'mean': ['Fracture', 'Contusion', 'Medial Meniscus', 'Lateral Meniscus',
+                     'Medial OA', 'Lateral OA', 'PF OA', 'Effusion', 'Synovitis', "Baker's"]}
 
 # SLOT_MAP: WHICH views each finding is read on. A knee is shot in three planes (sagittal =
 # sliced side to side, coronal = sliced front to back, axial = sliced across the leg like
@@ -126,9 +132,16 @@ class MILModel(nn.Module):
         self.n_out = sc.num_output_logits(cfg)
         tasks = list(cfg["tasks"])
         slots = list(cfg["input"]["slots"])
-        per_slot = self.per_study // len(slots)
+        # slots no longer contribute the same number of windows - coronal samples 24 slices
+        # against everyone else's 18 - so each slot's start index is the running total of
+        # the ones before it, not a fixed stride.
+        n_win = [sc.slot_groups(cfg, s) for s in slots]
+        start, acc = [], 0
+        for n in n_win:
+            start.append(acc)
+            acc += n
 
-        # windows are laid out SLOT-MAJOR: slot 0's 6 windows, then slot 1's, and so on
+        # windows are laid out SLOT-MAJOR: slot 0's windows, then slot 1's, and so on
         self.kinds, self.windows = [], []
         for t_name in tasks:
             k = next((k for k, v in POOL_MAP.items() if t_name in v), None)
@@ -138,9 +151,9 @@ class MILModel(nn.Module):
             allowed = [s for s in SLOT_MAP.get(t_name, slots) if s in slots]
             if not allowed:
                 raise ValueError("no usable view for %s; config has %s" % (t_name, slots))
-            self.windows.append([si * per_slot + j
+            self.windows.append([start[si] + j
                                  for si, s in enumerate(slots) if s in allowed
-                                 for j in range(per_slot)])
+                                 for j in range(n_win[si])])
 
         # one norm and one 1-output head PER FINDING. A max over 36 windows is
         # systematically larger than a mean over 12, so the pooled vectors arrive on

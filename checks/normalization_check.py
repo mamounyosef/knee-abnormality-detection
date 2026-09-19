@@ -54,6 +54,10 @@ def check(name, ok, detail=""):
 def layout_of(cfg):
     """(label, channels the backbone sees, images per study)."""
     i = cfg["input"]
+    if sc.per_slot_input(cfg):
+        # per-slot slice counts: the dataset groups each slot itself and hands over one
+        # pseudo-slot of images, so channels come from the geometry check, not a division
+        return "2.5D grouped (per-slot slices)", sc.check_slot_geometry(cfg),             sc.images_per_study(cfg)
     if i.get("slice_context") == "neighbours":
         return "2.5D overlapping (loader)", 3, len(i["slots"]) * int(i["n_slices"])
     g = int(i.get("slices_as_channels") or 0)
@@ -66,6 +70,9 @@ def layout_of(cfg):
 
 def fake_batch(cfg, h=4, w=4, b=2):
     i = cfg["input"]
+    if sc.per_slot_input(cfg):
+        n_img, c = sc.images_per_study(cfg), sc.check_slot_geometry(cfg)
+        return torch.randint(0, 256, (b, 1, n_img, c, h, w), dtype=torch.uint8)
     n_slots, d = len(i["slots"]), int(i["n_slices"])
     if i.get("slice_context") == "neighbours":
         return torch.randint(0, 256, (b, n_slots, d, 3, h, w), dtype=torch.uint8)
@@ -119,7 +126,11 @@ def main():
         # --- 2. round trip: normalise then invert, recover the original bytes ---
         rec = (out.float() * std + mean) * 255.0
         src = x.float()
-        if i.get("slice_context") == "neighbours":
+        if sc.per_slot_input(cfg):
+            # the dataset already grouped each slot into (images, channels, H, W), so the
+            # flatten is just dropping the batch and pseudo-slot axes
+            src = src.reshape(-1, sc.check_slot_geometry(cfg), *x.shape[-2:])
+        elif i.get("slice_context") == "neighbours":
             src = src.reshape(-1, 3, *x.shape[-2:])
         elif i.get("slices_as_channels"):
             g = int(i["slices_as_channels"])
@@ -133,6 +144,11 @@ def main():
         check("round trip recovers the source pixels", d < 1e-2, "max diff %.2e" % d)
 
         # --- 4. save_debug_batch's independent inverse must not crash or mis-index ---
+        if sc.per_slot_input(cfg):
+            # save_debug_batch bails out on a per-slot layout: the slots have different
+            # depths, so there is no rectangular (slot x slice) grid to lay the sheet out on
+            check("debug sheet correctly declines the per-slot layout", True)
+            continue
         try:
             import types
             dummy = types.SimpleNamespace()

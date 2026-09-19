@@ -66,6 +66,10 @@ for arm in ARMS:
           cfg["experiment"]["name"])
 
     slots, ns = cfg["input"]["slots"], cfg["input"]["n_slices"]
+    # a per-slot mapping has no single depth, so keep a printable form and the largest
+    # slot depth for the blank-slot budget below
+    max_slot_imgs = max(sc.slot_groups(cfg, s_) for s_ in slots)
+    ns = (",".join("%s=%d" % kv for kv in ns.items()) if isinstance(ns, dict) else ns)
     # NOT slots*slices: a 2.5D run packs `slices_as_channels` slices into each 3-channel
     # image, so 4 slots x 18 slices becomes 24 images, not 72. The engine knows the answer.
     want_imgs = sc.images_per_study(cfg)
@@ -103,18 +107,26 @@ for arm in ARMS:
         dl = DataLoader(datasets[split], batch_size=1, shuffle=False, num_workers=0)
         b = next(iter(dl))
         x, y = (b[0], b[1]) if isinstance(b, (tuple, list)) else (b["x"], b["y"])
-        check("%s raw batch is (1, %d slots, %d slices, px, px)" % (split, len(slots), ns),
-              tuple(x.shape[:3]) == (1, len(slots), ns), str(tuple(x.shape)))
+        if sc.per_slot_input(cfg):
+            # per-slot slice counts: the slots have different depths, so the dataset emits
+            # one pseudo-slot holding every image already grouped into its channels
+            check("%s raw batch is (1, 1 pseudo-slot, %d images, ch, px, px)"
+                  % (split, want_imgs),
+                  tuple(x.shape[:3]) == (1, 1, want_imgs), str(tuple(x.shape)))
+        else:
+            check("%s raw batch is (1, %d slots, %s slices, px, px)" % (split, len(slots), ns),
+                  tuple(x.shape[:3]) == (1, len(slots), ns), str(tuple(x.shape)))
         # the dataset ships uint8 (B, slots, D, H, W); prepare_batch does the normalise and
         # the channel replication, and it is the SAME call the training loop makes
         x = sc.prepare_batch(x, tcfg, "cpu")
         n, c, h, w = x.shape
-        check("%s batch is %d images (%d slots, %d slices, 2.5D=%s)"
+        check("%s batch is %d images (%d slots, %s slices, 2.5D=%s)"
               % (split, want_imgs, len(slots), ns,
-                 cfg["input"].get("slices_as_channels") or "no"),
+                 "yes" if cfg["input"].get("slices_as_channels") else "no"),
               n == want_imgs, str(tuple(x.shape)))
-        want_c = (cfg["input"]["n_slices"] // cfg["input"]["slices_as_channels"]
-                  if cfg["input"].get("slices_as_channels") else 3)
+        want_c = (sc.check_slot_geometry(cfg) if sc.per_slot_input(cfg)
+                  else (cfg["input"]["n_slices"] // cfg["input"]["slices_as_channels"]
+                        if cfg["input"].get("slices_as_channels") else 3))
         check("%s images are %d-channel %dpx" % (split, want_c, cfg["input"]["size"]),
               (c, h, w) == (want_c, cfg["input"]["size"], cfg["input"]["size"]),
               str((c, h, w)))
@@ -123,7 +135,7 @@ for arm in ARMS:
               str(tuple(y.shape)))
         check("%s pixels are finite" % split, bool(torch.isfinite(x).all()))
         blank = int((x.view(want_imgs, -1).std(dim=1) < 1e-6).sum())
-        check("%s has at most one blank slot of images" % split, blank <= ns,
+        check("%s has at most one blank slot of images" % split, blank <= max_slot_imgs,
               "%d blank images of %d" % (blank, want_imgs))
 
     # 5. a real forward pass produces ONE logit per study
