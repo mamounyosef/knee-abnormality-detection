@@ -20,7 +20,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "runs"))
 import shared_code as sc  # noqa: E402
 
-RUN = "convnext_base_25d_left_knees_mirrored"
+import sys as _s
+RUN = (_s.argv[1] if len(_s.argv) > 1
+       else "convnext_base_25d_all_knees_same_orientation")
 PARENT = "convnext_base_25d_18slices"
 
 OK, FAIL = [], []

@@ -110,8 +110,13 @@ training:
   # 8x the finishing rate, which is the shape that has actually paid in this project -
   # dinov3_convnext_base restarted at exactly 8.0e-6 after converging and gained, and
   # convnext_base_fluid gained +0.0215 the same way. It is well short of a restart.
+  # DISABLED. _mirror_slot changed under this run: it trained its 12 epochs
+  # with every slot flipped horizontally, which corrupted the two sagittal
+  # slots. Resuming now would train the extension on a DIFFERENT input than
+  # the run started with, and the result would describe neither. The question
+  # moved to convnext_base_25d_all_knees_same_orientation.
   extend:
-    enable: true
+    enable: false
     epochs: 6                       # on TOP of the 12 already done
     lr: 8.0e-6                      # new PEAK. Every group scales by the same ratio, so the
                                     # 0.5 backbone_lr_mult survives: head becomes 1.6e-5.
