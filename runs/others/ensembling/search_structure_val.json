@@ -9,7 +9,7 @@
     "swinv2_base_in22k",
     "convnext_base_25d_poolattn"
   ],
-  "shipped_val": 0.9163913455675212,
+  "shipped_val": 0.9163905198800538,
   "best_val": 0.9187178378924911,
   "best_structure": [
     "convnext_base_25d_perfinding_slots_and_pooling",

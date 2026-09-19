@@ -102,11 +102,20 @@ def main():
                   (i, side, mode, "mirrored" if should_move else "untouched"),
                   moved == should_move)
             if should_move:
-                # a genuine mirror of the LAST axis, on every slot and every slice
-                check("study %d, flip=%s is an exact horizontal mirror" % (i, mode),
-                      np.array_equal(b, a[..., ::-1]))
-                check("study %d, flip=%s actually changes pixels" % (i, mode),
-                      not np.array_equal(a, a[..., ::-1]))
+                # the mirror axis depends on the PLANE: sagittal reverses slice order,
+                # coronal and axial reverse width. a and b are (slots, D, H, W) in
+                # cfg["input"]["slots"] order, so each slot is checked against its own rule.
+                want = np.stack([sc._mirror_slot(a[si], slot, 1)
+                                 for si, slot in enumerate(cfg["input"]["slots"])])
+                check("study %d, flip=%s mirrors each plane on its own axis" % (i, mode),
+                      np.array_equal(b, want))
+                sag = [si for si, s_ in enumerate(cfg["input"]["slots"])
+                       if s_.startswith("sag")]
+                if sag:
+                    si = sag[0]
+                    check("study %d, sagittal reversed slices, NOT width" % i,
+                          np.array_equal(b[si], a[si][::-1])
+                          and not np.array_equal(b[si], a[si][:, :, ::-1]))
 
     # 4. labels untouched
     check("labels identical under flip",

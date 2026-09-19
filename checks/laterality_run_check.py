@@ -55,8 +55,10 @@ def main():
     diff.pop("experiment.name", None)          # the name is allowed to differ
     # the extension block was added AFTER the run finished its 12 epochs; it changes what
     # happens next, not what the first 12 epochs did, so it does not break the A/B
+    # modal.* is which machine it runs on, not what it computes: gpu and cpu change
+    # throughput and cost, never the gradients, so they do not break the A/B either.
     for k in list(diff):
-        if k.startswith("training.extend."):
+        if k.startswith("training.extend.") or k.startswith("modal."):
             diff.pop(k)
     expected = {"input.laterality_flip"}
     check("exactly one setting differs from the parent", set(diff) == expected,
@@ -105,7 +107,11 @@ def main():
                   moved == (side == "left"))
             if moved:
                 n_moved += 1
-                check("study %d is an exact mirror" % i, np.array_equal(x_on, x_off[..., ::-1]))
+                # per-plane axis: sagittal reverses slice order, coronal/axial reverse width
+                want = np.stack([sc._mirror_slot(x_off[si], slot, 1)
+                                 for si, slot in enumerate(cfg["input"]["slots"])])
+                check("study %d mirrors each plane on its own axis" % i,
+                      np.array_equal(x_on, want))
         check("at least one study actually moved in this sample", n_moved > 0,
               "%d of %d" % (n_moved, len(df)))
     else:

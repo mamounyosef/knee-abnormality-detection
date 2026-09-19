@@ -726,6 +726,21 @@ def check_slot_geometry(cfg: dict) -> int:
     return chans.pop()
 
 
+def _mirror_slot(v, slot: str, ctx: int = 1) -> np.ndarray:
+    """Mirror one slot's volume for laterality, on the axis that plane actually needs.
+
+    v is (n_slices * ctx, H, W). Sagittal reverses the SLICE order; coronal and axial
+    reverse the image width. See the measurement in KneeShardDataset.__getitem__.
+    """
+    if str(slot).startswith("sag"):
+        if ctx > 1:
+            # slice-major (s0c0, s0c1, s0c2, s1c0, ...): reverse whole slices, not planes
+            v = v.reshape(-1, ctx, *v.shape[1:])[::-1].reshape(v.shape)
+            return np.ascontiguousarray(v)
+        return np.ascontiguousarray(v[::-1])
+    return np.ascontiguousarray(v[:, :, ::-1])
+
+
 def _sides_from_ipp(index: pd.DataFrame) -> dict:
     """{study: 'left'|'right'} from the x of ImagePositionPatient, per study.
 
@@ -955,9 +970,22 @@ class KneeShardDataset(Dataset):
                     else:
                         raise
             # before augment, so a later warp acts on the normalised image the way it
-            # would in a run that trained this way from the start
+            # would in a run that trained this way from the start.
+            #
+            # THE AXIS DEPENDS ON THE PLANE, and getting this wrong is not a small error.
+            # Measured from ImageOrientationPatient over the local shards, the fraction of
+            # the patient left-right axis lying along each image axis is:
+            #     axial     horizontal 0.989   vertical 0.113   slice 0.021
+            #     coronal   horizontal 0.987   vertical 0.026   slice 0.139
+            #     sagittal  horizontal 0.097   vertical 0.031   slice 0.991
+            # So for coronal and axial a left/right mirror IS a horizontal flip, but for
+            # sagittal the medial-lateral direction is the SLICE axis and there is no
+            # left-right axis in the image plane at all. Flipping a sagittal image
+            # horizontally reverses ANTERIOR-POSTERIOR, which is anatomical corruption
+            # rather than normalisation. Sagittal mirrors by reversing its slice order.
+            # checks/laterality_axis_check.py proves this from the data.
             if mirror:
-                v = v[:, :, ::-1].copy()
+                v = _mirror_slot(v, slot, self.ctx)
             if self.aug is not None:
                 v = self._augment(v, rng)             # same warp across a slice's channels
             if self.ctx > 1:
