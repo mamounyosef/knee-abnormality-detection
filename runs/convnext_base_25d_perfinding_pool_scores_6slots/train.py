@@ -14,7 +14,7 @@ import timm
 import torch
 import torch.nn as nn
 
-EXP_NAME = "convnext_base_25d_mil_inst"
+EXP_NAME = "convnext_base_25d_perfinding_pool_scores_6slots"
 
 
 def _pkg_root() -> Path:
@@ -73,11 +73,22 @@ class SliceModel(nn.Module):
 
 
 
-# --- per-finding multiple-instance pooling ------------------------------------------
-# Which pooling each finding uses, fixed in advance from anatomy (see the module docstring
-# of the build script). POOL_LEVEL decides whether it is applied to features or to scores.
+# --- per-finding pooling, over per-finding SLOTS -------------------------------------
+# POOL_MAP: how each finding reduces its windows. Focal findings sit at one spot on a few
+# slices, so the most suspicious window should decide; diffuse ones are spread across the
+# joint, so the mean IS the evidence.
 POOL_MAP = {'max': ['Fracture', 'Contusion', 'Medial Meniscus', 'Lateral Meniscus'], 'top2': ['ACL', 'MCL'], 'mean': ['Medial OA', 'Lateral OA', 'PF OA', 'Effusion', 'Synovitis', "Baker's"]}
-POOL_LEVEL = "instance"
+
+# SLOT_MAP: which VIEWS each finding is read on. A knee is shot in three planes (sagittal
+# side-to-side, coronal front-to-back, axial down the leg) and two sequence types (fluid =
+# fat-suppressed, swelling glows white; plain = normal contrast, anatomy is crisp).
+#   ACL runs diagonally front-to-back, so only sagittal shows its length.
+#   MCL is a flat band on the inner edge - its whole length sits on one coronal slice.
+#   OA is a medial-vs-lateral compartment comparison, which is what coronal shows.
+#   PF OA is cartilage behind the kneecap, read on axial cross-sections.
+#   Effusion, Synovitis, Baker's and Contusion are fluid findings, invisible on plain.
+#   A Fracture can be anywhere and needs plain for the cortical line, so it keeps all six.
+SLOT_MAP = {'ACL': ['sag_fluid', 'sag_plain'], 'MCL': ['cor_fluid', 'cor_plain'], 'Medial Meniscus': ['sag_fluid', 'sag_plain', 'cor_fluid'], 'Lateral Meniscus': ['sag_fluid', 'sag_plain', 'cor_fluid'], 'Medial OA': ['cor_fluid', 'cor_plain'], 'Lateral OA': ['cor_fluid', 'cor_plain'], 'PF OA': ['ax_fluid', 'ax_plain', 'sag_plain'], 'Effusion': ['ax_fluid', 'sag_fluid'], 'Synovitis': ['sag_fluid', 'cor_fluid', 'ax_fluid'], "Baker's": ['ax_fluid', 'sag_fluid'], 'Contusion': ['sag_fluid', 'cor_fluid', 'ax_fluid'], 'Fracture': ['sag_plain', 'sag_fluid', 'cor_plain', 'cor_fluid', 'ax_plain', 'ax_fluid']}
 
 
 def _reduce(t, kind):
@@ -87,12 +98,12 @@ def _reduce(t, kind):
     if kind == "max":
         return t.max(dim=-2).values
     if kind == "top2":
-        return t.topk(2, dim=-2).values.mean(dim=-2)
+        return t.topk(min(2, t.shape[-2]), dim=-2).values.mean(dim=-2)
     raise ValueError(kind)
 
 
 class MILModel(nn.Module):
-    """2D backbone over every window, then pooling that differs per finding."""
+    """2D backbone over every window; each finding pools its OWN slots, its OWN way."""
 
     def __init__(self, cfg: dict):
         super().__init__()
@@ -104,44 +115,42 @@ class MILModel(nn.Module):
         if m.get("grad_checkpointing"):
             self.backbone.set_grad_checkpointing(True)
         feat = self.backbone.num_features
-        # Normalise each WINDOW before the shared head. Pooling happens on the
-        # logits here, and a max over 24 logits is dominated by whichever window
-        # the trunk happened to give the largest activations - a per-window norm
-        # makes that a comparison of evidence rather than of scale.
+        # normalise each WINDOW before the shared head, so a max over windows compares
+        # evidence rather than whichever window the trunk gave the largest activations
         self.feat_norm = nn.LayerNorm(feat)
-        self.per_study = sc.images_per_study(cfg)          # 24 windows, not slots*slices
+        self.per_study = sc.images_per_study(cfg)
         self.n_out = sc.num_output_logits(cfg)
+        self.head = nn.Linear(feat, self.n_out)
+
         tasks = list(cfg["tasks"])
-        # column indices per pooling kind, in task order
-        self.groups = {k: [tasks.index(t) for t in v if t in tasks]
-                       for k, v in POOL_MAP.items()}
-        self.groups = {k: v for k, v in self.groups.items() if v}
-        missing = [t for t in tasks
-                   if not any(t in v for v in POOL_MAP.values())]
-        if missing:
-            raise ValueError("no pooling assigned for %s" % missing)
-        if POOL_LEVEL == "embedding":
-            # one classifier per group, each reading its own pooled vector
-            self.heads = nn.ModuleDict({k: nn.Linear(feat, len(v))
-                                        for k, v in self.groups.items()})
-        else:
-            self.head = nn.Linear(feat, self.n_out)        # shared, applied per window
+        self.kinds = []
+        for t_name in tasks:
+            k = next((k for k, v in POOL_MAP.items() if t_name in v), None)
+            if k is None:
+                raise ValueError("no pooling assigned for %s" % t_name)
+            self.kinds.append(k)
+
+        # windows are laid out SLOT-MAJOR: slot 0's windows, then slot 1's, and so on
+        slots = list(cfg["input"]["slots"])
+        per_slot = self.per_study // len(slots)
+        self.slot_windows = []
+        for t_name in tasks:
+            allowed = [s for s in SLOT_MAP.get(t_name, slots) if s in slots]
+            if not allowed:
+                raise ValueError("no usable slot for %s; config has %s" % (t_name, slots))
+            self.slot_windows.append(
+                [si * per_slot + k for si, s in enumerate(slots) if s in allowed
+                 for k in range(per_slot)])
 
     def forward(self, x):
-        f = self.backbone(x)                               # (B*24, feat)
-        f = f.view(-1, self.per_study, f.shape[-1])        # (B, 24, feat)
-        if POOL_LEVEL == "embedding":
-            out = f.new_zeros(f.shape[0], self.n_out)
-            for kind, idx in self.groups.items():
-                v = _reduce(f, kind)                       # (B, feat)
-                out[:, idx] = self.heads[kind](self.feat_norm(v)).to(out.dtype)
-            return out
-        logits = self.head(self.feat_norm(f))              # (B, 24, 12)
-        out = f.new_zeros(f.shape[0], self.n_out)
-        for kind, idx in self.groups.items():
-            out[:, idx] = _reduce(logits[:, :, idx], kind).to(out.dtype)
-        return out
-
+        f = self.backbone(x)                               # (B*36, feat)
+        f = f.view(-1, self.per_study, f.shape[-1])        # (B, 36, feat)
+        logits = self.head(self.feat_norm(f))              # (B, 36, 12)
+        cols = []
+        for j, kind in enumerate(self.kinds):
+            sel = logits[:, self.slot_windows[j], j:j + 1]  # (B, w, 1)
+            cols.append(_reduce(sel, kind))                 # (B, 1)
+        return torch.cat(cols, dim=1)                       # (B, 12)
 
 def build_model(cfg: dict) -> nn.Module:
     return MILModel(cfg)

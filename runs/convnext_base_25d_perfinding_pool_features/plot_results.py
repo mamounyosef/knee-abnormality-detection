@@ -12,7 +12,7 @@ import argparse
 import sys
 from pathlib import Path
 
-EXP_NAME = "convnext_base_25d_mil_inst"
+EXP_NAME = "convnext_base_25d_perfinding_pool_features"
 
 
 def _pkg_root() -> Path:

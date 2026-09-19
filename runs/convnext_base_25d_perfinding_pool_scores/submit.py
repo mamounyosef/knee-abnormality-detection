@@ -27,7 +27,7 @@ KAGGLE_USER = "mamounhussam"   # owner slug for the dataset and the notebook
 CHECKPOINT = "best"            # best | last | top1.. | <step> | path
 VERIFY_STUDIES = 3             # DICOM-vs-shard check; 0 skips it
 
-EXP_NAME = "convnext_base_25d_mil_inst"
+EXP_NAME = "convnext_base_25d_perfinding_pool_scores"
 
 
 def _pkg_root() -> Path:

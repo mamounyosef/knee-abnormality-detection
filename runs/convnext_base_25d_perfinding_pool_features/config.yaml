@@ -31,7 +31,7 @@
 # Beat: convnext_base_25d_group3, val 0.9013, at three quarters of its compute.
 
 experiment:
-  name: "convnext_base_25d_mil_inst"
+  name: "convnext_base_25d_perfinding_pool_features"
 
 paths:
   # Byte-identical split MEMBERSHIP to convnext_base_25d_group3 and convnext_base_336px.

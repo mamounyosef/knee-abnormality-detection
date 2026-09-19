@@ -14,7 +14,7 @@ import timm
 import torch
 import torch.nn as nn
 
-EXP_NAME = "convnext_base_25d_mil_emb"
+EXP_NAME = "convnext_base_25d_perfinding_pool_features"
 
 
 def _pkg_root() -> Path:

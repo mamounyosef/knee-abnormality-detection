@@ -19,7 +19,7 @@ from pathlib import Path
 
 import torch
 
-EXP_NAME = "convnext_base_25d_mil_slots"
+EXP_NAME = "convnext_base_25d_perfinding_pool_scores_6slots"
 
 
 def _pkg_root() -> Path:
