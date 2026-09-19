@@ -76,7 +76,7 @@ MEMBERS = [
     # the routing.
     # convnext_base_relabel is back, which makes this EXACTLY the configuration measured at
     # val 0.9178 / audit 0.9160. The routing is now the only difference from the 0.932 seven.
-    # Order MUST match synovitis_route_weights.json exactly.
+    # Order MUST match three_route_weights.json exactly.
     ("convnext_base_relabel", "best"),
     ("mricore_vitb_cross_attention", "best"),
     ("mricore_vitb_mae_cross_attention", "best"),
@@ -98,7 +98,7 @@ MEMBERS = [
 # worse than the one measured, including the 6-member that scored 0.922. Fixed: best.pt
 # is now step 2600 and its `score` matches val_log's peak. ALWAYS check that before a
 # submission - it is silent otherwise.
-BLEND_WEIGHTS = "synovitis_route_weights.json"        # Synovitis -> fluid, rest 1/7
+BLEND_WEIGHTS = "three_route_weights.json"            # Synovitis, Fracture, PF OA
                                # per-class matrix; verified identical to the
                                # nested form (max logit gap 4.8e-07).
 _OLD = None                    # FLAT. The per-class search is fitting noise now: its
@@ -118,27 +118,27 @@ SUBMIT       = True              # REAL SUBMISSION: costs one of the day's 5.
                               # Set STRESS > 0 with SUBMIT = False to get marginal per-study
                               # rates before committing to the 9 h cap.
 KAGGLE_USER  = "mamounhussam"
-SLUG         = "knee-syn-route-relabel"
+SLUG         = "knee-three-route"
 # KEEP THIS IN STEP WITH MEMBERS. Submission 56234763 shipped the 18-slice member while
 # this text still named the 24-slice one, because the swap changed MEMBERS and SLUG and
 # missed NOTE. Kaggle descriptions cannot be edited after submitting, so that record is
 # permanently wrong. Re-read this string whenever MEMBERS changes.
-NOTE         = ("SYNOVITIS ROUTED TO ITS SPECIALIST - clean isolation test. Members, each "
-                "1/7 on the other 11 findings: convnext_base_relabel, "
-                "mricore_vitb_cross_attention, mricore_vitb_mae_cross_attention, "
-                "dinov3_convnext_base, convnext_base_25d_18slices, swinv2_base_in22k, "
-                "convnext_base_25d_poolattn. SYNOVITIS is taken entirely by "
-                "convnext_base_fluid (weight 1.0; the seven are switched off on that column "
-                "and it votes on nothing else). "
-                "Why: Synovitis is the ONLY finding of twelve where a single model beats the "
-                "whole ensemble - the fluid specialist scores 0.8767 there against 0.8597. "
-                "Routing it is +0.0014 macro, stable across 10/10 cross-fitted seeds, weight "
-                "1.0 in 44/50 fits, and +0.0096 on the independent 58-study panel set. "
-                "This differs from submission 56299088 in ONE thing: convnext_base_relabel "
-                "replaces convnext_base_full. 56299088 changed the routing AND that member "
-                "together and scored 0.931, so it could not attribute the result. This is the "
-                "exact configuration measured at val 0.9178, making the routing the only "
-                "difference from the 0.932 seven.")
+NOTE         = ("THREE FINDINGS ROUTED TO A SINGLE MEMBER EACH. Members, each 1/7 on the "
+                "other nine findings: convnext_base_relabel, mricore_vitb_cross_attention, "
+                "mricore_vitb_mae_cross_attention, dinov3_convnext_base, "
+                "convnext_base_25d_18slices, swinv2_base_in22k, convnext_base_25d_poolattn. "
+                "Routed, each taking its column outright at weight 1.0 while the others are "
+                "switched off on it: SYNOVITIS to convnext_base_fluid (0.8767 against the "
+                "seven's 0.8604), FRACTURE to mricore_vitb_mae_cross_attention (0.9403 "
+                "against 0.9254), PF OA to dinov3_convnext_base (0.8858 against 0.8762). "
+                "Val macro 0.9159 flat -> 0.9193 routed. "
+                "Every routed target is a member's OWN best checkpoint, already in the "
+                "bundle, so this costs ZERO extra forward passes over the 8-member "
+                "Synovitis-only submission and the runtime is unchanged. "
+                "Synovitis was chosen a-priori (the fluid specialist was BUILT for it, "
+                "10/10 cross-fitted seeds, +0.0096 on the 58-study panel set). Fracture and "
+                "PF OA were found by scanning 1,263 scored checkpoints across 58 runs, so "
+                "they carry selection risk the Synovitis routing does not.")
 # ===========================================================================
 
 PKG_ROOT = Path(__file__).resolve().parent.parent.parent      # <repo>/runs
