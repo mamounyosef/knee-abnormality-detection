@@ -304,3 +304,7 @@ runs/others/features/
 runn/others/watch104.log
 runs/others/watch104.log
 .per_label_cache.npz
+
+# relay staging: up to 49 GB of shards in transit between workspaces
+data/_relay_stage/
+data/_relay_state.json
