@@ -124,15 +124,20 @@ training:
 # CPU-side loading; decoding shards is the bottleneck and stays one here, though 18 slices
 # is a quarter less to decode per study than 24.
 dataloader:
-  batch_size: 4                     # 4 studies x 40 images = 160 images
-                                    # @336 (coronal contributes 8, the rest 6). The
-                                    # 4-slot parent peaked at ~54 GB on 192 images
-                                    # (~0.28 GB/image), so 160 is ~45 GB of the
-                                    # A100-80GB. 8 studies would be 320 images,
-                                    # ~90 GB, over the card.
-  accum_steps: 2                    # 4 x 2 = effective 8 studies per update,
-                                    # IDENTICAL to every other run, so step counts
-                                    # and the lr schedule compare directly.
+  batch_size: 8                     # 8 studies x 40 images = 320 images @336, in ONE
+                                    # pass rather than two accumulated halves.
+                                    # MEASURED BASIS: this run peaked at 45.13 GB on 160
+                                    # images. Subtracting ~2 GB of weights and AdamW
+                                    # state leaves ~0.269 GB per image, so 320 images is
+                                    # ~88 GB - over an 80 GB card, which is why this run
+                                    # and only this run sits on the 141 GB H200 (63%% of
+                                    # the card).
+  accum_steps: 1                    # still 8 studies per optimizer step, so the step
+                                    # count and lr schedule are unchanged. The engine
+                                    # divides the loss by accum before stepping, and the
+                                    # loss is a mean over studies, so 8x1 and 4x2 produce
+                                    # IDENTICAL gradients - this is a speed change, not a
+                                    # training change, and it resumes cleanly mid-run.
   val_batch_size: 8                 # 8 x 40 = 320 images, but no backward pass
                                     # means no stored activations.
 
@@ -146,12 +151,13 @@ dataloader:
   drop_last: false                  # keep the ragged final batch
 
 modal:
-  gpu: "H100"                     # H100 SXM5 $3.95/h against the A100-80GB's $2.50/h, but
-                                    # measured 2.2-2.3x the throughput on ConvNeXt-Base
-                                    # @336px, so ~35% more images per dollar. These runs
-                                    # are compute bound (data_wait_pct 4.6%), so the
-                                    # extra speed is real rather than idle time.
-                                    # PEAK HERE IS 45.1 GB, inside the 80 GB card.
+  gpu: "H200"                     # the ONE run here that needs more than 80 GB: 320
+                                    # images is ~88 GB. H200 is $4.54/h against H100's
+                                    # $3.95, the same GH100 compute die with 4.8 TB/s of
+                                    # bandwidth instead of 3.35, so it is worth roughly
+                                    # what it costs. Our own logs have it at 656-669
+                                    # img/s on ConvNeXt-Base @336, against the
+                                    # A100-80GB's 286.5, i.e. +26%% images per dollar.
   cpu: 16.0                         # raised with the GPU: at 2.2x the compute
                                     # speed the loader has to feed 2.2x as fast
                                     # or the card idles. A reservation, not a
