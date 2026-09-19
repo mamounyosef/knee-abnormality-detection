@@ -136,11 +136,11 @@ modal:
 evaluation:
   validate_before_training: true          # record what the seeded weights are worth on THIS
                                           # run's inputs, so the gain is measured not inferred
-  eval_every_steps_before: 200
+  eval_every_steps_before: 100            # flat 100 for the whole run
   eval_every_steps_mid: 100
   eval_every_steps_epoch_mid_threshold: null
   eval_every_steps_after: 100
-  eval_every_steps_epoch_threshold: 3
+  eval_every_steps_epoch_threshold: 1
 
 tasks:
   - PF OA
