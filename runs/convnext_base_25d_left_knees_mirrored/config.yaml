@@ -152,12 +152,17 @@ dataloader:
   drop_last: false                  # keep the ragged final batch
 
 modal:
-  gpu: "A100-80GB"                  # 192 images is ~54 GB, so the 80 GB card fits it with
-                                    # room. NOT the A100-40GB: that would be over the card.
-                                    # At 24 passes per study this run is I/O bound anyway,
-                                    # so the faster H200 would idle.
-  cpu: 14.0                         # one core per dataloader worker, decoding npz is
-                                    # CPU-bound and matters more than ever here
+  gpu: "H100"                     # H100 SXM5 $3.95/h against the A100-80GB's $2.50/h, but
+                                    # measured 2.2-2.3x the throughput on ConvNeXt-Base
+                                    # @336px, so ~35% more images per dollar. These runs
+                                    # are compute bound (data_wait_pct 4.6%), so the
+                                    # extra speed is real rather than idle time.
+                                    # PEAK HERE IS 53.5 GB, inside the 80 GB card.
+  cpu: 16.0                         # raised with the GPU: at 2.2x the compute
+                                    # speed the loader has to feed 2.2x as fast
+                                    # or the card idles. A reservation, not a
+                                    # cap. Watch data_wait_pct: over ~10%% means
+                                    # raise it again.
   memory_gb: 64                     # 26 workers x prefetch 6 x ~32 MB per queued batch
 
 # inherits resume: "last" from shared_config - the preemption-safe setting.
