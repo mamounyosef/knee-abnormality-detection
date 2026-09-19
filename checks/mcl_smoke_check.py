@@ -31,7 +31,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "runs"))
 import shared_code as sc  # noqa: E402
 
-ARMS = ["convnext_base_25d_mil_emb", "convnext_base_25d_mil_inst", "dinov3_pfoa"]
+ARMS = ["convnext_base_25d_mil_emb", "convnext_base_25d_mil_inst", "convnext_base_25d_mil_slots"]
 SUBSET = 6          # studies per split - enough to exercise every code path, fast enough to run
 fails = []
 
