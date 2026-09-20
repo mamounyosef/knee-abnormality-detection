@@ -145,10 +145,17 @@ for arm in ARMS:
     spec.loader.exec_module(mod)
     model = mod.build_model(trim(cfg)).eval()
     with torch.no_grad():
-        # the loader batch at 512px is too big for a laptop forward, so feed the model
-        # the shape it expects at a smaller side - the architecture is fully convolutional
-        small = torch.zeros(want_imgs, 3, 64, 64)
-        out = model(small)
+        # A convolutional trunk accepts any side, so 64px keeps this fast on a laptop. A
+        # ViT does NOT: its patch_embed asserts the exact img_size it was built with, and
+        # BEiT raises "Input height (64) doesn't match model (336)". So try the cheap size
+        # and fall back to the real one rather than reporting a failure that is the
+        # check's assumption rather than the run's problem.
+        side = sc.model_input_size(cfg)
+        try:
+            out = model(torch.zeros(want_imgs, 3, 64, 64))
+        except (AssertionError, RuntimeError):
+            print("       (trunk needs its native %dpx, running full size)" % side)
+            out = model(torch.zeros(want_imgs, 3, side, side))
     n_out = len(cfg["tasks"])
     check("forward gives (1 study, %d logit(s))" % n_out,
           tuple(out.shape) == (1, n_out), str(tuple(out.shape)))
