@@ -260,7 +260,15 @@ QWEN_VISION_GRID = 48          # 2304 learned position embeddings = 48 x 48 patc
 
 
 def _qwen_pos_embed(v, want_tokens):
-    """(2304, 768) on a 48x48 grid -> (1, want_tokens, 768) on sqrt(want) x sqrt(want)."""
+    """(2304, 768) on a 48x48 grid -> (1, want_tokens, 768) on sqrt(want) x sqrt(want).
+
+    BILINEAR with align_corners=True, because that is what Qwen itself does. Its vision
+    model sets num_grid_per_side = sqrt(num_position_embeddings) = 48, interpolation_mode
+    = "bilinear" and interpolation_align_corners = True, and resamples this same table to
+    each image's grid at runtime. Using bicubic here (the rule for SAM, and what load_medsam
+    does) would give a tensor of exactly the right shape holding slightly wrong numbers,
+    which nothing downstream would ever flag.
+    """
     import math
     g = int(round(math.sqrt(v.shape[0])))
     t = int(round(math.sqrt(want_tokens)))
@@ -270,7 +278,7 @@ def _qwen_pos_embed(v, want_tokens):
         raise RuntimeError("target %d tokens is not a square grid" % want_tokens)
     x = v.reshape(1, g, g, -1).permute(0, 3, 1, 2).float()
     if g != t:
-        x = F.interpolate(x, size=(t, t), mode="bicubic", align_corners=False)
+        x = F.interpolate(x, size=(t, t), mode="bilinear", align_corners=True)
     return x.permute(0, 2, 3, 1).reshape(1, t * t, -1).to(v.dtype)
 
 

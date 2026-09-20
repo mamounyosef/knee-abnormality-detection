@@ -19,6 +19,7 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn.functional as F
 
@@ -157,14 +158,34 @@ ck("study logits are (2, 12)", tuple(y.shape) == (2, len(cfg["tasks"])), str(tup
 ck("logits are finite", bool(torch.isfinite(y).all()))
 ck("logits are not constant", float(y.std()) > 1e-4, "std %.4f" % y.std())
 
-print("\n10. frozen features actually separate the studies")
-with torch.no_grad():
-    a = bb(torch.randn(8, 3, 336, 336))
-c = np.corrcoef(a.numpy())
-off = c[~np.eye(8, dtype=bool)]
-ck("different inputs give different features", float(off.max()) < 0.999,
-   "max off-diagonal correlation %.4f" % off.max())
-ck("features are not collapsed to a constant", float(a.std()) > 1e-3, "std %.4f" % a.std())
+print("\n10. frozen features separate real knee windows")
+# NOT on Gaussian noise, and NOT on the raw vectors. Mean-pooled ViT features always share
+# one large direction, so raw pairwise correlation is ~0.99 for any input and says nothing.
+# A linear head cannot see that direction anyway - its bias absorbs the batch mean, and
+# feat_norm removes the shared scale - so measure what the head actually gets.
+_df = pd.read_csv(sc.resolve(cfg["paths"]["train_csv"], cfg))
+_shards = Path(cfg["paths"]["shards_dir"])
+_have = [u for u in _df["StudyInstanceUID"] if (_shards / ("%s.npz" % u)).exists()]
+if len(_have) >= 2:
+    _idx = pd.read_csv(sc.resolve(cfg["paths"]["series_index"], cfg))
+    _ds = sc.KneeShardDataset(_df[_df["StudyInstanceUID"].isin(_have)].reset_index(drop=True),
+                              cfg, sc.plan_slots(_idx, cfg), train=False)
+    _x = sc.prepare_batch(torch.stack([_ds[i][0] for i in range(len(_ds))]), cfg, "cpu")
+    with torch.no_grad():
+        a = bb(_x[:24])
+    ck("features are not collapsed to a constant", float(a.std()) > 1e-3, "std %.4f" % a.std())
+    ac = a - a.mean(dim=0, keepdim=True)
+    c = np.corrcoef(ac.numpy())
+    off = c[~np.eye(len(ac), dtype=bool)]
+    ck("batch-centred windows are decorrelated, not duplicates", float(off.mean()) < 0.5,
+       "mean off-diagonal r %+.4f over %d windows" % (off.mean(), len(ac)))
+    _s = np.linalg.svd(ac.numpy(), compute_uv=False)
+    _ev = (_s ** 2) / (_s ** 2).sum()
+    _er = float(np.exp(-(_ev * np.log(_ev + 1e-12)).sum()))
+    ck("the feature space has real dimensionality, not one direction", _er > 3.0,
+       "effective rank %.1f of %d windows" % (_er, len(ac)))
+else:
+    print("      skipped: %d local shards, needs 2" % len(_have))
 
 print("\n" + "=" * 76)
 print("  %d passed, %d failed" % (len(PASS), len(FAIL)))
