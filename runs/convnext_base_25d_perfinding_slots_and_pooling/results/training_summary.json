@@ -77,7 +77,7 @@
   "elapsed": "53m10s",
   "submission": {
     "submitted": "2026-09-20T15:49:39Z",
-    "public_score": null,
+    "public_score": 0.915,
     "private_score": null,
     "runtime_seconds": 1338,
     "runtime": "22.3 min (0.37 h of the 9 h cap, queue included)",
@@ -85,6 +85,6 @@
     "kernel_version": 2,
     "submission_ref": 56400318,
     "checkpoint": "best.pt (epoch 6, step 2600, val 0.896051)",
-    "notes": "Solo run, not an ensemble. Six slots with per-finding view masking, coronal at 24 slices, 40 windows/study. Val 0.8961 against its parent's 0.9010. At the calibrated OOF->LB slope of 0.48 that predicts ~0.9116 against the parent's measured 0.914. First run ever shipped with per-slot slice counts; checks/per_slot_dicom_check.py verified the DICOM branch produces a byte-identical tensor to the shard branch before submitting."
+    "notes": "Solo run, not an ensemble. Six slots with per-finding view masking, coronal at 24 slices, 40 windows/study. Val 0.8961 against its parent's 0.9010. At the calibrated OOF->LB slope of 0.48 that predicts ~0.9116 against the parent's measured 0.914. First run ever shipped with per-slot slice counts; checks/per_slot_dicom_check.py verified the DICOM branch produces a byte-identical tensor to the shard branch before submitting. RESULT: 0.915 public. Validation said -0.0049 against the parent; the leaderboard says +0.001 (0.915 vs 0.914). Predicted 0.9116 from the 0.48 slope, so the prediction was 0.0034 low and the SIGN was wrong."
   }
 }

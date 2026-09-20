@@ -65,6 +65,31 @@ training:
     focal_gamma: 2.0
     aucm_margin: 1.0
     aucm_bce_mix: 0.1
+  # EXTENSION. The run finished all 12 epochs at the cosine floor (1% of a 5.0e-5 peak)
+  # with its last epochs gaining +0.0011, +0.0010, +0.0005 - converged on its own schedule,
+  # not cut short. It ends at 0.8435 against the parent's 0.9010.
+  #
+  # The case FOR extending: a ResNet-50 is 23.5M parameters against ConvNeXt-Base's 88M, it
+  # was pretrained self-supervised with no classification head ever attached, and its first
+  # epoch was spent frozen under lp_ft. 12 epochs may simply not be enough to adapt a trunk
+  # that has never done supervised classification.
+  #
+  # The case AGAINST, on record: its frozen probe was 0.6914, and the deceleration is
+  # smooth rather than noisy. Closing 0.0575 at +0.0005/epoch is ~100 epochs.
+  #
+  # 12 more epochs at 3.0e-5 settles it. That is 60% of the original peak, well above the
+  # 8.0e-6 used for a fine-tuning nudge, because the question here is whether the trunk can
+  # still move a lot - not whether it can be polished. min_lr_mult 0.10 keeps the later
+  # epochs working instead of spending them below 1e-7.
+  extend:
+    enable: true
+    epochs: 12                      # on TOP of the 12 already done
+    lr: 3.0e-5                      # new PEAK, against the original 5.0e-5
+    warmup_frac: 0.02               # short re-warm from the 5.0e-7 floor it ended on
+    min_lr_mult: 0.10               # NOT 0.01: 12 epochs at a 1% floor waste most of them
+    reset_optimizer: false          # keep the AdamW moments
+    reset_patience: true            # early stopping starts fresh
+
   early_stopping:
     enable: true
     monitor: "val_macro_auroc"

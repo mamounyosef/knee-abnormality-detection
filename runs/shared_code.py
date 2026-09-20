@@ -2968,7 +2968,15 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
 
     model = model.to(device)
     if cfg["training"]["channels_last"]:
-        model = model.to(memory_format=torch.channels_last)
+        # channels_last is a RANK-4 layout (N, C, H, W). A 3D backbone's Conv3d weights are
+        # rank 5, and torch raises "required rank 4 tensor to use channels_last format"
+        # rather than skipping them, which is what killed triad_plainconv3d_320 at startup.
+        # torch has a separate rank-5 layout for exactly this case.
+        _has5d = any(p_.ndim == 5 for p_ in model.parameters())
+        _fmt = torch.channels_last_3d if _has5d else torch.channels_last
+        model = model.to(memory_format=_fmt)
+        if _has5d:
+            print("  🧊 channels_last_3d (the model has rank-5 conv weights)")
     # Trade compute for VRAM: don't keep intermediate activations, recompute them in the
     # backward pass. Roughly 30-40% slower per step, but activation memory drops by close
     # to an order of magnitude - which is the only way a 96-image study fits on a small
