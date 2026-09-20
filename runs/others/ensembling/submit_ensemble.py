@@ -123,9 +123,10 @@ STRESS       = 0                 # >0 = MEASUREMENT run: repeat the 3 public stu
                               # no submission.csv. Use with SUBMIT = False.
 PUBLISH      = True
 WAIT_FOR_RUN = True
-SUBMIT       = False             # free kernel run FIRST: eight members and TWO
-                              # decode groups, so the runtime must be measured
-                              # against the 9 h cap before committing.
+SUBMIT       = True              # runtime measured on the free kernel: 23.890 s per
+                              # study over 3 decode passes, against the 21.689 s
+                              # that was observed to take 5.7 h. Scaled: 6.3 h of
+                              # the 9 h cap, so the extra decode group fits.
 KAGGLE_USER  = "mamounhussam"
 SLUG         = "knee-eight-perfinding"
 # KEEP THIS IN STEP WITH MEMBERS. Submission 56234763 shipped the 18-slice member while
@@ -144,7 +145,13 @@ NOTE         = ("THE 0.932 SEVEN PLUS AN EIGHTH, FLAT. Added: "
                 "against the shipped 0.9172. Shipped SOLO this member scored 0.915 against "
                 "its parent's 0.914 while validation had it 0.0049 BELOW that parent, so "
                 "val understates it and the ensemble gain may exceed what val can see. "
-                "Members 1-7 unchanged from the 0.932 submission. | Built with DINOv3")
+                "The other seven are unchanged from the 0.932 submission: "
+                "convnext_base_relabel, mricore_vitb_cross_attention, "
+                "mricore_vitb_mae_cross_attention, dinov3_convnext_base, "
+                "convnext_base_25d_18slices, swinv2_base_in22k, "
+                "convnext_base_25d_poolattn. RUNTIME: measured 23.890 s per study "
+                "over 3 decode passes against the 21.689 s that took 5.7 h, so "
+                "6.3 h of the 9 h cap. | Built with DINOv3")
 
 # ===========================================================================
 
