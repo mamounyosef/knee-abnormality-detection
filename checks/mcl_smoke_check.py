@@ -126,7 +126,11 @@ for arm in ARMS:
               n == want_imgs, str(tuple(x.shape)))
         want_c = (sc.check_slot_geometry(cfg) if sc.per_slot_input(cfg)
                   else (cfg["input"]["n_slices"] // cfg["input"]["slices_as_channels"]
-                        if cfg["input"].get("slices_as_channels") else 3))
+                        # NOT hardcoded 3: a single-channel run (the 3D Triad backbone,
+                        # whose stem is Conv3d(in=1)) legitimately produces one channel,
+                        # and prepare_batch expands grey to exactly input.channels.
+                        if cfg["input"].get("slices_as_channels")
+                        else int(cfg["input"]["channels"])))
         check("%s images are %d-channel %dpx" % (split, want_c, cfg["input"]["size"]),
               (c, h, w) == (want_c, cfg["input"]["size"], cfg["input"]["size"]),
               str((c, h, w)))
@@ -152,10 +156,10 @@ for arm in ARMS:
         # check's assumption rather than the run's problem.
         side = sc.model_input_size(cfg)
         try:
-            out = model(torch.zeros(want_imgs, 3, 64, 64))
+            out = model(torch.zeros(want_imgs, want_c, 64, 64))
         except (AssertionError, RuntimeError):
             print("       (trunk needs its native %dpx, running full size)" % side)
-            out = model(torch.zeros(want_imgs, 3, side, side))
+            out = model(torch.zeros(want_imgs, want_c, side, side))
     n_out = len(cfg["tasks"])
     check("forward gives (1 study, %d logit(s))" % n_out,
           tuple(out.shape) == (1, n_out), str(tuple(out.shape)))

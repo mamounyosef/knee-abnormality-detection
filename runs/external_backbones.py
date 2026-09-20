@@ -139,3 +139,91 @@ def resolve_weights(filename, cfg=None):
         if c.exists():
             return c
     raise FileNotFoundError("%s not found in %s" % (filename, [str(c) for c in cands]))
+
+
+# =============================================================================
+# Triad: a 3D nnU-Net PlainConvEncoder pretrained by masked autoencoding on
+# Triad-131K (131,170 3D MRI volumes; brain, breast, prostate; T1/T2/FLAIR/DWI/fMRI/DCE).
+#
+# WEIGHTS ARE MIT (the Triad authors). The HuggingFace bundle we read is a JAX/Equinox PORT
+# whose PORT CODE is Apache-2.0 / GPL-3.0 dual licensed - so the encoder below is written
+# from the published nnU-Net architecture rather than copied from that port, and only the
+# weight tensors are used. Upstream (wangshansong1/Triad) ships the same weights for PyTorch
+# under MIT; the port is simply easier to download than a Google Drive link.
+#
+# THE LAYOUT DIFFERENCE THAT MATTERS: Equinox stores a conv bias as (C, 1, 1, 1) for
+# broadcasting, PyTorch wants (C,). Loading without reshaping raises, which is the good case;
+# what would be silent is getting the STRIDE pattern wrong, since a wrong stride still
+# produces a valid tensor of the wrong spatial size.
+# =============================================================================
+TRIAD_CHANNELS = (32, 64, 128, 256, 320, 320)
+TRIAD_STRIDES = (1, 2, 2, 2, 2, 2)          # five halvings -> every spatial dim /32
+
+
+class _TriadConv(torch.nn.Module):
+    """nnU-Net's conv-norm-activation unit: 3x3x3, InstanceNorm3d(affine), LeakyReLU."""
+
+    def __init__(self, cin, cout, stride):
+        super().__init__()
+        self.conv = torch.nn.Conv3d(cin, cout, 3, stride=stride, padding=1, bias=True)
+        self.norm = torch.nn.InstanceNorm3d(cout, affine=True, eps=1e-5)
+        self.act = torch.nn.LeakyReLU(0.01, inplace=True)
+
+    def forward(self, x):
+        return self.act(self.norm(self.conv(x)))
+
+
+class TriadEncoder(torch.nn.Module):
+    """The pretrained encoder only. Returns the bottleneck, globally pooled.
+
+    The published checkpoint is encoder-only - the self-supervised reconstruction decoder is
+    stripped - so the transfer representation IS the skip pyramid. We take the deepest stage
+    and global-average it, which is the usual way to turn a segmentation encoder into a
+    classification feature.
+    """
+
+    num_features = TRIAD_CHANNELS[-1]
+
+    def __init__(self, in_ch: int = 1):
+        super().__init__()
+        stages, cin = [], in_ch
+        for cout, st in zip(TRIAD_CHANNELS, TRIAD_STRIDES):
+            stages.append(torch.nn.Sequential(_TriadConv(cin, cout, st),
+                                              _TriadConv(cout, cout, 1)))
+            cin = cout
+        self.stages = torch.nn.ModuleList(stages)
+
+    def forward(self, x):                     # (B, 1, D, H, W)
+        for s in self.stages:
+            x = s(x)
+        return x.mean(dim=(2, 3, 4))          # (B, 320)
+
+    def set_grad_checkpointing(self, enable=True):
+        self._grad_ckpt = enable
+
+
+def load_triad(model, ckpt_path, strict_count: bool = True):
+    """Fill a TriadEncoder from the published safetensors bundle.
+
+    Equinox conv biases are (C, 1, 1, 1); PyTorch wants (C,). Everything else maps by name
+    once `encoder.` is stripped and `convs.N` becomes the Sequential index.
+    """
+    from safetensors.torch import load_file
+    raw = load_file(str(ckpt_path))
+    out, msd = {}, model.state_dict()
+    for k, v in raw.items():
+        kk = k[len("encoder."):] if k.startswith("encoder.") else k
+        kk = kk.replace(".convs.", ".")               # stages.0.convs.1.conv -> stages.0.1.conv
+        if kk not in msd:
+            continue
+        want = msd[kk]
+        if v.shape != want.shape and v.numel() == want.numel():
+            v = v.reshape(want.shape)                 # the (C,1,1,1) -> (C,) bias case
+        if v.shape == want.shape:
+            out[kk] = v
+    missing = [k for k in msd if k not in out and "num_batches_tracked" not in k]
+    model.load_state_dict(out, strict=False)
+    if strict_count and missing:
+        raise RuntimeError("Triad load filled only %d/%d tensors; unfilled: %s"
+                           % (len(out), len(msd), ", ".join(missing[:8])))
+    return len(out)

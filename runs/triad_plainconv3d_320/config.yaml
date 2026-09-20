@@ -1,0 +1,133 @@
+# triad_plainconv3d_320 - the only 3D backbone here, on the only MRI-pretrained weights.
+#
+# Triad: an nnU-Net PlainConvEncoder pretrained by MASKED AUTOENCODING on Triad-131K,
+# 131,170 3D MRI volumes (brain, breast, prostate; T1/T2/FLAIR/DWI/fMRI/DCE). It
+# decorrelates from everything we ship on three axes at once - 3D rather than 2D, MRI
+# rather than natural images, self-supervised rather than supervised. Our only other
+# MRI-pretrained member, MRI-CORE, is a 2D ViT.
+#
+# LICENCE. Weights MIT (the Triad authors, wangshansong1/Triad). We read them from the
+# HuggingFace JAX/Equinox bundle because upstream ships them via Google Drive, but that
+# port's CODE is Apache-2.0 / GPL-3.0 dual licensed - so runs/external_backbones.py
+# reimplements the encoder from the published nnU-Net architecture and uses only the weight
+# tensors. No GPL code enters this repository.
+#
+# GEOMETRY IS FORCED, NOT CHOSEN. Triad needs single-channel volumes with every spatial
+# dimension a multiple of 32. Hence 320 px (not our usual 336, which 32 does not divide) and
+# 32 slices (not 18). At 0.40 mm/px that is 128 mm of frame against 134 mm, so the field of
+# view barely moves. No 2.5D packing: the depth axis IS the through-plane axis now, which is
+# the entire reason to use a 3D model.
+#
+# NORMALISATION IS AN ASSUMPTION, and the only one in this run. Every other backbone
+# published its pretraining mean/std; Triad's card says only "single-channel 3D MRI volume".
+# nnU-Net z-scores per image, and our loader already percentile-windows to 0-255, so
+# mean 0.5 / std 0.5 maps that to [-1, 1] as the closest honest match. If this run
+# underperforms, that is the first thing to re-examine.
+#
+# READ EPOCH 1 BEFORE LETTING IT RUN. lp_ft_epochs: 1 makes epoch 1 a FROZEN LINEAR PROBE,
+# which is the diagnostic that caught medsam_vit_b_512 probing at 0.5095 - chance - only
+# after four runs had been launched. Triad has seen brain, breast and prostate and never a
+# knee or any musculoskeletal anatomy, so its features may not transfer at all. If epoch 1
+# lands near 0.5, kill it; if it lands near barlowtwins' 0.69, let it run.
+#
+# Beat: convnext_base_25d_18slices, val 0.9010 - but the real target is a logit correlation
+# below 0.9 with the shipped seven.
+
+experiment:
+  name: "triad_plainconv3d_320"
+
+paths:
+  # Byte-identical split MEMBERSHIP to convnext_base_25d_group3 and convnext_base_336px.
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+  # audit_csv stays 05_audit58.csv - the panel labels never change, so it is the one
+  # honest cross-label-set comparison.
+
+model:
+  name: "triad_plainconvunet_mae"   # not a timm id: built by
+                                    # external_backbones.TriadEncoder
+  pretrained: true
+  pool: "mean"
+  drop_rate: 0.1                    # dropout in the head, mild regularization
+
+input:
+  # 336 x 0.40 = 134 mm of frame, unchanged. mm_per_px stays 0.40, the value every run in
+  # this project has used: it is the knob that controls interpolation, and at 0.40 exactly
+  # 24.4% of series are upsampled (median 1.17x).
+  size: 320
+
+  # 18 real slices per slot, down from the shared default of 24. This is the ONLY difference
+  # from convnext_base_25d_group3.
+  # SINGLE CHANNEL. prepare_batch expands a grey slice to `channels`; Triad's stem is
+  # Conv3d(in=1), so it must stay 1. The depth axis carries the through-plane information
+  # that 2.5D used to pack into the channel axis.
+  channels: 1
+  # The one unverified setting in this run. Triad's card states no pretraining mean/std,
+  # unlike every other backbone here. nnU-Net z-scores per image; our loader already
+  # percentile-windows to 0-255, so 0.5/0.5 maps that to [-1, 1] as the closest match.
+  norm_mean: [0.5]
+  norm_std:  [0.5]
+
+  n_slices: 32
+
+  # 6 IMAGES PER SLOT, each holding 3 consecutive slices in its 3 channels.
+  # prepare_batch reshapes (B, 4, 18, H, W) -> (B*4*6, 3, H, W). The slice axis splits with
+  # the GROUP as the outer index and the CHANNEL as the inner one, so the groups are
+  # contiguous and non-overlapping: (0,1,2), (3,4,5), ... (15,16,17).
+  # 18 / 6 = 3 means train.py builds the backbone with in_chans=3, i.e. the pretrained stem
+  # exactly as shipped. No filter tiling, no rescaling, no adaptation.
+  slices_as_channels: null
+
+training:
+  epochs: 12
+  lp_ft_epochs: 1
+  grad_clip: 5.0
+                                    # throttles the effective learning rate.
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-5
+                                    # the slice count is the only variable
+    backbone_lr_mult: 0.5
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05
+    min_lr_mult: 0.01               # floor: ends at 1% of the base learning rate
+  loss:
+    name: "bce"                     # bce = binary cross-entropy | focal = focuses on hard cases
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 7
+
+# CPU-side loading; decoding shards is the bottleneck and stays one here, though 18 slices
+# is a quarter less to decode per study than 24.
+dataloader:
+  batch_size: 1
+  accum_steps: 8
+  val_batch_size: 2
+                                    # backward pass there are no stored activations, so this
+                                    # is far cheaper than the training batch despite being
+                                    # twice the studies. Speeds the validations up.
+
+  num_workers: 26                   # the GPU does a quarter of convnext_base_336px's work
+                                    # per study, so the loader is the binding constraint
+  val_num_workers: null             # null = same as num_workers
+
+  prefetch_factor: 6                # batches queued per worker
+  pin_memory: true                  # page-locked memory, faster CPU -> GPU copies
+  persistent_workers: true          # don't respawn workers every epoch
+  drop_last: false                  # keep the ragged final batch
+
+modal:
+  gpu: "H200"
+  cpu: 16.0
+  memory_gb: 96
+
+# inherits resume: "last" from shared_config - the preemption-safe setting.

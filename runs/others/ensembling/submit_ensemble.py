@@ -66,25 +66,20 @@ from pathlib import Path
 # 6.9-8.3 h of the 9 h cap against 5.5-6.6 h for these six, and +0.0004 val is well inside
 # the 0.0055 noise. A timeout forfeits the run, so the cap decides. See runtime_budget.py.
 MEMBERS = [
-    # THE 0.932 SEVEN, with Synovitis handed entirely to convnext_base_fluid.
-    # This is the CLEAN isolation test. Submission 56299088 shipped this same routing but
-    # ALSO swapped convnext_base_full in for convnext_base_relabel, and scored 0.931. Those
-    # are two changes: the routing moves ONE finding by a measured +0.0014 macro, the member
-    # swap moves ALL TWELVE and was never validated, because convnext_base_full trained on
-    # all 704 val AND all 58 audit studies and so cannot be scored on either. An unmeasured
-    # twelve-column change swamps a measured one-column change, so 0.931 said nothing about
-    # the routing.
-    # convnext_base_relabel is back, which makes this EXACTLY the configuration measured at
-    # val 0.9178 / audit 0.9160. The routing is now the only difference from the 0.932 seven.
-    # Order MUST match three_route_weights.json exactly.
-    ("convnext_base_relabel", "best"),
-    ("mricore_vitb_cross_attention", "best"),
-    ("mricore_vitb_mae_cross_attention", "best"),
-    ("dinov3_convnext_base", "best"),
-    ("convnext_base_25d_18slices", "best"),
-    ("swinv2_base_in22k", "best"),
-    ("convnext_base_25d_poolattn", "best"),
-    ("convnext_base_fluid", "best"),
+    # SOLO. convnext_base_25d_perfinding_slots_and_pooling, val 0.8961 at step 2600.
+    #
+    # Not an ensemble at all - one checkpoint, shipped to see what the leaderboard makes of
+    # an idea validation rejected. It feeds ALL SIX slots (cor_plain and ax_plain have never
+    # been used by any shipped run) and lets each finding pool ONLY the views that can show
+    # it: ACL on sagittal, MCL on coronal at 24 slices, PF OA on axial, Fracture on all six.
+    # 40 windows per study against the 4-slot runs' 24.
+    #
+    # Val said -0.0049 against its parent's 0.9010, with 8 of 12 findings worse and the
+    # worst losses on findings whose views had been RESTRICTED (Contusion -0.0262, ACL
+    # -0.0143). At the calibrated OOF->LB slope of 0.48 that predicts roughly 0.9116 against
+    # the parent's measured 0.914. Worth one submission because the prediction is cheap to
+    # falsify and the geometry is unlike anything we have shipped.
+    ("convnext_base_25d_perfinding_slots_and_pooling", "best"),
 ]
 # RadImageNet is deliberately ABSENT: its licence is "personal, non-commercial (e.g.,
 # academic) research purposes only... any commercial use, sale, or other monetization is
@@ -98,7 +93,9 @@ MEMBERS = [
 # worse than the one measured, including the 6-member that scored 0.922. Fixed: best.pt
 # is now step 2600 and its `score` matches val_log's peak. ALWAYS check that before a
 # submission - it is silent otherwise.
-BLEND_WEIGHTS = "three_route_weights.json"            # Synovitis, Fracture, PF OA
+BLEND_WEIGHTS = None            # ONE member: nothing to weight. A per-class
+                               # matrix would be a no-op at best and a shape
+                               # mismatch at worst.
                                # per-class matrix; verified identical to the
                                # nested form (max logit gap 4.8e-07).
 _OLD = None                    # FLAT. The per-class search is fitting noise now: its
@@ -111,34 +108,22 @@ STRESS       = 0                 # >0 = MEASUREMENT run: repeat the 3 public stu
                               # no submission.csv. Use with SUBMIT = False.
 PUBLISH      = True
 WAIT_FOR_RUN = True
-SUBMIT       = True              # REAL SUBMISSION: costs one of the day's 5.
-                              # False = push and run the kernel, then stop. Kernel runs are
-                              # FREE, so always do that first and read inference_log.txt:
-                              # it names every member that scored and the decode-pass count.
-                              # Set STRESS > 0 with SUBMIT = False to get marginal per-study
-                              # rates before committing to the 9 h cap.
+SUBMIT       = True              # the free kernel run passed: preflight clean, one
+                              # member scored, 10.1 min (0.17 h of the 9 h cap).
 KAGGLE_USER  = "mamounhussam"
-SLUG         = "knee-three-route"
+SLUG         = "knee-perfinding-slots"
 # KEEP THIS IN STEP WITH MEMBERS. Submission 56234763 shipped the 18-slice member while
 # this text still named the 24-slice one, because the swap changed MEMBERS and SLUG and
 # missed NOTE. Kaggle descriptions cannot be edited after submitting, so that record is
 # permanently wrong. Re-read this string whenever MEMBERS changes.
-NOTE         = ("THREE FINDINGS ROUTED TO A SINGLE MEMBER EACH. Members, each 1/7 on the "
-                "other nine findings: convnext_base_relabel, mricore_vitb_cross_attention, "
-                "mricore_vitb_mae_cross_attention, dinov3_convnext_base, "
-                "convnext_base_25d_18slices, swinv2_base_in22k, convnext_base_25d_poolattn. "
-                "Routed, each taking its column outright at weight 1.0 while the others are "
-                "switched off on it: SYNOVITIS to convnext_base_fluid (0.8767 against the "
-                "seven's 0.8604), FRACTURE to mricore_vitb_mae_cross_attention (0.9403 "
-                "against 0.9254), PF OA to dinov3_convnext_base (0.8858 against 0.8762). "
-                "Val macro 0.9159 flat -> 0.9193 routed. "
-                "Every routed target is a member's OWN best checkpoint, already in the "
-                "bundle, so this costs ZERO extra forward passes over the 8-member "
-                "Synovitis-only submission and the runtime is unchanged. "
-                "Synovitis was chosen a-priori (the fluid specialist was BUILT for it, "
-                "10/10 cross-fitted seeds, +0.0096 on the 58-study panel set). Fracture and "
-                "PF OA were found by scanning 1,263 scored checkpoints across 58 runs, so "
-                "they carry selection risk the Synovitis routing does not.")
+NOTE         = ("SOLO RUN, not an ensemble: convnext_base_25d_perfinding_slots_and_pooling, "
+                "val 0.8961 (step 2600). All six slots (sag_plain, sag_fluid, cor_plain, "
+                "cor_fluid, ax_plain, ax_fluid), with each finding pooling ONLY the views "
+                "that can show it: ACL sagittal, MCL coronal, OA coronal, PF OA axial, "
+                "Fracture all six. Coronal samples 24 slices, the rest 18, so 40 windows "
+                "per study against the 4-slot runs' 24. Its parent convnext_base_25d_18slices "
+                "scores val 0.9010 / LB 0.914; validation says this is -0.0049 with 8 of 12 "
+                "findings worse. Submitted to test that verdict on the leaderboard.")
 # ===========================================================================
 
 PKG_ROOT = Path(__file__).resolve().parent.parent.parent      # <repo>/runs
