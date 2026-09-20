@@ -53,15 +53,36 @@ def child_env(session: str) -> dict:
     return e
 
 
-def load_state() -> dict:
+def load_state(src: str, dst: str) -> dict:
+    """Progress for THIS source-destination pair.
+
+    Keyed by the pair, not global. A global `done` list meant the finished 4 -> 104 relay
+    made every file look already moved when 104 -> 105 started, so that run skipped all
+    4,407 files and printed "relay complete: 4407 files moved" having moved nothing.
+    """
+    all_st = {}
     if STATE.exists():
-        return json.loads(STATE.read_text(encoding="utf-8"))
-    return {"done": [], "listing": None}
+        try:
+            all_st = json.loads(STATE.read_text(encoding="utf-8"))
+        except Exception:
+            all_st = {}
+    if "done" in all_st and isinstance(all_st.get("done"), list):
+        all_st = {}                      # discard the old un-keyed format
+    return all_st.get("%s->%s" % (src, dst), {"done": []})
 
 
-def save_state(st: dict):
+def save_state(src: str, dst: str, st: dict):
     STATE.parent.mkdir(parents=True, exist_ok=True)
-    STATE.write_text(json.dumps(st), encoding="utf-8")
+    all_st = {}
+    if STATE.exists():
+        try:
+            all_st = json.loads(STATE.read_text(encoding="utf-8"))
+        except Exception:
+            all_st = {}
+    if "done" in all_st and isinstance(all_st.get("done"), list):
+        all_st = {}
+    all_st["%s->%s" % (src, dst)] = st
+    STATE.write_text(json.dumps(all_st), encoding="utf-8")
 
 
 # ---------------------------------------------------------------- worker mode
@@ -165,7 +186,7 @@ def cmd_run(a):
     if not todo:
         print("\n  nothing to do - destination already matches source")
         return
-    st = load_state()
+    st = load_state(a.src, a.dst)
     done = set(st.get("done", []))
     batch, batch_bytes, n_batch, t0 = [], 0, 0, time.time()
 
@@ -189,7 +210,7 @@ def cmd_run(a):
         for x in batch:
             done.add(x["path"])
         st["done"] = sorted(done)
-        save_state(st)
+        save_state(a.src, a.dst, st)
         shutil.rmtree(STAGE, ignore_errors=True)
         el = time.time() - t0
         print("    batch %d done, %d/%d files total, %.0f min elapsed"
@@ -204,7 +225,16 @@ def cmd_run(a):
         if batch_bytes >= a.batch_gb * 1e9:
             flush()
     flush()
-    print("\n  relay complete: %d files moved" % len(done))
+    if a.limit:
+        print("\n  rehearsal done: %d files moved" % len(done))
+        return
+    # Never trust the bookkeeping. The 104 -> 105 relay printed "complete: 4407 files moved"
+    # while moving nothing, because the resume state was not keyed by source/destination.
+    # Asking the destination what it actually holds is the only honest completion signal.
+    print("\n  confirming against the destination ...")
+    if cmd_verify(a):
+        raise SystemExit("  relay did NOT complete - re-run `run`")
+    print("  relay complete AND VERIFIED: %d files" % len(listing))
 
 
 def cmd_verify(a):

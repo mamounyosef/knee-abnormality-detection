@@ -597,9 +597,22 @@ def plan_slots(index: pd.DataFrame, cfg: dict) -> dict[str, dict[str, str]]:
 
 
 def pick_slices(n_available: int, n_want: int, mode: str, rng,
-                margin: float = 0.0) -> np.ndarray:
+                margin: float = 0.0, offset: float = 0.0,
+                reverse: bool = False) -> np.ndarray:
     """Pick n_want slice indices from a stack of n_available real slices.
-    Never blends slices into fake ones; repeats indices if the stack is short."""
+    Never blends slices into fake ones; repeats indices if the stack is short.
+
+    offset shifts the even grid by that fraction of ONE BIN, which is what makes sliding
+    window test-time augmentation possible: offset 0, 1/3, 2/3 sample three interleaved
+    grids that together cover the stack far more densely than any one of them. It only
+    affects the "even" (evaluation) mode; random sampling already varies.
+
+    reverse returns the picks medial-to-lateral instead of lateral-to-medial. For a sagittal
+    series that is the laterality mirror (the slice axis IS the left-right axis), and for any
+    series it is a test-time variation the model has never seen in that order.
+
+    Both default to the old behaviour exactly.
+    """
     # the first/last slices of a stack are usually past the edge of the knee
     lo = int(n_available * margin)
     hi = n_available - lo
@@ -607,12 +620,17 @@ def pick_slices(n_available: int, n_want: int, mode: str, rng,
         edges = np.linspace(lo, hi, n_want + 1)          # n_want equal bins across the stack
         if mode == "random":
             # one random slice per bin: same coverage, different pick each epoch
-            lo, hi = np.floor(edges[:-1]).astype(int), np.ceil(edges[1:]).astype(int)
-            return np.array([rng.integers(a, max(a + 1, b)) for a, b in zip(lo, hi)])
-        return np.clip(((edges[:-1] + edges[1:]) / 2).astype(int), 0, n_available - 1)  # bin centres
-    # too few slices: repeat rather than interpolate (17.8% of series at n=24)
-    idx = np.linspace(0, n_available - 1, n_want)
-    return np.round(idx).astype(int)
+            a_, b_ = np.floor(edges[:-1]).astype(int), np.ceil(edges[1:]).astype(int)
+            idx = np.array([rng.integers(a, max(a + 1, b)) for a, b in zip(a_, b_)])
+        else:
+            centres = (edges[:-1] + edges[1:]) / 2.0
+            if offset:
+                centres = centres + float(offset) * (edges[1] - edges[0])
+            idx = np.clip(centres.astype(int), 0, n_available - 1)   # bin centres
+    else:
+        # too few slices: repeat rather than interpolate (17.8% of series at n=24)
+        idx = np.round(np.linspace(0, n_available - 1, n_want)).astype(int)
+    return idx[::-1].copy() if reverse else idx
 
 
 _LAST_PLAN: dict = {}          # slot plan of the most recent make_loaders call
@@ -799,6 +817,11 @@ class KneeShardDataset(Dataset):
         # Laterality normalisation. Mirror one side so every study faces the same way, so
         # "medial" is always the same half of the frame. self.sides stays empty when the
         # knob is off, and the flip below is then a dict lookup that never matches.
+        # test-time knobs, both no-ops by default. slice_offset slides the even sampling
+        # grid within a bin; slice_reverse reverses the picked order. Neither is useful in
+        # training - they exist so one checkpoint can be scored several ways at inference.
+        self.slice_offset = float(i.get("slice_offset") or 0.0)
+        self.slice_reverse = bool(i.get("slice_reverse"))
         self.flip_side = i.get("laterality_flip")
         self.sides = {}
         if self.flip_side and self.flip_side not in ("left", "right"):
@@ -852,7 +875,8 @@ class KneeShardDataset(Dataset):
         arr = self._read_series(study, series)
         if arr is None:                                   # series missing for this study
             return np.zeros((n_slices * self.ctx, self.size, self.size), np.float32)
-        idx = pick_slices(arr.shape[0], n_slices, self.mode, rng, self.margin)
+        idx = pick_slices(arr.shape[0], n_slices, self.mode, rng, self.margin,
+                          self.slice_offset, self.slice_reverse)
         if self.ctx > 1:
             # k-stride, k, k+stride, clamped at the ends; flattened slice-major so a
             # later reshape gives (n_slices, ctx, H, W)
