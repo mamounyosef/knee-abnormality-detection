@@ -1,79 +1,105 @@
 {
-  "_note": "Ensembles have no training_summary.json of their own (they are not a run), so every ensemble submission is recorded here instead. Same fields as a run's `submission` block.",
-  "submissions": [
-    {
-      "members": [
-        "convnext_small_4slot",
-        "convnext_base_4slot",
-        "mricore_vitb"
-      ],
-      "submitted": "2026-08-23 16:37 UTC",
-      "public_score": 0.912,
-      "private_score": null,
-      "val": 0.8983,
-      "audit58": 0.8923,
-      "kernel": "mamounhussam/knee-ensemble-3-submit",
-      "kernel_version": 1,
-      "submission_ref": 55719956,
-      "runtime_seconds": null,
-      "notes": "First ensemble submission. +0.004 over the 0.908 convnext_small_4slot baseline; the val gain (+0.0043) carried to the leaderboard almost exactly."
-    },
-    {
-      "members": [
-        "convnext_small_4slot",
-        "convnext_base_4slot",
-        "mricore_vitb",
-        "radimagenet_resnet50"
-      ],
-      "submitted": "2026-08-23 21:53 UTC",
-      "public_score": 0.913,
-      "private_score": null,
-      "val": 0.9001,
-      "audit58": 0.8928,
-      "kernel": "mamounhussam/knee-ensemble-4-submit",
-      "kernel_version": 1,
-      "submission_ref": 55726041,
-      "runtime_seconds": 36.5,
-      "runtime": "36.5 s for the 3 public studies = 12.17 s/study. Heavily inflated: model load and CUDA init are amortized over only 3 studies. Even taken at face value the 9h cap fits ~2662 studies against the ~1300 in the real test set, so the rerun has ~2x headroom.",
-      "notes": "convnext_small_25d is deliberately absent. 2.5D is a LOADER setting (slice_context: neighbours), so it cannot share member 0's single DICOM decode pass - it would need a second pass to buy +0.0004 on val. predict_dicom_ensemble now rejects it explicitly instead of silently scoring the wrong pixels. Scored 0.913, the best leaderboard result so far: +0.001 over the 3-model. val moved +0.0018 for +0.001 LB, so the gain is real but small and well inside what one more member can be expected to give."
-    },
-    {
-      "members": [
-        "convnext_small_relabel",
-        "convnext_base_relabel",
-        "mricore_vitb_relabel",
-        "radimagenet_resnet50_relabel"
-      ],
-      "submitted": "2026-08-25 12:27 UTC",
-      "public_score": 0.919,
-      "private_score": null,
-      "val": 0.911,
-      "audit58": 0.9125,
-      "kernel": "mamounhussam/knee-ensemble-4-relabel-submit",
-      "kernel_version": 1,
-      "submission_ref": 55770195,
-      "runtime_seconds": 486,
-      "runtime": "8.1 min push->kernel complete (0.14 h of the 9 h cap). FASTER than the single convnext_small_relabel submission (14.2 min) because all four members share one DICOM decode pass - only the forward passes multiply.",
-      "notes": "Same four architectures as the 0.913 ensemble, every member retrained on the qwen-2.4T medium-effort labels. +0.006 LB (0.913 -> 0.919), +0.0105 val, +0.0197 audit-58. The per-member gains were additive rather than redundant. Note convnext_base_relabel ALONE scored 0.918, so the ensemble now adds only +0.001 over its best member - the members have become more correlated as the labels improved."
-    },
-    {
-      "ref": 56234763,
-      "date": "2026-09-14 15:55",
-      "slug": "knee-ensemble-6-25d18-flat",
-      "members": [
-        "convnext_base_relabel",
-        "mricore_vitb_cross_attention",
-        "mricore_vitb_mae_cross_attention",
-        "dinov3_convnext_base",
-        "convnext_base_25d_18slices",
-        "swinv2_base_in22k"
-      ],
-      "blend": "flat",
-      "val_flat": 0.9158,
-      "public_score": 0.932,
-      "s_per_study": 13.401,
-      "decode_passes": 2,
-      "notes": "BEST SO FAR, +0.001 over the 0.931 six. The ONLY change is convnext_large -> convnext_base_25d_18slices, a non-overlapping 2.5D member at 24 passes/study instead of 96. It is 336px where the rest are 512, so this is the first submission to use predict_dicom_ensemble_grouped (decode once per geometry group, blend at the end). Cheaper AND better: 13.401 s/study against 15.85, ~15% faster, while swapping out a 196M-parameter model for an 88M one at a quarter of its passes. val predicted only +0.0002; the LB moved +0.001, so val UNDER-called this one. NOTE: the Kaggle description text wrongly names convnext_base_25d_group3 - the bundle shipped 25d_18slices, verified 6/6 in the kernel log. The NOTE string was not updated with MEMBERS."
-    }
-  ]
+ "_note": "Ensembles have no training_summary.json of their own (they are not a run), so every ensemble submission is recorded here instead. Same fields as a run's `submission` block.",
+ "submissions": [
+  {
+   "members": [
+    "convnext_small_4slot",
+    "convnext_base_4slot",
+    "mricore_vitb"
+   ],
+   "submitted": "2026-08-23 16:37 UTC",
+   "public_score": 0.912,
+   "private_score": null,
+   "val": 0.8983,
+   "audit58": 0.8923,
+   "kernel": "mamounhussam/knee-ensemble-3-submit",
+   "kernel_version": 1,
+   "submission_ref": 55719956,
+   "runtime_seconds": null,
+   "notes": "First ensemble submission. +0.004 over the 0.908 convnext_small_4slot baseline; the val gain (+0.0043) carried to the leaderboard almost exactly."
+  },
+  {
+   "members": [
+    "convnext_small_4slot",
+    "convnext_base_4slot",
+    "mricore_vitb",
+    "radimagenet_resnet50"
+   ],
+   "submitted": "2026-08-23 21:53 UTC",
+   "public_score": 0.913,
+   "private_score": null,
+   "val": 0.9001,
+   "audit58": 0.8928,
+   "kernel": "mamounhussam/knee-ensemble-4-submit",
+   "kernel_version": 1,
+   "submission_ref": 55726041,
+   "runtime_seconds": 36.5,
+   "runtime": "36.5 s for the 3 public studies = 12.17 s/study. Heavily inflated: model load and CUDA init are amortized over only 3 studies. Even taken at face value the 9h cap fits ~2662 studies against the ~1300 in the real test set, so the rerun has ~2x headroom.",
+   "notes": "convnext_small_25d is deliberately absent. 2.5D is a LOADER setting (slice_context: neighbours), so it cannot share member 0's single DICOM decode pass - it would need a second pass to buy +0.0004 on val. predict_dicom_ensemble now rejects it explicitly instead of silently scoring the wrong pixels. Scored 0.913, the best leaderboard result so far: +0.001 over the 3-model. val moved +0.0018 for +0.001 LB, so the gain is real but small and well inside what one more member can be expected to give."
+  },
+  {
+   "members": [
+    "convnext_small_relabel",
+    "convnext_base_relabel",
+    "mricore_vitb_relabel",
+    "radimagenet_resnet50_relabel"
+   ],
+   "submitted": "2026-08-25 12:27 UTC",
+   "public_score": 0.919,
+   "private_score": null,
+   "val": 0.911,
+   "audit58": 0.9125,
+   "kernel": "mamounhussam/knee-ensemble-4-relabel-submit",
+   "kernel_version": 1,
+   "submission_ref": 55770195,
+   "runtime_seconds": 486,
+   "runtime": "8.1 min push->kernel complete (0.14 h of the 9 h cap). FASTER than the single convnext_small_relabel submission (14.2 min) because all four members share one DICOM decode pass - only the forward passes multiply.",
+   "notes": "Same four architectures as the 0.913 ensemble, every member retrained on the qwen-2.4T medium-effort labels. +0.006 LB (0.913 -> 0.919), +0.0105 val, +0.0197 audit-58. The per-member gains were additive rather than redundant. Note convnext_base_relabel ALONE scored 0.918, so the ensemble now adds only +0.001 over its best member - the members have become more correlated as the labels improved."
+  },
+  {
+   "ref": 56234763,
+   "date": "2026-09-14 15:55",
+   "slug": "knee-ensemble-6-25d18-flat",
+   "members": [
+    "convnext_base_relabel",
+    "mricore_vitb_cross_attention",
+    "mricore_vitb_mae_cross_attention",
+    "dinov3_convnext_base",
+    "convnext_base_25d_18slices",
+    "swinv2_base_in22k"
+   ],
+   "blend": "flat",
+   "val_flat": 0.9158,
+   "public_score": 0.932,
+   "s_per_study": 13.401,
+   "decode_passes": 2,
+   "notes": "BEST SO FAR, +0.001 over the 0.931 six. The ONLY change is convnext_large -> convnext_base_25d_18slices, a non-overlapping 2.5D member at 24 passes/study instead of 96. It is 336px where the rest are 512, so this is the first submission to use predict_dicom_ensemble_grouped (decode once per geometry group, blend at the end). Cheaper AND better: 13.401 s/study against 15.85, ~15% faster, while swapping out a 196M-parameter model for an 88M one at a quarter of its passes. val predicted only +0.0002; the LB moved +0.001, so val UNDER-called this one. NOTE: the Kaggle description text wrongly names convnext_base_25d_group3 - the bundle shipped 25d_18slices, verified 6/6 in the kernel log. The NOTE string was not updated with MEMBERS."
+  },
+  {
+   "date": "2026-09-20",
+   "slug": "knee-eight-perfinding",
+   "kernel": "mamounhussam/knee-eight-perfinding-submit",
+   "kernel_version": 2,
+   "ref": null,
+   "members": [
+    "convnext_base_relabel",
+    "mricore_vitb_cross_attention",
+    "mricore_vitb_mae_cross_attention",
+    "dinov3_convnext_base",
+    "convnext_base_25d_18slices",
+    "swinv2_base_in22k",
+    "convnext_base_25d_poolattn",
+    "convnext_base_25d_perfinding_slots_and_pooling"
+   ],
+   "blend": "flat",
+   "val_flat": 0.917,
+   "audit58": 0.9173,
+   "public_score": null,
+   "private_score": null,
+   "s_per_study": 23.89,
+   "decode_passes": 3,
+   "commit_run_minutes": 15.2,
+   "notes": "THE 0.932 SEVEN PLUS AN EIGHTH, FLAT. The only change is adding convnext_base_25d_perfinding_slots_and_pooling, which pools each finding over only the views that can show it. It joins FLAT rather than nested: its logit correlation with the seven is 0.848 mean / 0.740 min where the other 2.5D ConvNeXt siblings sit at 0.95-0.99, so it is not a near-duplicate. Measured over 84 placements, flat +0.0006 val and every nested form +0.0003 to +0.0004; cross-fitted 0.9176 against the shipped 0.9172. Shipped SOLO it scored 0.915 against its parent's 0.914 while val had it 0.0049 BELOW that parent, so val understates this member. RUNTIME: it is 6 slots with per-slot slice counts so it does NOT share the seven's decode group - 3 decode passes, 23.890 s/study against the 21.689 s that was observed to take 5.7 h, so about 6.3 h of the 9 h cap. Measured on a free kernel run first, exactly because of that extra decode group."
+  }
+ ]
 }
