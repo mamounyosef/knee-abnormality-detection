@@ -750,13 +750,26 @@ def _mirror_slot(v, slot: str, ctx: int = 1) -> np.ndarray:
     v is (n_slices * ctx, H, W). Sagittal reverses the SLICE order; coronal and axial
     reverse the image width. See the measurement in KneeShardDataset.__getitem__.
     """
-    if str(slot).startswith("sag"):
+    plane = str(slot).split("_")[0].lower()
+    if plane == "sag":
+        # medial-lateral IS the slice axis here, so mirroring reverses slice ORDER
         if ctx > 1:
             # slice-major (s0c0, s0c1, s0c2, s1c0, ...): reverse whole slices, not planes
             v = v.reshape(-1, ctx, *v.shape[1:])[::-1].reshape(v.shape)
             return np.ascontiguousarray(v)
         return np.ascontiguousarray(v[::-1])
-    return np.ascontiguousarray(v[:, :, ::-1])
+    if plane in ("cor", "ax"):
+        # medial-lateral runs across the image, so mirroring reverses WIDTH
+        return np.ascontiguousarray(v[:, :, ::-1])
+    # No silent default. The original laterality bug WAS a width flip applied to sagittal
+    # slots: it corrupted half the input and produced a confident wrong conclusion that
+    # took two runs to undo. An unknown plane has an unknown medial-lateral axis, so refuse
+    # rather than guess.
+    raise ValueError(
+        "laterality_flip: slot %r has plane %r, which has no known medial-lateral axis. "
+        "Known planes: sag (reverses slice order), cor and ax (reverse width). Add the new "
+        "plane to _mirror_slot and to checks/laterality_axis_check.py, which derives the "
+        "axis from ImageOrientationPatient rather than assuming it." % (slot, plane))
 
 
 def _sides_from_ipp(index: pd.DataFrame) -> dict:

@@ -38,12 +38,19 @@ def _unwrap(ckpt):
 
 
 def _resample_pos_embed(v, want_hw):
-    """SAM's absolute position embedding: (1, H, W, C) -> (1, h, w, C), bicubic."""
+    """SAM's absolute position embedding: (1, H, W, C) -> (1, h, w, C).
+
+    DELEGATED to timm.layers.resample_abs_pos_embed_nhwc, which is what timm's own samvit
+    checkpoint_filter_fn calls, rather than reimplemented. Its defaults are bicubic AND
+    antialias=True, and the antialias is not cosmetic: dropping 64x64 to 21x21 is a 3x
+    downsample, and without it the worst position lands 86% of one standard deviation away.
+    Calling timm's function also means a future change there cannot silently desynchronise
+    this loader - checks/external_loader_audit.py pins the agreement either way.
+    """
     if v.shape[1] == want_hw[0] and v.shape[2] == want_hw[1]:
         return v
-    x = v.permute(0, 3, 1, 2).float()                    # (1, C, H, W)
-    x = F.interpolate(x, size=want_hw, mode="bicubic", align_corners=False)
-    return x.permute(0, 2, 3, 1).to(v.dtype)
+    from timm.layers import resample_abs_pos_embed_nhwc
+    return resample_abs_pos_embed_nhwc(v, list(want_hw)).to(v.dtype)
 
 
 def _resample_rel_pos(v, want_len):
@@ -342,5 +349,84 @@ def load_qwen3_5_vision(model, ckpt_path, strict_count: bool = True):
     if strict_count and missing:
         raise RuntimeError(
             "Qwen3.5 vision load filled only %d/%d tensors; unfilled: %s"
+            % (len(out), len(msd), ", ".join(missing[:8])))
+    return len(out)
+
+
+# =============================================================================
+# MedImageInsight: Microsoft's medical image-text embedding model.
+#
+# Trained with UniCL (Unified Contrastive Learning) on ~3.8M MEDICAL images - X-ray, MRI,
+# CT, histopathology, dermatology - paired with their CLINICAL LABELS rather than free
+# captions. That makes it the only backbone here whose supervision came from radiological
+# terminology ("effusion", "fracture", "osteoarthritis") attached to real scans.
+#
+# LICENCE: MIT (Microsoft). NOTE the model card's scope statement: the model is provided
+# for research and model development and is not for clinical deployment as-is, which is a
+# clinical-use disclaimer rather than a commercial restriction. The weights we read come
+# from the lion-ai re-upload of Microsoft's Azure release; a re-uploader's licence tag does
+# not bind the original, but Microsoft's own release is MIT.
+#
+# THREE THINGS THE RESEARCH REPORTS GOT WRONG, all found by opening the file:
+#   1. The published file is named medimageinsigt-v1.0.0.pt but it is NOT a torch pickle -
+#      it is SAFETENSORS. torch.load dies with "invalid load key".
+#   2. timm ships checkpoint_filter_fn for DaViT and it recognises 2 of 402 tensors here,
+#      because this is Microsoft's original DaViT naming, not the variant timm converts.
+#      The rename below is derived by hand and verified at 402/402 with zero shape
+#      mismatches, both sides being 360.6M parameters.
+#   3. The tower is DaViT-HUGE (dims 256/512/1024/2048, depths 1/1/9/1), i.e. 360.6M
+#      parameters - four times any backbone we ship - not the ViT-B the reports implied.
+#
+# The architecture is genuinely different from everything in the pool: DaViT alternates
+# SPATIAL window attention with CHANNEL attention (attention over feature channels rather
+# than positions) inside every block.
+# =============================================================================
+MII_RULES = [
+    # convs.0 is the stem; convs.1..3 are the stage downsamples
+    (r"^convs\.0\.proj\.", "stem.conv."),
+    (r"^convs\.0\.norm\.", "stem.norm."),
+    (r"^convs\.([123])\.proj\.", lambda m: "stages.%d.downsample.conv." % int(m.group(1))),
+    (r"^convs\.([123])\.norm\.", lambda m: "stages.%d.downsample.norm." % int(m.group(1))),
+    (r"^blocks\.(\d+)\.(\d+)\.", lambda m: "stages.%s.blocks.%s." % (m.group(1), m.group(2))),
+    # conditional position encodings are depthwise convs in the original naming
+    (r"\.conv1\.fn\.dw\.", ".cpe1.proj."),
+    (r"\.conv2\.fn\.dw\.", ".cpe2.proj."),
+    (r"\.window_attn\.norm\.", ".norm1."),
+    (r"\.window_attn\.fn\.", ".attn."),
+    (r"\.channel_attn\.norm\.", ".norm1."),
+    (r"\.channel_attn\.fn\.", ".attn."),
+    (r"\.ffn\.norm\.", ".norm2."),
+    (r"\.ffn\.fn\.net\.", ".mlp."),
+    (r"^norms\.", "head.norm."),
+]
+
+
+def load_medimageinsight(model, ckpt_path, strict_count: bool = True):
+    """Fill a timm `davit_huge_fl` (num_classes=0) from MedImageInsight's image tower.
+
+    Returns the number of tensors filled and raises unless all 402 land. Both sides are
+    exactly 402 tensors and 360.6M parameters, so a correct mapping is a bijection: a
+    partial result is a failure, not a partial success.
+    """
+    import re
+    from safetensors.torch import load_file
+    raw = load_file(str(ckpt_path))
+    sd = {}
+    for k, v in raw.items():
+        if k.startswith("image_encoder."):
+            k = k[len("image_encoder."):]
+        elif k.startswith(("text_encoder.", "logit_scale")):
+            continue
+        for pat, rep in MII_RULES:
+            k = re.sub(pat, rep, k)
+        sd[k] = v
+
+    msd = model.state_dict()
+    out = {k: v for k, v in sd.items() if k in msd and msd[k].shape == v.shape}
+    missing = [k for k in msd if k not in out]
+    model.load_state_dict(out, strict=False)
+    if strict_count and missing:
+        raise RuntimeError(
+            "MedImageInsight load filled only %d/%d tensors; unfilled: %s"
             % (len(out), len(msd), ", ".join(missing[:8])))
     return len(out)

@@ -92,7 +92,7 @@ MEMBERS = [
     ("mricore_vitb_cross_attention", "best"),
     ("mricore_vitb_mae_cross_attention", "best"),
     ("dinov3_convnext_base", "best"),
-    ("convnext_base_25d_18slices", "best"),
+    ("convnext_base_25d_all_knees_same_orientation", "best"),
     ("swinv2_base_in22k", "best"),
     ("convnext_base_25d_poolattn", "best"),
     ("convnext_base_25d_perfinding_slots_and_pooling", "best"),
@@ -128,30 +128,32 @@ SUBMIT       = True              # runtime measured on the free kernel: 23.890 s
                               # that was observed to take 5.7 h. Scaled: 6.3 h of
                               # the 9 h cap, so the extra decode group fits.
 KAGGLE_USER  = "mamounhussam"
-SLUG         = "knee-eight-perfinding"
+SLUG         = "knee-eight-laterality"
 # KEEP THIS IN STEP WITH MEMBERS. Submission 56234763 shipped the 18-slice member while
 # this text still named the 24-slice one, because the swap changed MEMBERS and SLUG and
 # missed NOTE. Kaggle descriptions cannot be edited after submitting, so that record is
 # permanently wrong. Re-read this string whenever MEMBERS changes.
-NOTE         = ("THE 0.932 SEVEN PLUS AN EIGHTH, FLAT. Added: "
-                "convnext_base_25d_perfinding_slots_and_pooling - six slots with each "
-                "finding pooling only the views that can show it (ACL sagittal, MCL "
-                "coronal at 24 slices, PF OA axial, Fracture all six), 40 windows per "
-                "study. It joins FLAT rather than nested because its logit correlation "
-                "with the seven is 0.848 mean / 0.740 min, where the other 2.5D ConvNeXt "
-                "siblings sit at 0.95-0.99 - it is not a near-duplicate and averaging it "
-                "into the family throws that away. Measured over 84 placements: flat "
-                "+0.0006 val, every nested form +0.0003 to +0.0004; cross-fitted 0.9176 "
-                "against the shipped 0.9172. Shipped SOLO this member scored 0.915 against "
-                "its parent's 0.914 while validation had it 0.0049 BELOW that parent, so "
-                "val understates it and the ensemble gain may exceed what val can see. "
-                "The other seven are unchanged from the 0.932 submission: "
-                "convnext_base_relabel, mricore_vitb_cross_attention, "
+NOTE         = ("THE 0.932 EIGHT WITH THE LATERALITY SWAP. One change only: "
+                "convnext_base_25d_18slices is replaced by "
+                "convnext_base_25d_all_knees_same_orientation, which mirrors every LEFT "
+                "knee so all studies face the same way. The mirror axis is chosen PER "
+                "PLANE - sagittal reverses SLICE ORDER, coronal and axial reverse WIDTH - "
+                "because on a sagittal view the medial-lateral direction IS the slice axis, "
+                "so a horizontal flip there would reverse front-to-back instead. At "
+                "inference the side is read from the DICOM headers (mean x of "
+                "ImagePositionPatient), which reproduces our training laterality file on "
+                "4407 of 4407 studies. WHY SWAP: shipped SOLO the newcomer scored 0.919 "
+                "against the parent's 0.914, the best single-run score we have, and the two "
+                "correlate 0.971 (two seeds of one config = 0.952) so they are "
+                "near-duplicates and only one slot is worth spending. Validation is "
+                "indifferent to the swap at -0.0001 and has now under-called this family "
+                "twice. Members: convnext_base_relabel, mricore_vitb_cross_attention, "
                 "mricore_vitb_mae_cross_attention, dinov3_convnext_base, "
-                "convnext_base_25d_18slices, swinv2_base_in22k, "
-                "convnext_base_25d_poolattn. RUNTIME: measured 23.890 s per study "
-                "over 3 decode passes against the 21.689 s that took 5.7 h, so "
-                "6.3 h of the 9 h cap. | Built with DINOv3")
+                "convnext_base_25d_all_knees_same_orientation, swinv2_base_in22k, "
+                "convnext_base_25d_poolattn, "
+                "convnext_base_25d_perfinding_slots_and_pooling. Geometry is unchanged, so "
+                "the runtime stays at the measured 23.890 s per study over 3 decode "
+                "passes, about 6.3 h of the 9 h cap. | Built with DINOv3")
 
 # ===========================================================================
 

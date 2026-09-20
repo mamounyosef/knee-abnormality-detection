@@ -15,6 +15,7 @@ This does a few real optimizer steps on real shards and checks that:
 Run:  python checks/qwen_vision_smoke.py
 """
 import importlib
+import os
 import sys
 from pathlib import Path
 
@@ -24,7 +25,7 @@ import torch
 
 ROOT = Path(__file__).resolve().parent.parent
 RUNS = ROOT / "runs"
-RUN = "qwen3_5_vision_tower_336"
+RUN = os.environ.get("SMOKE_RUN", "qwen3_5_vision_tower_336")
 
 sys.path.insert(0, str(RUNS))
 sys.path.insert(0, str(RUNS / RUN))
@@ -39,7 +40,9 @@ def ck(name, ok, detail=""):
 
 
 cfg = sc.load_config(RUNS / RUN, verbose=False)
-dev = "cuda" if torch.cuda.is_available() else "cpu"
+# SMOKE_DEVICE/SMOKE_BATCH let a backbone too large for this PC still be wired-tested
+dev = os.environ.get("SMOKE_DEVICE") or ("cuda" if torch.cuda.is_available() else "cpu")
+BATCH = int(os.environ.get("SMOKE_BATCH", "2"))
 print("\n  device %s   run %s" % (dev, RUN))
 
 print("\n1. real shards through the real dataset")
@@ -68,7 +71,8 @@ ck("the dataset emits uint8, normalisation happens in prepare_batch",
 print("\n2. the model consumes exactly what prepare_batch produces")
 tm = importlib.import_module("train")
 model = tm.build_model(cfg).to(dev)
-loader = torch.utils.data.DataLoader(ds, batch_size=2, shuffle=False, num_workers=0)
+loader = torch.utils.data.DataLoader(ds, batch_size=BATCH, shuffle=False,
+                                     num_workers=0)
 batch = next(iter(loader))
 xraw, yb = batch[0], batch[1]
 xb = sc.prepare_batch(xraw, cfg, dev)
@@ -78,12 +82,13 @@ ck("prepare_batch normalises to about [-1, 1] using Qwen's 0.5/0.5",
    "min %.3f max %.3f mean %.3f" % (xb.min(), xb.max(), xb.mean()))
 per = sc.images_per_study(cfg)
 ck("prepare_batch emits (B*windows, 3, size, size)",
-   tuple(xb.shape) == (2 * per, 3, cfg["input"]["size"], cfg["input"]["size"]),
+   tuple(xb.shape) == (BATCH * per, 3, cfg["input"]["size"], cfg["input"]["size"]),
    str(tuple(xb.shape)))
 model.eval()
 with torch.no_grad():
     out = model(xb)
-ck("forward gives (B, 12)", tuple(out.shape) == (2, len(cfg["tasks"])), str(tuple(out.shape)))
+ck("forward gives (B, 12)", tuple(out.shape) == (BATCH, len(cfg["tasks"])),
+   str(tuple(out.shape)))
 ck("outputs finite and varying", bool(torch.isfinite(out).all()) and float(out.std()) > 1e-4,
    "std %.4f" % out.std())
 
@@ -113,7 +118,7 @@ watch = ("backbone.blocks.0.attn.qkv.weight", "backbone.blocks.11.attn.qkv.weigh
          "head.weight")
 before = {n: p.detach().clone() for n, p in model.named_parameters() if n in watch}
 losses = []
-for step in range(6):
+for step in range(int(os.environ.get('SMOKE_STEPS', '6'))):
     bt = next(iter(loader))
     xb = sc.prepare_batch(bt[0], cfg, dev)
     yb = bt[1].to(dev).float()
@@ -125,7 +130,7 @@ for step in range(6):
     losses.append(float(loss.detach()))
     print("      step %d  loss %.4f  grad_norm %.3f" % (step, losses[-1], gn))
 
-ck("the loss falls over 6 steps", losses[-1] < losses[0],
+ck("the loss falls over %d steps" % len(losses), losses[-1] < losses[0],
    "%.4f -> %.4f" % (losses[0], losses[-1]))
 ck("no NaN or inf in the loss", all(np.isfinite(losses)))
 
@@ -135,7 +140,7 @@ for n in watch:
     old_p = before[n]
     new_p = dict(model.named_parameters())[n].detach()
     rel = ((new_p - old_p).norm() / old_p.norm().clamp_min(1e-12)).item()
-    per_step = rel / 6.0
+    per_step = rel / max(len(losses), 1)
     lg = np.log10(max(per_step, 1e-30))
     ck("%s moved" % n.replace("backbone.", ""), per_step > 1e-9,
        "log10(update/weight) per step = %.2f" % lg)

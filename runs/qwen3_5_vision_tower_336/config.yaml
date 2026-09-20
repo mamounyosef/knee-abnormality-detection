@@ -82,6 +82,21 @@ input:
   # 336 x 0.40 = 134 mm of frame, unchanged. mm_per_px stays 0.40, the value every run in
   # this project has used: it is the knob that controls interpolation, and at 0.40 exactly
   # 24.4% of series are upsampled (median 1.17x).
+  # LATERALITY NORMALISATION IS ON. Every LEFT knee is mirrored so all studies face the
+  # same way. The mirror axis is chosen PER PLANE by shared_code._mirror_slot, which is the
+  # whole subtlety: on a SAGITTAL series the medial-lateral direction is the SLICE axis
+  # (measured fraction 0.991 along slice order, only 0.097 across the image), so mirroring
+  # reverses SLICE ORDER; on coronal and axial it runs across the image (0.987 and 0.989),
+  # so mirroring reverses WIDTH. Flipping width on a sagittal series would reverse
+  # front-to-back instead, which is anatomical corruption - that was the original bug and
+  # it cost two runs.
+  # At submission time the side is read from the DICOM headers (mean x of
+  # ImagePositionPatient), because the test studies are not in data/12_laterality.csv;
+  # checks/laterality_run_check.py proves that rule reproduces the file on 4407/4407.
+  # Adopted because convnext_base_25d_all_knees_same_orientation scored 0.919 solo against
+  # its parent convnext_base_25d_18slices' 0.914.
+  laterality_flip: "left"        # mirror the MINORITY side (1,938 left vs 2,469 right)
+
   norm_mean: [0.5, 0.5, 0.5]   # Qwen's preprocessor_config.json, verbatim
   norm_std:  [0.5, 0.5, 0.5]
   size: 336

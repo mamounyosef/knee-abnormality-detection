@@ -1,0 +1,158 @@
+# medimageinsight_davit_huge_336 - the most promising external backbone we have tried.
+#
+# WHY, stated as a pattern rather than a hope. Four external backbones failed: medsam
+# (segmentation masks, 0.7664), beitv2 (discrete tokens on natural images, 0.7661), triad
+# (3D masked autoencoding on brain/breast/prostate MRI, 0.8145), barlowtwins (redundancy
+# reduction on unlabelled ImageNet, 0.8455). Every one was self-supervised or trained for
+# segmentation. Meanwhile EVERY backbone that works for us is SUPERVISED on labels:
+# convnext_base (ImageNet-22k) 0.9050, swinv2_base (ImageNet-22k) 0.9053, dinov3 0.9011.
+#
+# MedImageInsight is the first candidate that is BOTH supervised on labels AND medical. It
+# was trained with UniCL (Unified Contrastive Learning) on ~3.8M medical images - X-ray,
+# MRI, CT, histopathology, dermatology - against their CLINICAL LABELS rather than free
+# captions, so the supervision signal is radiological terminology: "effusion", "fracture",
+# "osteoarthritis". Those are literally four of our twelve target findings.
+#
+# ARCHITECTURE. DaViT-Huge: dims 256/512/1024/2048, depths 1/1/9/1, heads 8/16/32/64.
+# DaViT alternates SPATIAL window attention with CHANNEL attention (attention across
+# feature channels rather than across positions) inside every block, which is a mechanism
+# no member of the pool has.
+#
+# THE COST, WHICH IS THE REAL RISK. 360.6M parameters, four times any backbone we ship.
+# swinv2_base_in22k at 87M already costs 4.2 s per study of a 6.3 h budget against a 9 h
+# cap. If this run earns a slot it will probably have to REPLACE a member rather than join
+# them. Batch 2 x accum 4 keeps the effective batch at 8, matching every other run.
+#
+# NORMALISATION IS CONFIRMED FROM TWO INDEPENDENT SOURCES, not assumed: MedImageInsight's
+# own config.yaml states mean [0.485, 0.456, 0.406] std [0.229, 0.224, 0.225], and timm's
+# davit_huge_fl pretrained_cfg declares the same. This is the opposite of triad.
+#
+# LICENCE: MIT (Microsoft). The model card carries a clinical-use disclaimer - not for
+# deployment in diagnosis as-is - which is a clinical scope statement, not a commercial
+# restriction. Weights read from the lion-ai re-upload of Microsoft's Azure release.
+#
+# WHAT THE FILE ACTUALLY IS, since the research reports were wrong on all three:
+#   the .pt is SAFETENSORS, not a torch pickle (torch.load raises "invalid load key")
+#   timm's DaViT checkpoint_filter_fn recognises 2 of 402 tensors, so the rename in
+#     external_backbones.MII_RULES is derived by hand and verified at 402/402 with ZERO
+#     shape mismatches, both sides being exactly 360.6M parameters
+#   the tower is DaViT-Huge, not the ViT-B the reports implied
+#
+# LATERALITY IS ON. Every left knee is mirrored so all studies face the same way, the axis
+# chosen per plane (sagittal reverses SLICE ORDER, coronal and axial reverse WIDTH).
+# Adopted because convnext_base_25d_all_knees_same_orientation scored 0.919 solo against
+# its parent's 0.914.
+#
+# READ EPOCH 1. lp_ft_epochs: 1 makes it a FROZEN LINEAR PROBE. Probes so far: medsam
+# 0.5095, triad 0.5127, beitv2 0.5432, convnext_base baseline 0.6832, barlowtwins 0.6914.
+# Below 0.60 kill it. Above 0.75 is the first genuinely new thing in five attempts.
+
+experiment:
+  name: "medimageinsight_davit_huge_336"
+
+paths:
+  # Byte-identical split MEMBERSHIP to convnext_base_25d_group3 and convnext_base_336px.
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+  # audit_csv stays 05_audit58.csv - the panel labels never change, so it is the one
+  # honest cross-label-set comparison.
+
+model:
+  # A timm ViT-B/16 used as an empty skeleton: pretrained is false because the weights come
+  # from Qwen, not from timm. class_token false and global_pool avg are NOT tuning choices -
+  # Qwen's tower has no cls token and no trunk-final norm, and without them those tensors
+  # would stay at random init.
+  name: "davit_huge_fl"
+  pretrained: true
+  pool: "mean"
+  feat_norm: true
+  drop_rate: 0.1                    # dropout in the head, mild regularization
+
+input:
+  # 336 x 0.40 = 134 mm of frame, unchanged. mm_per_px stays 0.40, the value every run in
+  # this project has used: it is the knob that controls interpolation, and at 0.40 exactly
+  # 24.4% of series are upsampled (median 1.17x).
+  # LATERALITY NORMALISATION IS ON. Every LEFT knee is mirrored so all studies face the
+  # same way. The mirror axis is chosen PER PLANE by shared_code._mirror_slot, which is the
+  # whole subtlety: on a SAGITTAL series the medial-lateral direction is the SLICE axis
+  # (measured fraction 0.991 along slice order, only 0.097 across the image), so mirroring
+  # reverses SLICE ORDER; on coronal and axial it runs across the image (0.987 and 0.989),
+  # so mirroring reverses WIDTH. Flipping width on a sagittal series would reverse
+  # front-to-back instead, which is anatomical corruption - that was the original bug and
+  # it cost two runs.
+  # At submission time the side is read from the DICOM headers (mean x of
+  # ImagePositionPatient), because the test studies are not in data/12_laterality.csv;
+  # checks/laterality_run_check.py proves that rule reproduces the file on 4407/4407.
+  # Adopted because convnext_base_25d_all_knees_same_orientation scored 0.919 solo against
+  # its parent convnext_base_25d_18slices' 0.914.
+  laterality_flip: "left"        # mirror the MINORITY side (1,938 left vs 2,469 right)
+
+  norm_mean: [0.485, 0.456, 0.406]   # MedImageInsight config.yaml AND timm agree
+  norm_std:  [0.229, 0.224, 0.225]
+  size: 336
+
+  # 18 real slices per slot, down from the shared default of 24. This is the ONLY difference
+  # from convnext_base_25d_group3.
+  n_slices: 18
+
+  # 6 IMAGES PER SLOT, each holding 3 consecutive slices in its 3 channels.
+  # prepare_batch reshapes (B, 4, 18, H, W) -> (B*4*6, 3, H, W). The slice axis splits with
+  # the GROUP as the outer index and the CHANNEL as the inner one, so the groups are
+  # contiguous and non-overlapping: (0,1,2), (3,4,5), ... (15,16,17).
+  # 18 / 6 = 3 means train.py builds the backbone with in_chans=3, i.e. the pretrained stem
+  # exactly as shipped. No filter tiling, no rescaling, no adaptation.
+  slices_as_channels: 6
+
+training:
+  epochs: 12
+  lp_ft_epochs: 1
+  grad_clip: 5.0
+                                    # throttles the effective learning rate.
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 3.0e-5
+                                    # the slice count is the only variable
+    backbone_lr_mult: 0.5
+    layer_decay: 0.8
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05
+    min_lr_mult: 0.01               # floor: ends at 1% of the base learning rate
+  loss:
+    name: "bce"                     # bce = binary cross-entropy | focal = focuses on hard cases
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 7
+
+# CPU-side loading; decoding shards is the bottleneck and stays one here, though 18 slices
+# is a quarter less to decode per study than 24.
+dataloader:
+  batch_size: 2
+  accum_steps: 4
+  val_batch_size: 4
+                                    # backward pass there are no stored activations, so this
+                                    # is far cheaper than the training batch despite being
+                                    # twice the studies. Speeds the validations up.
+
+  num_workers: 26                   # the GPU does a quarter of convnext_base_336px's work
+                                    # per study, so the loader is the binding constraint
+  val_num_workers: null             # null = same as num_workers
+
+  prefetch_factor: 6                # batches queued per worker
+  pin_memory: true                  # page-locked memory, faster CPU -> GPU copies
+  persistent_workers: true          # don't respawn workers every epoch
+  drop_last: false                  # keep the ragged final batch
+
+modal:
+  gpu: "H200"
+  cpu: 16.0
+  memory_gb: 96
+
+# inherits resume: "last" from shared_config - the preemption-safe setting.
