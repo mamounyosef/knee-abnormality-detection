@@ -1,0 +1,153 @@
+# qwen3_5_vision_tower_336 - the VISION HALF of a vision-language model.
+#
+# WHAT IS ACTUALLY BEING LOADED. Qwen3.5-0.8B is a multimodal model; almost all of that
+# 0.8B is the LANGUAGE side (24 text layers plus a 248,320-token embedding table). The
+# vision tower is a plain ViT-B/16: patch 16, width 768, depth 12, 12 heads, MLP 3072.
+# That is the same size as beitv2_base_336 and mricore_vitb, so the runtime objection to
+# "running a vision-language model" does not apply - the language model is never built.
+#
+# WHY IT IS WORTH A RUN. Every backbone in our pool learned from an objective defined on
+# IMAGES: supervised labels (convnext, swinv2), pixel reconstruction (mricore MAE),
+# self-distillation (dinov3), discrete tokens (beitv2), masks (medsam), redundancy
+# reduction (barlowtwins). This tower learned from an objective defined on TEXT: its
+# merger feeds the language model directly and the gradient came from next-token
+# prediction over interleaved image-text data. Nothing we ship shares that.
+#
+# WHY IT MAY WELL FAIL. Four external backbones in a row were decorrelated and too weak:
+# medsam 0.7664, beitv2 0.7661, triad 0.8145, barlowtwins 0.8455. Measured on the shipped
+# eight, the break-even solo score for a ninth member is 0.9434. So this run is a GATE, not
+# a bet.
+#
+# READ EPOCH 1 AND DECIDE. lp_ft_epochs: 1 makes epoch 1 a FROZEN LINEAR PROBE - head only,
+# trunk frozen - so epoch 1's val macro IS the probe. That number has predicted the final
+# ranking of all four external backbones exactly, including catching medsam at 0.5095,
+# which is chance. Frozen probes so far: medsam 0.5095, triad 0.5127, beitv2 0.5432,
+# barlowtwins 0.6914, and the baseline convnext_base sits at 0.6832.
+#   near 0.50  -> kill it, the features carry nothing
+#   near 0.69  -> it will land around 0.84 and still not pay
+#   above 0.75 -> genuinely new, let it run
+#
+# GEOMETRY IS COPIED, NOT CHOSEN: 336 px, 18 slices, slices_as_channels 6. Byte-identical
+# to beitv2_base_336, so this is a single-variable comparison against a ViT-B/16 that
+# failed - only the pretraining differs.
+#
+# NORMALISATION IS DOCUMENTED, NOT ASSUMED. Qwen's preprocessor_config.json states
+# image_mean [0.5, 0.5, 0.5] and image_std [0.5, 0.5, 0.5]; timm's vit_base_patch16_224
+# pretrained_cfg says the same, so check_normalization passes with no override. This is the
+# opposite of triad, where the card said nothing and 0.5/0.5 was the closest honest guess.
+#
+# LICENCE: Apache-2.0, ungated, code and weights (Qwen/Qwen3.5-0.8B). No attribution rider,
+# unlike medsam's CC-BY-4.0.
+#
+# LOADING. runs/external_backbones.py:load_qwen3_5_vision maps the tower onto timm and
+# COUNTS the tensors, raising if any stay at random init. Three layout differences are
+# handled there and each is tested in checks/qwen_vision_check.py:
+#   patch_embed.proj is Conv3d (768,3,2,16,16) - the 2 is temporal_patch_size, and a still
+#     image is fed as two identical frames, so summing that axis is EXACT, not approximate
+#   pos_embed is an nn.Embedding of 2304 = a 48x48 grid, resampled bicubic to 21x21
+#   the MLP is linear_fc1/linear_fc2 where timm says fc1/fc2
+# There is no cls token and no trunk-final norm, so the timm model is built with
+# class_token: false and global_pool: avg, which moves the LayerNorm to fc_norm, where
+# merger.norm lands. 149 of 149 tensors load.
+#
+# Beat: beitv2_base_336's 0.7661 at epoch 1, then convnext_base_25d_18slices' 0.9010.
+
+experiment:
+  name: "qwen3_5_vision_tower_336"
+
+paths:
+  # Byte-identical split MEMBERSHIP to convnext_base_25d_group3 and convnext_base_336px.
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+  # audit_csv stays 05_audit58.csv - the panel labels never change, so it is the one
+  # honest cross-label-set comparison.
+
+model:
+  # A timm ViT-B/16 used as an empty skeleton: pretrained is false because the weights come
+  # from Qwen, not from timm. class_token false and global_pool avg are NOT tuning choices -
+  # Qwen's tower has no cls token and no trunk-final norm, and without them those tensors
+  # would stay at random init.
+  name: "vit_base_patch16_224"
+  pretrained: true
+  pool: "mean"
+  feat_norm: true
+  create_kwargs:
+    img_size: 336
+    class_token: false
+    global_pool: "avg"
+    no_embed_class: true
+  drop_rate: 0.1                    # dropout in the head, mild regularization
+
+input:
+  # 336 x 0.40 = 134 mm of frame, unchanged. mm_per_px stays 0.40, the value every run in
+  # this project has used: it is the knob that controls interpolation, and at 0.40 exactly
+  # 24.4% of series are upsampled (median 1.17x).
+  norm_mean: [0.5, 0.5, 0.5]   # Qwen's preprocessor_config.json, verbatim
+  norm_std:  [0.5, 0.5, 0.5]
+  size: 336
+
+  # 18 real slices per slot, down from the shared default of 24. This is the ONLY difference
+  # from convnext_base_25d_group3.
+  n_slices: 18
+
+  # 6 IMAGES PER SLOT, each holding 3 consecutive slices in its 3 channels.
+  # prepare_batch reshapes (B, 4, 18, H, W) -> (B*4*6, 3, H, W). The slice axis splits with
+  # the GROUP as the outer index and the CHANNEL as the inner one, so the groups are
+  # contiguous and non-overlapping: (0,1,2), (3,4,5), ... (15,16,17).
+  # 18 / 6 = 3 means train.py builds the backbone with in_chans=3, i.e. the pretrained stem
+  # exactly as shipped. No filter tiling, no rescaling, no adaptation.
+  slices_as_channels: 6
+
+training:
+  epochs: 12
+  lp_ft_epochs: 1
+  grad_clip: 5.0
+                                    # throttles the effective learning rate.
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-5
+                                    # the slice count is the only variable
+    backbone_lr_mult: 0.5
+    layer_decay: 0.75
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05
+    min_lr_mult: 0.01               # floor: ends at 1% of the base learning rate
+  loss:
+    name: "bce"                     # bce = binary cross-entropy | focal = focuses on hard cases
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 7
+
+# CPU-side loading; decoding shards is the bottleneck and stays one here, though 18 slices
+# is a quarter less to decode per study than 24.
+dataloader:
+  batch_size: 8
+  accum_steps: 1
+  val_batch_size: 16
+                                    # backward pass there are no stored activations, so this
+                                    # is far cheaper than the training batch despite being
+                                    # twice the studies. Speeds the validations up.
+
+  num_workers: 26                   # the GPU does a quarter of convnext_base_336px's work
+                                    # per study, so the loader is the binding constraint
+  val_num_workers: null             # null = same as num_workers
+
+  prefetch_factor: 6                # batches queued per worker
+  pin_memory: true                  # page-locked memory, faster CPU -> GPU copies
+  persistent_workers: true          # don't respawn workers every epoch
+  drop_last: false                  # keep the ragged final batch
+
+modal:
+  gpu: "H100"
+  cpu: 16.0
+  memory_gb: 64
+
+# inherits resume: "last" from shared_config - the preemption-safe setting.

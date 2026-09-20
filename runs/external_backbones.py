@@ -227,3 +227,112 @@ def load_triad(model, ckpt_path, strict_count: bool = True):
         raise RuntimeError("Triad load filled only %d/%d tensors; unfilled: %s"
                            % (len(out), len(msd), ", ".join(missing[:8])))
     return len(out)
+
+
+# =============================================================================
+# Qwen3.5-0.8B VISION TOWER.
+#
+# The headline "0.8B" is almost entirely the LANGUAGE model: 24 text layers plus a
+# 248,320-token embedding table. The vision tower underneath is a plain ViT-B/16 -
+# patch 16, hidden 768, depth 12, heads 12, MLP 3072 - i.e. the same size as every other
+# backbone we ship, so the runtime objection to "a vision-language model" does not apply
+# once the language half is discarded. We never build it.
+#
+# LICENCE: Apache-2.0, ungated (Qwen/Qwen3.5-0.8B).
+#
+# THREE LAYOUT DIFFERENCES from timm's vit_base_patch16, each of which would silently
+# half-load if passed to load_state_dict(strict=False):
+#
+#   1. patch_embed.proj is a Conv3d of shape (768, 3, 2, 16, 16), not a Conv2d. The 2 is
+#      temporal_patch_size: the processor feeds a still image as TWO identical frames. So
+#      out = W[:,:,0]*x + W[:,:,1]*x, and SUMMING over that axis is exactly equivalent,
+#      not an approximation.
+#   2. pos_embed is an nn.Embedding of (2304, 768) = a 48x48 grid, where timm keeps a
+#      (1, N, 768) parameter. It has to be resampled to our grid (21x21 at 336px).
+#   3. The MLP is named linear_fc1/linear_fc2 where timm says fc1/fc2.
+#
+# There is NO cls token and NO trunk-final norm: the tower ends at merger.norm, which we
+# map onto timm's fc_norm. The rest of the merger (linear_fc1/linear_fc2) projects 4 merged
+# patches into the language model's 1024-dim space and is deliberately dropped - we want
+# the 768-dim visual tokens, not their translation into text embedding space.
+# =============================================================================
+QWEN_VISION_GRID = 48          # 2304 learned position embeddings = 48 x 48 patches
+
+
+def _qwen_pos_embed(v, want_tokens):
+    """(2304, 768) on a 48x48 grid -> (1, want_tokens, 768) on sqrt(want) x sqrt(want)."""
+    import math
+    g = int(round(math.sqrt(v.shape[0])))
+    t = int(round(math.sqrt(want_tokens)))
+    if g * g != v.shape[0]:
+        raise RuntimeError("qwen pos_embed %d is not a square grid" % v.shape[0])
+    if t * t != want_tokens:
+        raise RuntimeError("target %d tokens is not a square grid" % want_tokens)
+    x = v.reshape(1, g, g, -1).permute(0, 3, 1, 2).float()
+    if g != t:
+        x = F.interpolate(x, size=(t, t), mode="bicubic", align_corners=False)
+    return x.permute(0, 2, 3, 1).reshape(1, t * t, -1).to(v.dtype)
+
+
+def load_qwen3_5_vision(model, ckpt_path, strict_count: bool = True):
+    """Fill a timm ViT-B/16 (class_token=False, global_pool='avg') from Qwen3.5's tower.
+
+    Returns the number of tensors filled, and raises if any model parameter was left at
+    its random init - the failure mode that makes `strict=False` dangerous.
+    """
+    from safetensors.torch import load_file
+    raw = load_file(str(ckpt_path))
+    sd = {}
+    for k, v in raw.items():
+        if ".visual." in k:
+            k = k[k.index(".visual.") + len(".visual."):]
+        elif k.startswith("visual."):
+            k = k[len("visual."):]
+        else:
+            continue
+        sd[k] = v
+
+    msd = model.state_dict()
+    out = {}
+
+    # 1. patch embedding: Conv3d (C, 3, 2, 16, 16) -> Conv2d (C, 3, 16, 16)
+    w = sd.get("patch_embed.proj.weight")
+    if w is None:
+        raise RuntimeError("no patch_embed.proj.weight among %d vision tensors" % len(sd))
+    if w.ndim == 5:
+        w = w.sum(dim=2)               # the two identical frames collapse exactly
+    tw = msd["patch_embed.proj.weight"]
+    if w.shape[1] != tw.shape[1]:      # 3-channel weights into an n-channel stem
+        w = w.mean(dim=1, keepdim=True).repeat(1, tw.shape[1], 1, 1) * (3.0 / tw.shape[1])
+    if w.shape == tw.shape:
+        out["patch_embed.proj.weight"] = w
+    if "patch_embed.proj.bias" in sd:
+        out["patch_embed.proj.bias"] = sd["patch_embed.proj.bias"]
+
+    # 2. position embedding: nn.Embedding table -> timm's (1, N, C) parameter
+    pe = sd.get("pos_embed.weight", sd.get("pos_embed"))
+    if pe is not None and "pos_embed" in msd:
+        out["pos_embed"] = _qwen_pos_embed(pe, msd["pos_embed"].shape[1])
+
+    # 3. blocks, with the mlp renamed
+    for k, v in sd.items():
+        if not k.startswith("blocks."):
+            continue
+        kk = k.replace(".mlp.linear_fc1.", ".mlp.fc1.").replace(".mlp.linear_fc2.",
+                                                               ".mlp.fc2.")
+        if kk in msd and msd[kk].shape == v.shape:
+            out[kk] = v
+
+    # 4. the tower's final norm lives on the merger; timm calls it fc_norm
+    for src, dst in (("merger.norm.weight", "fc_norm.weight"),
+                     ("merger.norm.bias", "fc_norm.bias")):
+        if src in sd and dst in msd and msd[dst].shape == sd[src].shape:
+            out[dst] = sd[src]
+
+    missing = [k for k in msd if k not in out]
+    model.load_state_dict(out, strict=False)
+    if strict_count and missing:
+        raise RuntimeError(
+            "Qwen3.5 vision load filled only %d/%d tensors; unfilled: %s"
+            % (len(out), len(msd), ", ".join(missing[:8])))
+    return len(out)
