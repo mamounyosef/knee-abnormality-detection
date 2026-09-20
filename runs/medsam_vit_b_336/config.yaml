@@ -1,6 +1,6 @@
 # medsam_vit_b_336
 #
-# MedSAM ViT-B, Apache 2.0. A medical fine-tune of Meta SAM, so the encoder is
+# MedSAM ViT-B (see LICENCE below). A medical fine-tune of Meta SAM, so the encoder is
 # architecturally identical to timm's samvit_base_patch16 and its weights map onto
 # it. Pretrained to DELINEATE BOUNDARIES across 1.57M medical image-mask pairs -
 # an objective nothing in our pool has. SAM was trained at 1024px, so the position
@@ -9,6 +9,21 @@
 # all 177 tensors land.
 #
 # Beat: convnext_base_25d_18slices, val 0.9010.
+
+# LICENCE, verified at source. The CODE and the WEIGHTS differ, as usual:
+#   timm's samvit architecture   Apache 2.0
+#   MedSAM code (GitHub)         Apache 2.0
+#   MedSAM WEIGHTS               CC-BY-4.0, per the authors' own Zenodo deposit
+#                                (10.5281/zenodo.10689643). The HuggingFace mirror says
+#                                Apache 2.0; the authors' deposit is authoritative for the
+#                                file we actually downloaded.
+# CC-BY-4.0 permits commercial use and redistribution, so this is prize-eligible, but it
+# REQUIRES ATTRIBUTION. If this run ships, the submission must credit MedSAM (Ma, J.,
+# Wang, B. et al.) the same way DINOv3 is credited.
+#
+# Meta's own SA-1B weights are never downloaded: the model is built with pretrained=False
+# and every tensor is overwritten from the MedSAM checkpoint, so SAM's licence does not
+# apply to us at all.
 
 experiment:
   name: "medsam_vit_b_336"
