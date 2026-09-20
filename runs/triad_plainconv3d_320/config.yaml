@@ -109,9 +109,19 @@ training:
 # CPU-side loading; decoding shards is the bottleneck and stays one here, though 18 slices
 # is a quarter less to decode per study than 24.
 dataloader:
-  batch_size: 1
-  accum_steps: 8
-  val_batch_size: 2
+  batch_size: 4                     # MEASURED: batch 1 peaked at 11.15 GB, i.e. ~10.6 GB
+                                    # per study once the 14M-param model and its optimizer
+                                    # state are taken off. 4 studies is ~43 GB, 54% of an
+                                    # 80 GB H100. Batch 1 was a guess made before any 3D
+                                    # run existed, and it wasted the card twice over: 8% of
+                                    # an H200's memory AND terrible utilisation, because a
+                                    # single-study 3D forward cannot fill the SMs.
+  accum_steps: 2                    # 4 x 2 = the same effective 8 studies per update as
+                                    # every other run, so step counts stay comparable. The
+                                    # engine divides the loss by accum before stepping and
+                                    # the loss is a mean over studies, so this is
+                                    # mathematically identical to 1 x 8, just batched.
+  val_batch_size: 8                 # no backward pass, so no stored activations
                                     # backward pass there are no stored activations, so this
                                     # is far cheaper than the training batch despite being
                                     # twice the studies. Speeds the validations up.
@@ -126,8 +136,11 @@ dataloader:
   drop_last: false                  # keep the ragged final batch
 
 modal:
-  gpu: "H200"
+  gpu: "H100"                     # 43 GB of 80 fits comfortably, and H100 is $3.95/h
+                                    # against H200's $4.54 for the same compute die. The
+                                    # H200 was only ever needed for the 141 GB, and at
+                                    # 11.15 GB measured we do not need it.
   cpu: 16.0
-  memory_gb: 96
+  memory_gb: 64
 
 # inherits resume: "last" from shared_config - the preemption-safe setting.

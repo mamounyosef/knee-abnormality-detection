@@ -66,19 +66,35 @@ from pathlib import Path
 # 6.9-8.3 h of the 9 h cap against 5.5-6.6 h for these six, and +0.0004 val is well inside
 # the 0.0055 noise. A timeout forfeits the run, so the cap decides. See runtime_budget.py.
 MEMBERS = [
-    # SOLO. convnext_base_25d_perfinding_slots_and_pooling, val 0.8961 at step 2600.
+    # THE SHIPPED SEVEN (val 0.9164 / LB 0.932) PLUS AN EIGHTH, FLAT.
     #
-    # Not an ensemble at all - one checkpoint, shipped to see what the leaderboard makes of
-    # an idea validation rejected. It feeds ALL SIX slots (cor_plain and ax_plain have never
-    # been used by any shipped run) and lets each finding pool ONLY the views that can show
-    # it: ACL on sagittal, MCL on coronal at 24 slices, PF OA on axial, Fracture on all six.
-    # 40 windows per study against the 4-slot runs' 24.
+    # convnext_base_25d_perfinding_slots_and_pooling joins as a full member rather than
+    # nested. It is a ConvNeXt on the 2.5D geometry like three of the seven, so nesting was
+    # the obvious guess - but it is NOT a near-duplicate: its logit correlation with the
+    # shipped members is 0.848 mean / 0.740 minimum, where the other convnext_base_25d_*
+    # siblings sit at 0.95-0.99. Nesting averages away an opinion that is genuinely its own.
+    # Measured over 84 placements: flat +0.0006, every nested form +0.0003 to +0.0004.
     #
-    # Val said -0.0049 against its parent's 0.9010, with 8 of 12 findings worse and the
-    # worst losses on findings whose views had been RESTRICTED (Contusion -0.0262, ACL
-    # -0.0143). At the calibrated OOF->LB slope of 0.48 that predicts roughly 0.9116 against
-    # the parent's measured 0.914. Worth one submission because the prediction is cheap to
-    # falsify and the geometry is unlike anything we have shipped.
+    # Cross-fitted on val (choose on 4/5, score the held-out fifth): 0.9176 against the
+    # shipped 0.9172, +0.0004. Small, but from 84 candidates rather than the 151,889 of the
+    # structure search, so far less selection bias, and the winner is the a-priori obvious
+    # placement rather than a scan artifact.
+    #
+    # The real argument is the leaderboard's. Shipped SOLO it scored 0.915 against its
+    # parent's 0.914, while validation had it at 0.8961 against 0.9010 - val understates
+    # this run by roughly 0.005. If that carries into the ensemble the gain is larger than
+    # val can see. Audit-58 disagrees (-0.0005 cross-fitted) but 58 studies cannot outweigh
+    # 704.
+    #
+    # COST: it is 6 slots with per-slot slice counts, so it does NOT share the seven's
+    # decode group and adds one extra decode pass. Solo it priced at 22.3 min.
+    ("convnext_base_relabel", "best"),
+    ("mricore_vitb_cross_attention", "best"),
+    ("mricore_vitb_mae_cross_attention", "best"),
+    ("dinov3_convnext_base", "best"),
+    ("convnext_base_25d_18slices", "best"),
+    ("swinv2_base_in22k", "best"),
+    ("convnext_base_25d_poolattn", "best"),
     ("convnext_base_25d_perfinding_slots_and_pooling", "best"),
 ]
 # RadImageNet is deliberately ABSENT: its licence is "personal, non-commercial (e.g.,
@@ -93,11 +109,10 @@ MEMBERS = [
 # worse than the one measured, including the 6-member that scored 0.922. Fixed: best.pt
 # is now step 2600 and its `score` matches val_log's peak. ALWAYS check that before a
 # submission - it is silent otherwise.
-BLEND_WEIGHTS = None            # ONE member: nothing to weight. A per-class
-                               # matrix would be a no-op at best and a shape
-                               # mismatch at worst.
-                               # per-class matrix; verified identical to the
-                               # nested form (max logit gap 4.8e-07).
+BLEND_WEIGHTS = None            # FLAT. The +0.0006 / +0.0004 cross-fitted result
+                               # was measured on a flat eight-way average, so
+                               # ship exactly what was measured. A per-class fit
+                               # on top would be a second, unmeasured change.
 _OLD = None                    # FLAT. The per-class search is fitting noise now: its
                                # out-of-fold estimate is 0.9152 against flat's 0.9156.
                                # For the 9-member branch-group construct instead, set this
@@ -108,22 +123,29 @@ STRESS       = 0                 # >0 = MEASUREMENT run: repeat the 3 public stu
                               # no submission.csv. Use with SUBMIT = False.
 PUBLISH      = True
 WAIT_FOR_RUN = True
-SUBMIT       = True              # the free kernel run passed: preflight clean, one
-                              # member scored, 10.1 min (0.17 h of the 9 h cap).
+SUBMIT       = False             # free kernel run FIRST: eight members and TWO
+                              # decode groups, so the runtime must be measured
+                              # against the 9 h cap before committing.
 KAGGLE_USER  = "mamounhussam"
-SLUG         = "knee-perfinding-slots"
+SLUG         = "knee-eight-perfinding"
 # KEEP THIS IN STEP WITH MEMBERS. Submission 56234763 shipped the 18-slice member while
 # this text still named the 24-slice one, because the swap changed MEMBERS and SLUG and
 # missed NOTE. Kaggle descriptions cannot be edited after submitting, so that record is
 # permanently wrong. Re-read this string whenever MEMBERS changes.
-NOTE         = ("SOLO RUN, not an ensemble: convnext_base_25d_perfinding_slots_and_pooling, "
-                "val 0.8961 (step 2600). All six slots (sag_plain, sag_fluid, cor_plain, "
-                "cor_fluid, ax_plain, ax_fluid), with each finding pooling ONLY the views "
-                "that can show it: ACL sagittal, MCL coronal, OA coronal, PF OA axial, "
-                "Fracture all six. Coronal samples 24 slices, the rest 18, so 40 windows "
-                "per study against the 4-slot runs' 24. Its parent convnext_base_25d_18slices "
-                "scores val 0.9010 / LB 0.914; validation says this is -0.0049 with 8 of 12 "
-                "findings worse. Submitted to test that verdict on the leaderboard.")
+NOTE         = ("THE 0.932 SEVEN PLUS AN EIGHTH, FLAT. Added: "
+                "convnext_base_25d_perfinding_slots_and_pooling - six slots with each "
+                "finding pooling only the views that can show it (ACL sagittal, MCL "
+                "coronal at 24 slices, PF OA axial, Fracture all six), 40 windows per "
+                "study. It joins FLAT rather than nested because its logit correlation "
+                "with the seven is 0.848 mean / 0.740 min, where the other 2.5D ConvNeXt "
+                "siblings sit at 0.95-0.99 - it is not a near-duplicate and averaging it "
+                "into the family throws that away. Measured over 84 placements: flat "
+                "+0.0006 val, every nested form +0.0003 to +0.0004; cross-fitted 0.9176 "
+                "against the shipped 0.9172. Shipped SOLO this member scored 0.915 against "
+                "its parent's 0.914 while validation had it 0.0049 BELOW that parent, so "
+                "val understates it and the ensemble gain may exceed what val can see. "
+                "Members 1-7 unchanged from the 0.932 submission. | Built with DINOv3")
+
 # ===========================================================================
 
 PKG_ROOT = Path(__file__).resolve().parent.parent.parent      # <repo>/runs
