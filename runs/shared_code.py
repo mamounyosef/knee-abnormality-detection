@@ -4133,8 +4133,13 @@ def modal_image():
                                    "**/*.pt", "**/*.npz", "**/*.png", "**/*.pth"])
             # only the small split CSVs travel in the image; stats/ alone is 824 MB of
             # local analysis output the container never opens
+            # _relay_stage holds up to 49 GB of shards in transit between workspaces. It
+            # must never enter the image, and because relay_shards.py writes it while a
+            # build may be running, leaving it in also fails the build outright with
+            # "<file> was modified during build process".
             .add_local_dir(str(Path(__file__).parent.parent / "data"), "/root/data",
                            ignore=["shards", "raw", "backups", "stats", "sample_dicoms", "pretrained",
+                                   "_relay_stage", "_relay_state.json",
                                    "*.jsonl", "*.parquet"]))
 
 
