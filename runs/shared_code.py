@@ -5857,6 +5857,10 @@ def build_kaggle_assets(cfg: dict, exp_dir, out_dir, checkpoint_path,
     (out / "notebook").mkdir(parents=True, exist_ok=True)
     dataset_slug = dataset_slug or f"knee-{exp.replace('_', '-')}"
     notebook_slug = notebook_slug or f"knee-{exp.replace('_', '-')}-submit"
+    # Kaggle takes the slug from the title, so a title trimmed to the 50-character cap
+    # moves the notebook. Follow it rather than fight it: the id becomes the title's slug.
+    _nb_title = _kaggle_title(exp, "submit")
+    notebook_slug = _kaggle_slug(_nb_title)
 
     # weights: strip the optimizer/scheduler state, it is dead weight for inference
     ck = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
@@ -5871,7 +5875,7 @@ def build_kaggle_assets(cfg: dict, exp_dir, out_dir, checkpoint_path,
     _kcfg["model"].pop("weights", None)
     (out / "weights" / "config.json").write_text(json.dumps(_kcfg, indent=2))
     (out / "weights" / "dataset-metadata.json").write_text(json.dumps(
-        {"title": f"knee {exp} weights", "id": f"{kaggle_user}/{dataset_slug}",
+        {"title": _kaggle_title(exp, "weights"), "id": f"{kaggle_user}/{dataset_slug}",
          "licenses": [{"name": "CC0-1.0"}]}, indent=2))
 
     # the notebook imports shared_code from the weights dataset, so inference and
@@ -5901,7 +5905,7 @@ def build_kaggle_assets(cfg: dict, exp_dir, out_dir, checkpoint_path,
 
     (out / "notebook" / "kernel-metadata.json").write_text(json.dumps({
         "id": f"{kaggle_user}/{notebook_slug}",
-        "title": f"knee {exp} submit",
+        "title": _nb_title,
         "code_file": "submit.ipynb", "language": "python", "kernel_type": "notebook",
         "is_private": True, "enable_gpu": True, "enable_internet": False,
         # the competition bans P100 (sm_60, no kernels in kaggle's torch build).
@@ -6648,6 +6652,33 @@ def submission_message(cfg: dict, exp_dir) -> str:
         return name
 
 
+def _kaggle_slug(title: str) -> str:
+    """The slug Kaggle will actually derive from a kernel title.
+
+    It slugifies the TITLE and ignores the id you asked for. So compute the slug the same
+    way it does and use that as the id, rather than discovering the mismatch afterwards.
+    """
+    out = "".join(c if c.isalnum() else "-" for c in title.lower())
+    while "--" in out:
+        out = out.replace("--", "-")
+    return out.strip("-")
+
+
+def _kaggle_title(exp: str, suffix: str) -> str:
+    """Kaggle rejects a dataset or kernel title outside 6-50 characters.
+
+    `convnext_base_25d_all_knees_same_orientation` alone is 44, so "knee <exp> weights"
+    is 56 and the create fails. Drop the decoration before touching the name itself, so
+    the title stays readable and still identifies the run.
+    """
+    for t in ("knee %s %s" % (exp, suffix), "%s %s" % (exp, suffix)):
+        if 6 <= len(t) <= 50:
+            return t
+    # keep the suffix even when the name has to be cut: the dataset and the notebook are
+    # built from the same exp, so dropping it would give them identical titles
+    return ("%s %s" % (exp[:50 - len(suffix) - 1], suffix))[:50]
+
+
 def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
                    message: str, wait: bool = True, poll_secs: int = 60,
                    submit: bool = True) -> str | None:
@@ -6672,10 +6703,23 @@ def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
     if any(k in low for k in ("already exists", "already in use", "409", "403")):
         print("      exists -> new version")
         _kaggle("datasets", "version", "-p", ".", "-m", message, cwd=w)
-    elif "error" in out.lower() or "forbidden" in out.lower():
-        raise SystemExit("❌ dataset upload failed")
+    elif not any(k in low for k in ("successfully", "being created", "is being created")):
+        # anything else is a rejection. It used to fall through to _wait_for_dataset and
+        # burn its full 600s timeout before reporting "kaggle never listed model.pt",
+        # which hides the real message (e.g. "title must be between 6 and 50 characters").
+        raise SystemExit("❌ dataset upload failed: %s" % out.strip()[:500])
     _wait_for_dataset(user, dataset_slug, expect_models=len(list(w.glob("m*_model.pt"))))
 
+    # the assets are the source of truth: build_kaggle_assets may have had to change the
+    # slug to keep it consistent with a title Kaggle would otherwise have re-slugified
+    try:
+        _meta = json.loads((assets / "notebook" / "kernel-metadata.json").read_text())
+        _id = str(_meta.get("id", "")).split("/")[-1]
+        if _id and _id != notebook_slug:
+            print("      notebook slug from the assets: %s (was %s)" % (_id, notebook_slug))
+            notebook_slug = _id
+    except Exception:
+        pass
     print(f"\n  2/4 notebook {user}/{notebook_slug}")
     out = _kaggle("kernels", "push", "-p", str(assets / "notebook"))
     m = re.search(r"version\s+(\d+)", out, re.I)
