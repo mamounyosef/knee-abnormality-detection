@@ -6242,7 +6242,10 @@ def tune_inference_backend(models=None, verbose: bool = True) -> None:
                 moved += 1
         except Exception:
             pass
-    if verbose:
+    # once per process: with shared_decode this runs per chunk per group, and ~200
+    # identical lines would bury the ones that matter
+    if verbose and not _BANNERS.get("backend"):
+        _BANNERS["backend"] = True
         print("  ⚡ inference backend: cudnn.benchmark=True, channels_last on %d/%d "
               "models" % (moved, len(models or [])), flush=True)
 
@@ -6268,6 +6271,7 @@ def _replicate_models(models: list, devices: list) -> list:
 # Chunked scoring calls predict_dicom_ensemble once per chunk per group; without this every
 # call would deep-copy every model onto the second card again.
 _REPLICA_CACHE: dict = {}
+_BANNERS: dict = {}
 
 
 @torch.no_grad()
@@ -6371,7 +6375,8 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
         tune_inference_backend(models)
     models_by_dev = _replicate_models(models, devices)
     models = models_by_dev[0]          # the originals; the single-device path is unchanged
-    if len(devices) > 1:
+    if len(devices) > 1 and not _BANNERS.get("gpus"):
+        _BANNERS["gpus"] = True
         print("  \u26a1 %d GPUs: the study batch is split across %s"
               % (len(devices), ", ".join(str(d) for d in devices)), flush=True)
 
