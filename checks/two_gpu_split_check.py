@@ -117,6 +117,22 @@ ck("member_s becomes the MEAN across devices",
    "a sum would hide the whole speedup from the 9 h budget")
 ck("the pass count is recorded", '"n_gpus": len(devices)' in src)
 
+print("\n8. cross-device indexing - the bug that silently zeroed the first two-GPU run")
+# COLS index tensors are built on cuda:0. The thread for the SECOND card scatters into a
+# tensor on that card; indexing it with a cuda:0 index raises. A bare threading.Thread
+# swallowed that exception and every member on card 1 voted 0.5.
+_src2 = (ROOT / "runs" / "shared_code.py").read_text(encoding="utf-8")
+_split = _src2[_src2.find("def _score_batch_split"):_src2.find("def _score_batch():")]
+ck("the split moves COLS onto each thread's device",
+   "cols_d = [c_.to(dev) for c_ in COLS]" in _split)
+ck("and scatters with the per-device index, never the cuda:0 one",
+   "st[_mi][:, cols_d[_mi]] = o" in _split and "st[_mi][:, COLS[_mi]] = o" not in _split)
+# NOT asserted here, deliberately. A single-GPU machine cannot reproduce the real case: the
+# failing scatter is a cuda:1 tensor indexed by a cuda:0 index, and torch happens to ALLOW a
+# CPU tensor indexed by a CUDA index, so the obvious local proxy passes and proves nothing.
+# Only a two-card run can confirm it; the same-device fix is correct whichever way it goes.
+print("      (cross-device raise is only reproducible on two cards - verified on Kaggle)")
+
 print("\n" + "=" * 72)
 print("  %d passed, %d failed" % (len(PASS), len(FAIL)))
 for f in FAIL:

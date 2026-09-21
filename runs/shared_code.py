@@ -5342,7 +5342,36 @@ def _slice_sort_key(ds, frame):
 
 
 def dicom_series_volume(files) -> np.ndarray:
-    """One series' DICOM files -> (n_slices, H, W) uint8, exactly as the shards store it."""
+    """One series' DICOM files -> (n_slices, H, W) uint8, exactly as the shards store it.
+
+    With KNEE_VOLCACHE_DIR set, the result is cached on scratch disk keyed by the sorted
+    file list, so every geometry group after the first reads it instead of decoding again.
+    The volume is geometry-independent, which is what makes sharing it correct.
+    """
+    _cdir = os.environ.get("KNEE_VOLCACHE_DIR")
+    _cpath = None
+    if _cdir and files:
+        import hashlib
+        _key = hashlib.sha1("|".join(sorted(str(f) for f in files)).encode()).hexdigest()
+        _cpath = Path(_cdir) / (_key + ".npy")
+        if _cpath.exists():
+            try:
+                return np.load(_cpath)
+            except Exception:
+                pass                                   # a torn write: just decode again
+    _vol = _dicom_series_volume_uncached(files)
+    if _cpath is not None and _vol.size:
+        try:
+            _tmp = _cpath.with_suffix(".tmp.npy")
+            np.save(_tmp, _vol)
+            os.replace(_tmp, _cpath)                   # atomic: no reader sees half a file
+        except Exception:
+            pass
+    return _vol
+
+
+def _dicom_series_volume_uncached(files) -> np.ndarray:
+    """The actual decode. Kept separate so the cache above can wrap it."""
     import pydicom
 
     slices = []
@@ -5590,6 +5619,25 @@ def build_kaggle_ensemble_assets(members: list, out_dir, kaggle_user: str,
         except Exception as _e:
             print(f"  [warn] could not sanity-check {name}'s checkpoint: "
                   f"{type(_e).__name__}: {_e}")
+        # The val_log check above is BLIND for a full-data run: evaluation.enable is false,
+        # so there is no val_log, and its "score" is just the step counter. Compare the
+        # checkpoint's step with the last step the run actually trained instead.
+        # convnext_base_full_all_knees_same_orientation was about to ship step 3850 - a copy
+        # pulled mid-run during a workspace hand-off - while training finished at 4400.
+        try:
+            _tl = Path(exp_dir) / cfg["output"]["run_dir"] / "train_log.csv"
+            if not cfg.get("evaluation", {}).get("enable", True) and _tl.exists():
+                _tlc = pd.read_csv(_tl)
+                # train_log names it global_step; a guessed "step" would raise, be caught
+                # by the except below, and quietly disable this whole check
+                _col = "global_step" if "global_step" in _tlc.columns else "step"
+                _last = int(_tlc[_col].max())
+                _ckst = int(ck.get("global_step") or ck.get("step") or 0)
+                if _ckst < _last - 1:
+                    stale.append((name, _ckst, float(_ckst), float(_last)))
+        except Exception as _e:
+            print(f"  [warn] could not step-check {name}'s checkpoint: "
+                  f"{type(_e).__name__}: {_e}")
         torch.save({"model": ck["model"], "cfg": ck.get("cfg", cfg),
                     "epoch": ck.get("epoch"), "step": ck.get("step"),
                     "score": ck.get("score")}, w / f"m{i}_model.pt")
@@ -5607,6 +5655,13 @@ def build_kaggle_ensemble_assets(members: list, out_dir, kaggle_user: str,
                          "step": ck.get("step"), "score": ck.get("score")})
         print(f"  \U0001F4E6 m{i} {name:30s} epoch {ck.get('epoch')} "
               f"step {ck.get('step')} score {ck.get('score')}")
+        # A full checkpoint carries the optimizer state as well as the weights, so it can be
+        # three times the model. Rebinding `ck` next iteration is not enough on a 16 GB
+        # machine: fragmentation builds across members and the ninth dies with
+        # "DefaultCPUAllocator: not enough memory" asking for a few megabytes.
+        del ck
+        import gc as _gc
+        _gc.collect()
     if stale:
         lines = "\n".join(
             f"    {n}: shipping step {st} @ {sc_:.4f}, but val_log's best is {b:.4f}"
@@ -6173,6 +6228,12 @@ def tune_inference_backend(models=None, verbose: bool = True) -> None:
     TF32 is deliberately NOT touched: it is Ampere and newer, and Kaggle's T4 is Turing.
     """
     torch.backends.cudnn.benchmark = True
+    # Cap the BLAS thread pools. Our decode runs in its own worker processes and torch
+    # spawns its own; left uncapped, OpenBLAS and MKL each grab every core and the three
+    # fight each other. The public 0.941 notebook caps these at 4 for the same reason.
+    for _v in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+               "NUMEXPR_NUM_THREADS"):
+        os.environ.setdefault(_v, "4")
     moved = 0
     for m in models or []:
         try:
@@ -6194,10 +6255,19 @@ def _replicate_models(models: list, devices: list) -> list:
     two threads calling forward on one module would share its buffers.
     """
     import copy
+    key = (tuple(id(m) for m in models), tuple(str(d) for d in devices))
+    if key in _REPLICA_CACHE:
+        return _REPLICA_CACHE[key]
     out = [[m.eval().to(devices[0]) for m in models]]
     for dev in devices[1:]:
         out.append([copy.deepcopy(m).eval().to(dev) for m in models])
+    _REPLICA_CACHE[key] = out
     return out
+
+
+# Chunked scoring calls predict_dicom_ensemble once per chunk per group; without this every
+# call would deep-copy every model onto the second card again.
+_REPLICA_CACHE: dict = {}
 
 
 @torch.no_grad()
@@ -6364,6 +6434,10 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
                     torch.cuda.set_device(dev)
                 st = torch.full((len(mods), xp.shape[0], len(tasks)),
                                 float("nan"), device=dev)
+                # COLS holds index tensors built on cuda:0. Indexing a cuda:1 tensor with a
+                # cuda:0 index raises - and in the first two-GPU run that exception killed
+                # this thread silently, so every member on the second card voted 0.5.
+                cols_d = [c_.to(dev) for c_ in COLS]
                 for _mi, (c, m) in enumerate(zip(cfgs, mods)):
                     amp = c["training"]["amp"] and dev.type == "cuda"
                     _tm = time.perf_counter()
@@ -6374,7 +6448,7 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
                     if dev.type == "cuda":
                         torch.cuda.synchronize(dev)
                     _dev_member_s[di][_mi] += time.perf_counter() - _tm
-                    st[_mi][:, COLS[_mi]] = o
+                    st[_mi][:, cols_d[_mi]] = o
                 return st.cpu()
 
             # ThreadPoolExecutor, NOT threading.Thread: .result() re-raises here. A bare
@@ -6582,6 +6656,8 @@ def predict_dicom_ensemble_grouped(cfgs: list, models: list, studies_df: pd.Data
               "n_gpus": usable_gpus(cfgs[0]) if device.type == "cuda" else 0}
     notes_g = []
     t0 = time.time()
+    # Resolve each group's member order ONCE: chunking would otherwise redo it per chunk.
+    group_plan = []
     for gi, (key, idx) in enumerate(groups.items()):
         sub_cfgs = [cfgs[i] for i in idx]
         sub_models = [models[i] for i in idx]
@@ -6599,30 +6675,61 @@ def predict_dicom_ensemble_grouped(cfgs: list, models: list, studies_df: pd.Data
                     f"geometry group {gi} has no full-width member, so its columns cannot be "
                     f"aligned to the head task list: "
                     f"{[c['experiment']['name'] for c in sub_cfgs]}")
-        print(f"\n▶ decode pass {gi + 1}/{len(groups)}", flush=True)
-        lg, gtiming = predict_dicom_ensemble(
-            sub_cfgs, sub_models, studies_df, plan, index, files_by_series, device=device,
-            batch_size=batch_size, num_workers=num_workers, report_every=report_every,
-            return_member_logits=True)
-        # DECODE accumulates across groups - that is the whole cost of the extra pass, and
-        # the number the 9h budget turns on. GPU time stays attributed per member.
-        timing["decode_s"] += gtiming["decode_s"]
-        timing["gpu_s"] += gtiming["gpu_s"]
-        for slot, i in enumerate(idx):
-            timing["member_s"][i] = gtiming["member_s"][slot]
-        if lg.shape[1] != n:
-            # A short group used to be zero-padded in silence. Zeros are logits, so they
-            # sigmoid to 0.5 and look like real predictions - the first two-GPU run shipped
-            # a submission squeezed into [0.309, 0.707] and nothing in the log said why.
-            miss = n - lg.shape[1]
-            msg = ("group %d returned %d of %d studies; %d padded with a NO-OPINION logit"
-                   % (gi, lg.shape[1], n, miss))
-            print("  ⚠️  " + msg, flush=True)
-            notes_g.append(msg)
-            pad = np.zeros((lg.shape[0], miss, len(tasks)), np.float32)
-            lg = np.concatenate([lg, pad], axis=1)
-        for slot, i in enumerate(idx):
-            allm[i] = lg[slot]
+        group_plan.append((gi, idx, sub_cfgs, sub_models))
+
+    # DECODE ONCE. Every group re-read and re-decompressed every DICOM, although
+    # dicom_series_volume's output is geometry-independent. With shared_decode the studies
+    # are walked in chunks, every group scores a chunk before the next is decoded, and the
+    # raw volumes are shared through a scratch-disk cache that holds one chunk at a time.
+    _inf = cfgs[0].get("inference", {}) or {}
+    shared = bool(_inf.get("shared_decode")) and len(group_plan) > 1
+    chunk = max(1, int(_inf.get("decode_chunk", 32))) if shared else max(n, 1)
+    cache_dir = None
+    if shared:
+        import tempfile
+        cache_dir = Path(tempfile.mkdtemp(prefix="knee_volcache_"))
+        os.environ["KNEE_VOLCACHE_DIR"] = str(cache_dir)
+        print(f"  \u26a1 shared decode: {len(group_plan)} groups share one decode, "
+              f"{chunk} studies at a time, cache {cache_dir}", flush=True)
+    try:
+        for c0 in range(0, n, chunk):
+            cdf = studies_df.iloc[c0:c0 + chunk]
+            k = len(cdf)
+            for gi, idx, sub_cfgs, sub_models in group_plan:
+                if c0 == 0:
+                    print(f"\n\u25b6 decode pass {gi + 1}/{len(groups)}", flush=True)
+                lg, gtiming = predict_dicom_ensemble(
+                    sub_cfgs, sub_models, cdf, plan, index, files_by_series, device=device,
+                    batch_size=batch_size, num_workers=num_workers,
+                    report_every=report_every, return_member_logits=True)
+                # everything ADDS across chunks; assigning would keep only the last chunk
+                timing["decode_s"] += gtiming["decode_s"]
+                timing["gpu_s"] += gtiming["gpu_s"]
+                for slot, i in enumerate(idx):
+                    timing["member_s"][i] += gtiming["member_s"][slot]
+                if lg.shape[1] != k:
+                    # A short group used to be zero-padded in silence. Zeros are logits, so
+                    # they sigmoid to 0.5 and look like real predictions.
+                    miss = k - lg.shape[1]
+                    msg = ("group %d chunk at %d returned %d of %d studies; %d padded with "
+                           "a NO-OPINION logit" % (gi, c0, lg.shape[1], k, miss))
+                    print("  \u26a0\ufe0f  " + msg, flush=True)
+                    notes_g.append(msg)
+                    pad = np.zeros((lg.shape[0], miss, len(tasks)), np.float32)
+                    lg = np.concatenate([lg, pad], axis=1)
+                for slot, i in enumerate(idx):
+                    allm[i, c0:c0 + k] = lg[slot]
+            if cache_dir is not None:
+                for f in cache_dir.glob("*.npy"):      # keep scratch disk at one chunk
+                    try:
+                        f.unlink()
+                    except OSError:
+                        pass
+    finally:
+        if cache_dir is not None:
+            os.environ.pop("KNEE_VOLCACHE_DIR", None)
+            import shutil
+            shutil.rmtree(cache_dir, ignore_errors=True)
 
     # blend exactly as the single-pass path does: nanmean, or per-class weights
     A = torch.as_tensor(allm)

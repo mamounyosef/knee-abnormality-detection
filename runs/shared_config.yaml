@@ -186,6 +186,12 @@ training:
     reset_optimizer: false          # false = keep the AdamW moments (usually right)
     reset_patience: true            # start early stopping fresh for the extension
 
+# Inference-only settings. These never touch training.
+inference:
+  # Kaggle's "GPU T4 x2" gives TWO cards and every submission before 2026-09-21 used one,
+  # with 16.176 s of each study's 23.890 s being GPU work. 1 = the old single-card path.
+  max_gpus: 2
+
 evaluation:
   # validation cadence is driven by the GLOBAL STEP, not the epoch. The epoch only
   # picks which interval applies - early epochs move fast and are not worth scoring
