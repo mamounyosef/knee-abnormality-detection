@@ -1,0 +1,116 @@
+# convnext_base_full_all_knees_same_orientation
+#
+# convnext_base_full with laterality normalisation, and nothing else changed.
+#
+# WHY THIS RUN. Laterality is the only intervention whose leaderboard result has beaten its
+# validation result three times running:
+#     the run solo vs its parent      val -0.0002   LB +0.005  (0.919 vs 0.914)
+#     the run inside the ensemble     val -0.0001   LB +0.001  (0.933 vs 0.932)
+#     per finding on val              the six side-dependent findings -0.0011 mean, i.e.
+#                                     val said it HURT exactly where it should help
+# Validation and the leaderboard disagree on the SIGN, consistently. Full-data training is
+# the other intervention we trust from the leaderboard rather than from validation, so
+# combining them is the obvious next move.
+#
+# WHAT LATERALITY DOES. Every LEFT knee is mirrored so all studies face the same way.
+# "Medial" means the inner side of the leg, so medial structures sit on opposite sides of
+# the frame for a left and a right knee, and four of the twelve findings are named for that
+# side. THE MIRROR AXIS IS CHOSEN PER PLANE, which is the whole subtlety:
+#     sagittal  left-right runs along the SLICE order (measured 0.991 along slices, 0.097
+#               across the image), so mirroring REVERSES SLICE ORDER
+#     coronal   left-right runs across the image (0.987), so mirroring reverses WIDTH
+#     axial     left-right runs across the image (0.989), so mirroring reverses WIDTH
+# A width flip on a sagittal series reverses FRONT-TO-BACK instead. That was the original
+# bug; it corrupted half the input and produced a confident wrong conclusion.
+# At submission time the side is read from the DICOM headers (mean x of
+# ImagePositionPatient) because the test studies are not in data/12_laterality.csv;
+# checks/laterality_run_check.py proves that rule reproduces the file on 4407/4407 studies.
+#
+# NO VALIDATION IS PRINTED, and that is deliberate. This run trains on train + val + audit,
+# so the "validation" set is entirely inside the training set: any score it prints is
+# IN-SAMPLE, climbs whatever the model does, and reads like a score when it is not one.
+# Last time this run printed validations the whole way through and they were misleading.
+# evaluation.enable false skips the evaluation and keeps the checkpointing, which the engine
+# otherwise couples to it. With nothing held out, "best" can only mean LATEST, so best.pt
+# and last.pt both carry the newest weights.
+#
+# EPOCHS ARE FIXED, NOT EARLY-STOPPED, because there is nothing to stop on. 8 epochs, the
+# epoch where convnext_base_relabel peaked (step 3600). The cosine still spans 12 epochs and
+# we stop at 8, so the learning-rate curve matches that parent step for step.
+#
+# WHAT TO COMPARE IT AGAINST. convnext_base_full cannot be validated - it trained on all 704
+# val and all 58 audit studies - so the ONLY honest comparison is the leaderboard. Its
+# predecessor went out inside submission 56299088.
+
+experiment:
+  name: "convnext_base_full_all_knees_same_orientation"
+
+paths:
+  train_csv: "08_train_full.csv"    # 3,638 + 704 + 58, built by data_code/08_make_full_train.py
+  val_csv:   "05_val_qwen24t-med.csv"   # IN-SAMPLE now. A progress readout, not a score.
+
+input:
+  # Mirror every LEFT knee (the minority side: 1,938 against 2,469) so all studies face the
+  # same way. shared_code._mirror_slot picks the axis per plane - sagittal reverses SLICE
+  # ORDER, coronal and axial reverse WIDTH - and raises on any plane it does not know.
+  laterality_flip: "left"
+
+model:
+  name: "convnext_base.fb_in22k_ft_in1k"
+  pretrained: true
+  pool: "mean"
+  drop_rate: 0.1
+
+training:
+  epochs: 8                         # convnext_base_relabel peaked at epoch 8 / step 3600.
+                                    # 4,400 studies = 550 steps/epoch, so 4,400 steps here.
+  grad_clip: 3.0                    # engine default; the parent ran 1.0 and clipped 13.6%
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-5
+    backbone_lr_mult: 0.5           # head = 1.0e-4
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05
+    min_lr_mult: 0.01
+    schedule_epochs: 12             # cosine spans 12 epochs but we stop at 8, so the lr
+                                    # curve matches convnext_base_relabel step for step
+  loss:
+    name: "bce"
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  early_stopping:
+    enable: false                   # nothing held out left to stop on
+    monitor: "val_macro_auroc"      # unused while disabled, kept so the engine can print it
+    mode: "max"
+    patience: 4
+
+evaluation:
+  # OFF. train_csv is 08_train_full.csv = train + val + audit, so scoring 05_val_*.csv here
+  # is scoring the training set. The engine skips the evaluation and still checkpoints.
+  enable: false
+  eval_every_steps_before: 550      # unused while enable is false, kept for the record
+  eval_every_steps_after: 550
+  audit:
+    enable: false                   # the 58 are in the training set now
+
+dataloader:
+  batch_size: 2                     # 2 studies x 4 slots x 24 slices = 192 images @512
+  accum_steps: 4                    # effective 8 studies per update, same as the parent
+  val_batch_size: 4
+  num_workers: 26
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+modal:
+  gpu: "H200"
+  cpu: 20.0
+  memory_gb: 64
+  timeout_hours: 10                 # 21% more data per epoch than the parent

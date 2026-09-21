@@ -3401,6 +3401,33 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         last_val_step = gstep
         el = time.time() - t0
         eta = el * (total / max(gstep, 1) - 1)
+
+        # FULL-DATA RUNS: evaluation.enable false. Every study is in the training set, so a
+        # validation score here is IN-SAMPLE - it climbs whatever the model does and reads
+        # like a score when it is not one. Skip the evaluation and keep the checkpointing,
+        # which is otherwise coupled to it. With nothing held out "best" can only mean
+        # LATEST, so the score is the step counter: monotone, so best.pt and the top-K board
+        # always hold the newest weights.
+        if not cfg["evaluation"].get("enable", True):
+            score, improved = float(gstep), True
+            best, best_epoch, bad = score, epoch, 0
+            done = (tag == "epoch")
+            top_k_track = update_top_k(ckpt_dir, cfg, model, epoch, gstep, score,
+                                       top_k_track, cfg["output"].get("keep_top_k", 0),
+                                       cfg["output"].get("top_k_weights_only", True),
+                                       saver=saver)
+            save_checkpoint(ckpt_dir / cfg["output"]["best_name"], cfg, model, opt, sched,
+                            scaler, epoch, gstep, score, track=_track(), device=device,
+                            elapsed_sec=el, epoch_complete=done, saver=saver,
+                            loss_fn=loss_fn, note="")
+            ud.dump(out / "ud_ratio.csv")
+            save_checkpoint(ckpt_dir / "last.pt", cfg, model, opt, sched, scaler, epoch,
+                            gstep, score, track=_track(), device=device, loss_fn=loss_fn,
+                            elapsed_sec=el, epoch_complete=done, saver=saver, note="")
+            print("  \U0001F4BE checkpoint at epoch %d step %d (%s) - no validation, this "
+                  "run trains on every study" % (epoch, gstep, tag))
+            return None
+
         print("=" * 70)
         print(f"\U0001F50E VALIDATION ({tag}) - epoch {epoch}/{epochs}  step {gstep}  "
               f"({len(loaders['val'])} batches, {len(loaders['val'].dataset)} studies) ...")
