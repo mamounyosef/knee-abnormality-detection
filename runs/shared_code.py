@@ -6672,14 +6672,18 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
     # than infer it.
     if device.type == "cuda" and not _BANNERS.get("mem"):
         _BANNERS["mem"] = True
-        _wt = sum(p.numel() * p.element_size() for m in models for p in m.parameters())
+        # None where a CHILD PROCESS owns the member: it holds its own copy on its own
+        # card, so there is nothing resident here to weigh.
+        _wt = sum(p.numel() * p.element_size()
+                  for m in models if m is not None for p in m.parameters())
         for _d in range(torch.cuda.device_count()):
             print("  📊 cuda:%d  allocated %.2f GB  reserved %.2f GB  of %.1f GB"
                   % (_d, torch.cuda.memory_allocated(_d) / 1e9,
                      torch.cuda.memory_reserved(_d) / 1e9,
                      torch.cuda.get_device_properties(_d).total_memory / 1e9), flush=True)
-        print("  📊 this group's %d member(s) weigh %.2f GB in total"
-              % (len(models), _wt / 1e9), flush=True)
+        _here = sum(1 for m in models if m is not None)
+        print("  📊 this group's %d of %d member(s) are resident here and weigh %.2f GB"
+              % (_here, len(models), _wt / 1e9), flush=True)
 
     out, done, t0, failed = [], 0, time.time(), 0
     notes = []

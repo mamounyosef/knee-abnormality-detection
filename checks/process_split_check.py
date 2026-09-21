@@ -210,6 +210,23 @@ def main():
        "SPECS.append({'i': int(i), 'dir': str(W), 'cfg': cfg})" in gen)
     ck("and passes them to the ensemble", "model_specs=SPECS" in gen)
     ck("SPECS is defined before the try that fills it", gen.find("SPECS = []") < gen.find("MODELS = []"))
+    # In process mode the parent's `models` list holds None wherever a CHILD owns the
+    # member, because that member is resident on the child's card, not here. Any code that
+    # walks the whole list and touches a model then dies. That is exactly what killed the
+    # first working process run: the resident-weight report called m.parameters() on every
+    # entry and raised AttributeError on the first None, after the split had already
+    # started correctly.
+    ens = src[src.find("def predict_dicom_ensemble("):
+              src.find("def predict_dicom_ensemble_grouped")]
+    ck("the resident-weight report skips members a child owns",
+       "for m in models if m is not None for p in m.parameters()" in ens)
+    ck("nothing else walks models unguarded",
+       all(("if m is not None" in ln or "len(models)" in ln or "models[_mi]" in ln
+            or "zip(cfgs, models)" in ln or "_placed" in ln)
+           for ln in ens.splitlines() if " in models" in ln),
+       [ln.strip()[:52] for ln in ens.splitlines() if " in models" in ln])
+    ck("the single-card zip over models is unreachable once cards exist",
+       ens.find("return _score_batch_proc()") < ens.find("zip(cfgs, models)"))
     ck("split_mode is configurable", "split_mode" in src
        and "split_mode" in (ROOT / "runs" / "shared_config.yaml").read_text(encoding="utf-8"))
 
