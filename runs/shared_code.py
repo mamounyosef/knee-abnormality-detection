@@ -6426,6 +6426,20 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
         devices = [device]
         models, assign = _shard_models(models, cfgs, devices)
     dev_of = {i: devices[d] for d, idxs in enumerate(assign) for i in idxs}
+    # WHAT IS ACTUALLY RESIDENT, before a single forward. Three runs blamed "activations"
+    # on a 15 GiB T4 reporting 14.19 GiB ALLOCATED (live, not merely cached) while only
+    # ~3.2 GB of weights existed - a gap of ~11 GB nobody had measured. Print it rather
+    # than infer it.
+    if device.type == "cuda" and not _BANNERS.get("mem"):
+        _BANNERS["mem"] = True
+        _wt = sum(p.numel() * p.element_size() for m in models for p in m.parameters())
+        for _d in range(torch.cuda.device_count()):
+            print("  📊 cuda:%d  allocated %.2f GB  reserved %.2f GB  of %.1f GB"
+                  % (_d, torch.cuda.memory_allocated(_d) / 1e9,
+                     torch.cuda.memory_reserved(_d) / 1e9,
+                     torch.cuda.get_device_properties(_d).total_memory / 1e9), flush=True)
+        print("  📊 this group's %d member(s) weigh %.2f GB in total"
+              % (len(models), _wt / 1e9), flush=True)
 
     out, done, t0, failed = [], 0, time.time(), 0
     notes = []
@@ -6480,7 +6494,13 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
             st_cpu = torch.full((len(models), x.shape[0], len(tasks)), float("nan"))
             MICRO = max(1, int((cfg0.get("inference", {}) or {}).get("micro_studies", 1)))
 
+            @torch.no_grad()
             def _one(di):
+                # torch.no_grad() IS THREAD-LOCAL. predict_dicom_ensemble carries the
+                # decorator, but a ThreadPoolExecutor worker does not inherit it, so autograd
+                # built a graph and kept every intermediate alive: 14.10 GiB allocated on a
+                # 14.56 GiB T4 for ONE study. The single-card path never used threads, which
+                # is precisely why it never saw this.
                 dev = devices[di]
                 if dev.type == "cuda":
                     torch.cuda.set_device(dev)

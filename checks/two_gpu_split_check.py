@@ -112,6 +112,24 @@ ck("each member's forward is micro-batched so one member cannot fill a card",
    "for _s0 in range(0, x.shape[0], MICRO)" in split and "micro_studies" in src)
 ck("micro-batch outputs are concatenated in order",
    "torch.cat(outs, dim=0)" in split)
+# THE bug that cost three Kaggle runs: torch.no_grad() is thread-local, so a worker does
+# NOT inherit the decorator on predict_dicom_ensemble. Without it autograd keeps every
+# intermediate alive - 14.10 GiB allocated on a 14.56 GiB T4 for a SINGLE study.
+ck("each worker carries its own no_grad", "@torch.no_grad()" in split
+   and split.find("@torch.no_grad()") < split.find("def _one(di)"))
+import torch as _t
+from concurrent.futures import ThreadPoolExecutor as _TPE
+_m = _t.nn.Linear(16, 16)
+_x = _t.randn(4, 16)
+@_t.no_grad()
+def _outer(fn):
+    with _TPE(max_workers=1) as _ex:
+        return _ex.submit(fn).result()
+ck("and that is necessary: no_grad does NOT cross a thread",
+   _outer(lambda: _m(_x).requires_grad) is True,
+   "an unguarded worker builds a graph even inside @torch.no_grad()")
+ck("a guarded worker builds none",
+   _outer(lambda: (_t.no_grad().__enter__(), _m(_x).requires_grad)[1]) is False)
 ck("gpu_wall_s is the max over cards, not the sum",
    "timing[\"gpu_wall_s\"] = max(sum(d[i] for i in assign[di])" in src)
 
