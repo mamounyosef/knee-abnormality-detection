@@ -67,6 +67,9 @@ model:
   pool: "mean"
   feat_norm: true
   drop_rate: 0.1                    # dropout in the head, mild regularization
+  grad_checkpointing: false         # OFF on an H200: 141 GB buys the headroom outright,
+                                    # and recomputation costs ~30% of every step forever.
+                                    # Turn it back on if batch 4 still does not fit.
 
 input:
   # 336 x 0.40 = 134 mm of frame, unchanged. mm_per_px stays 0.40, the value every run in
@@ -134,9 +137,16 @@ training:
 # CPU-side loading; decoding shards is the bottleneck and stays one here, though 18 slices
 # is a quarter less to decode per study than 24.
 dataloader:
-  batch_size: 2
-  accum_steps: 4
-  val_batch_size: 4
+  batch_size: 8                     # 8 studies x 24 windows = 192 images per step.
+                                    # This OOM'd on an H100's 80 GB with the trunk unfrozen;
+                                    # the H200's 141 GB is the reason it is back.
+                                    # NOTE the 4.54 GB once logged here came from EPOCH 1,
+                                    # which lp_ft_epochs makes a FROZEN probe - no trunk
+                                    # activations, gradients or optimizer state. Never size
+                                    # a batch from an epoch-1 number.
+
+  accum_steps: 1                    # effective batch stays 8
+  val_batch_size: 8
                                     # backward pass there are no stored activations, so this
                                     # is far cheaper than the training batch despite being
                                     # twice the studies. Speeds the validations up.
@@ -151,7 +161,12 @@ dataloader:
   drop_last: false                  # keep the ragged final batch
 
 modal:
-  gpu: "H200"
+  gpu: "H200"                       # 141 GB. Batch 8 ran out of memory on an H100's 80,
+                                    # so rather than pay 30% per step for gradient
+                                    # checkpointing, buy the memory: an H200 is ~15% more
+                                    # per hour for the same GH100 die, which is cheaper
+                                    # than a 30% slowdown.
+
   cpu: 16.0
   memory_gb: 96
 

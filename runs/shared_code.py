@@ -6372,8 +6372,13 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
     return res
 
 
+# laterality_flip IS a decode setting: it mirrors the pixels, per plane, inside the
+# dataset. Leaving it out let a member trained on unmirrored studies be scored on
+# mirrored ones - same shapes, no error, wrong input for every left knee. It cost
+# the 0.933 submission one of its eight members.
 LOADER_GEOMETRY_KEYS = ("slots", "n_slices", "size", "mm_per_px", "window", "window_pct",
-                        "channels", "slice_context", "slice_context_stride")
+                        "channels", "slice_context", "slice_context_stride",
+                        "laterality_flip")
 
 
 def loader_geometry(cfg: dict) -> tuple:
