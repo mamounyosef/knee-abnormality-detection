@@ -1,6 +1,9 @@
-"""qwen_vision_smoke.py - run the real pipeline on real studies, end to end, on this PC.
+"""external_run_smoke.py - run the real pipeline on real studies, end to end, on this PC.
 
-qwen_vision_check.py proves the weights load and the tensors are right. It does NOT prove
+Generic: pick the run with SMOKE_RUN. It started life as a Qwen-only script and the name
+outlived that, which is how it ended up being pointed at a cut run as a "regression".
+
+The per-run *_check.py proves the weights load and the tensors are right. It does NOT prove
 the run trains: it never touches the dataset, the optimizer, or the LP-FT freeze. Those are
 where the subtle bugs live - a backbone that silently stays frozen, a head learning rate
 that means something different for a ViT than a ResNet, or a trunk whose features are so
@@ -12,7 +15,7 @@ This does a few real optimizer steps on real shards and checks that:
   - the loss actually falls
   - the trunk's update-to-weight ratio lands in the same band as a healthy run
 
-Run:  python checks/qwen_vision_smoke.py
+Run:  SMOKE_RUN=<run> python checks/external_run_smoke.py
 """
 import importlib
 import os
@@ -25,7 +28,7 @@ import torch
 
 ROOT = Path(__file__).resolve().parent.parent
 RUNS = ROOT / "runs"
-RUN = os.environ.get("SMOKE_RUN", "qwen3_5_vision_tower_336")
+RUN = os.environ.get("SMOKE_RUN", "medimageinsight_davit_huge_336")
 
 sys.path.insert(0, str(RUNS))
 sys.path.insert(0, str(RUNS / RUN))
@@ -91,7 +94,8 @@ batch = next(iter(loader))
 xraw, yb = batch[0], batch[1]
 xb = sc.prepare_batch(xraw, cfg, dev)
 yb = yb.to(dev)
-ck("prepare_batch normalises to about [-1, 1] using Qwen's 0.5/0.5",
+ck("prepare_batch normalises with the run's own mean/std",
+   # every normalisation we use maps the windowed uint8 well outside [-0.5, 0.5]
    float(xb.min()) < -0.5 and float(xb.max()) > 0.5,
    "min %.3f max %.3f mean %.3f" % (xb.min(), xb.max(), xb.mean()))
 per = sc.images_per_study(cfg)
@@ -128,8 +132,14 @@ print("      %d param groups, learning rates %.3e .. %.3e (layer_decay %s)"
 ck("layer-wise decay produced a spread of learning rates", len(lrs) > 3, "%d distinct" % len(lrs))
 
 lossf = torch.nn.BCEWithLogitsLoss()
-watch = ("backbone.blocks.0.attn.qkv.weight", "backbone.blocks.11.attn.qkv.weight",
-         "head.weight")
+# Architecture-agnostic: the shallowest and deepest learnable weights in the trunk,
+# whatever they happen to be called. A ViT names them blocks.N.attn.qkv.weight; a DaViT
+# names them stages.N.blocks.M.spatial_block.attn.qkv.weight. Hardcoding one spelling made
+# this section crash on the first non-ViT backbone it met, which is not a reusable test.
+_trunk_w = [n for n, p in model.named_parameters()
+            if n.startswith("backbone.") and p.ndim >= 2 and p.requires_grad]
+watch = tuple(dict.fromkeys([_trunk_w[0], _trunk_w[-1], "head.weight"]))
+print("      watching: %s" % ", ".join(w.replace("backbone.", "") for w in watch))
 before = {n: p.detach().clone() for n, p in model.named_parameters() if n in watch}
 losses = []
 for step in range(int(os.environ.get('SMOKE_STEPS', '6'))):
@@ -156,11 +166,11 @@ for n in watch:
     rel = ((new_p - old_p).norm() / old_p.norm().clamp_min(1e-12)).item()
     per_step = rel / max(len(losses), 1)
     lg = np.log10(max(per_step, 1e-30))
-    ck("%s moved" % n.replace("backbone.", ""), per_step > 1e-9,
+    ck("%s moved" % n.replace("backbone.", "")[:44], per_step > 1e-9,
        "log10(update/weight) per step = %.2f" % lg)
-    if "blocks" in n:
-        ck("  and its rate is sane, not frozen and not exploding" + " " * len(n),
-           -9.0 < lg < -2.0, "%.2f" % lg)
+    if n.startswith("backbone."):
+        ck("  its rate is sane, neither frozen nor exploding (%s)"
+           % n.replace("backbone.", "")[:24], -9.0 < lg < -2.0, "%.2f" % lg)
 
 print("\n" + "=" * 74)
 print("  %d passed, %d failed" % (len(PASS), len(FAIL)))
