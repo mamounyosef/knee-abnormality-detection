@@ -77,7 +77,7 @@
  "elapsed": "1h06m55s",
  "submission": {
   "submitted": "2026-09-21",
-  "public_score": null,
+  "public_score": 0.929,
   "private_score": null,
   "runtime_seconds": 546,
   "runtime": "9.1 min push to kernel complete = 0.15 h of the 9 h cap, queue included. That is 3 public studies, so it includes model load and CUDA init and is NOT a per-study rate; the solo path wrote no inference_log.txt, so the per-study cost of this 360.6M backbone is still unmeasured and must be priced on a free kernel run before it joins an ensemble.",
@@ -85,6 +85,6 @@
   "kernel_version": 1,
   "submission_ref": null,
   "checkpoint": "best.pt, step 3200, val macro AUROC 0.904118",
-  "notes": "SOLO. MedImageInsight (Microsoft, MIT): DaViT-Huge, 360.6M parameters, trained with Unified Contrastive Learning on ~3.8M MEDICAL images against their CLINICAL LABELS. The first external backbone to reach our range: val 0.9041 against convnext_base_relabel 0.9050 and swinv2_base_in22k 0.9053, where the previous five landed 0.7088 to 0.8455. Trained with laterality_flip 'left' - left knees mirrored so all studies face the same way, the axis chosen per plane (sagittal reverses SLICE ORDER, coronal and axial reverse WIDTH). At inference the side comes from the DICOM headers (mean x of ImagePositionPatient), which reproduces data/12_laterality.csv on 4407/4407 studies. Submitted SOLO deliberately: the nine-member ensemble waits for convnext_base_full_all_knees_same_orientation to finish."
+  "notes": "SOLO. MedImageInsight (Microsoft, MIT): DaViT-Huge, 360.6M parameters, trained with Unified Contrastive Learning on ~3.8M MEDICAL images against their CLINICAL LABELS. The first external backbone to reach our range: val 0.9041 against convnext_base_relabel 0.9050 and swinv2_base_in22k 0.9053, where the previous five landed 0.7088 to 0.8455. Trained with laterality_flip 'left' - left knees mirrored so all studies face the same way, the axis chosen per plane (sagittal reverses SLICE ORDER, coronal and axial reverse WIDTH). At inference the side comes from the DICOM headers (mean x of ImagePositionPatient), which reproduces data/12_laterality.csv on 4407/4407 studies. Submitted SOLO deliberately: the nine-member ensemble waits for convnext_base_full_all_knees_same_orientation to finish. SCORED 0.929. That is the BEST SINGLE-MODEL public score this project has produced, by a wide margin: convnext_base_relabel 0.918, convnext_base_25d_all_knees_same_orientation 0.919. It sits only 0.004 below the entire eight-member ensemble at 0.933. Validation called it 0.9041 against convnext_base_relabel's 0.9050, i.e. -0.0009, while the leaderboard says +0.011 - a 0.012 swing and the largest val-to-leaderboard disagreement recorded here. Val is not merely noisy on this model, it ranks it wrongly."
  }
 }
