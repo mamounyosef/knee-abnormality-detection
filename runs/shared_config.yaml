@@ -188,9 +188,12 @@ training:
 
 # Inference-only settings. These never touch training.
 inference:
-  # BOTH T4s: one GPU per MEMBER, running entirely separate models in parallel. Each
-  # model lives on exactly one card, so the weights cost no more than the single-card path.
-  max_gpus: 2
+  # ONE card. The member split WORKS - the kernel logs "gpus used: 2", all 9 members score
+  # and the logits span -3.838 to 4.578 - but it is SLOWER, not faster: 42.098 s per study
+  # against 18.418. Every 336 px member lands near 5.6 s where one card gives 0.185 to
+  # 2.053, so the threaded path costs about 2.4x per member, more than the second card
+  # returns. Set to 2 to re-enable; the code and its 26 checks stay in place.
+  max_gpus: 1
 
   # 0 = whole batch per forward. Micro-batching was added to chase an out-of-memory that
   # turned out to be a thread-local no_grad, and it starves the GPU: at 1 study per forward
@@ -210,6 +213,15 @@ inference:
   # workspaces are a plausible part of the memory that ran the T4 out. Re-enable alone,
   # after decode-once is confirmed, so a failure has one cause.
   tune_backend: false
+
+  # Studies per forward, and DICOM decode workers. Both exist because of the two-GPU
+  # measurement: the loop is kernel-LAUNCH bound at a couple of studies, and launching is
+  # CPU work that holds the GIL, so a second GPU thread launching at the same time just
+  # queues behind the first. A larger batch gives each launch more GPU work to cover, and
+  # fewer decode workers leaves the four vCPUs to the two GPU threads. null keeps the
+  # historical values (the validation batch size, and min(4, cpu_count) workers).
+  batch_size: null
+  num_workers: null
 
 evaluation:
   # validation cadence is driven by the GLOBAL STEP, not the epoch. The epoch only

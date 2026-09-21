@@ -13,13 +13,21 @@ applied here from config.
 
 from __future__ import annotations
 
+import os
+
+# Kaggle gives 4 vCPUs. Left alone, OpenMP and MKL each start a thread per core inside
+# EVERY PyTorch intra-op call, so two per-GPU inference threads plus the DICOM decode
+# workers oversubscribe the box and the second card costs more than it pays. These are
+# read once, at import, so the cap has to sit above `import torch`.
+for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+    os.environ.setdefault(_v, "4")
+
 import copy
 import csv
 import io
 import json
 import math
 import multiprocessing as _mp
-import os
 import random
 import re
 import shutil
@@ -6344,8 +6352,16 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
     still and must not be believed.
     """
     device = device or torch.device("cuda" if usable_cuda() else "cpu")
-    nw = num_workers if num_workers is not None else min(4, (os.cpu_count() or 2))
     cfg0, tasks = cfgs[0], cfgs[0]["tasks"]
+    _inf0 = cfg0.get("inference", {}) or {}
+    # Studies per forward. Larger amortises kernel-launch overhead, which is CPU work done
+    # under the GIL: at two studies the loop is launch-bound, and a second GPU thread
+    # launching at the same time just queues behind the first.
+    if batch_size is None and _inf0.get("batch_size"):
+        batch_size = int(_inf0["batch_size"])
+    if num_workers is None and _inf0.get("num_workers") is not None:
+        num_workers = int(_inf0["num_workers"])
+    nw = num_workers if num_workers is not None else min(4, (os.cpu_count() or 2))
 
     # Which of the head task list each member actually predicts. A task-group branch
     # (convnext_base_trauma / _wear / _fluid) carries only its own group, so its logits
