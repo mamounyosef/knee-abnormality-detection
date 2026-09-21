@@ -40,6 +40,20 @@ def ck(name, ok, detail=""):
 
 
 cfg = sc.load_config(RUNS / RUN, verbose=False)
+if os.environ.get("SMOKE_TINY"):
+    # WIRING ONLY. A 360M backbone over 24 windows of 336px does not fit this PC, so shrink
+    # the window count. This changes the geometry: it proves the pipeline connects and
+    # proves NOTHING about the score. The real run keeps its configured geometry.
+    # n_slices / slices_as_channels must stay 3 so the stem keeps its 3 pretrained
+    # channels; 3/1 gives ONE window per slot, the fewest the geometry allows.
+    cfg["input"]["n_slices"] = 3
+    cfg["input"]["slices_as_channels"] = 1
+    print("\n  " + "!" * 70)
+    print("  SMOKE_TINY: n_slices 6, slices_as_channels 2 -> %d windows instead of the"
+          % (len(cfg["input"]["slots"]) * 1))
+    print("  configured %d. WIRING TEST ONLY - this says nothing about the score."
+          % (len(cfg["input"]["slots"]) * 6))
+    print("  " + "!" * 70)
 # SMOKE_DEVICE/SMOKE_BATCH let a backbone too large for this PC still be wired-tested
 dev = os.environ.get("SMOKE_DEVICE") or ("cuda" if torch.cuda.is_available() else "cpu")
 BATCH = int(os.environ.get("SMOKE_BATCH", "2"))

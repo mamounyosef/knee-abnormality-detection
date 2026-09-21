@@ -80,7 +80,7 @@
    "slug": "knee-eight-perfinding",
    "kernel": "mamounhussam/knee-eight-perfinding-submit",
    "kernel_version": 2,
-   "ref": null,
+   "ref": 56403779,
    "members": [
     "convnext_base_relabel",
     "mricore_vitb_cross_attention",
@@ -94,12 +94,38 @@
    "blend": "flat",
    "val_flat": 0.917,
    "audit58": 0.9173,
-   "public_score": null,
+   "public_score": 0.932,
    "private_score": null,
    "s_per_study": 23.89,
    "decode_passes": 3,
    "commit_run_minutes": 15.2,
-   "notes": "THE 0.932 SEVEN PLUS AN EIGHTH, FLAT. The only change is adding convnext_base_25d_perfinding_slots_and_pooling, which pools each finding over only the views that can show it. It joins FLAT rather than nested: its logit correlation with the seven is 0.848 mean / 0.740 min where the other 2.5D ConvNeXt siblings sit at 0.95-0.99, so it is not a near-duplicate. Measured over 84 placements, flat +0.0006 val and every nested form +0.0003 to +0.0004; cross-fitted 0.9176 against the shipped 0.9172. Shipped SOLO it scored 0.915 against its parent's 0.914 while val had it 0.0049 BELOW that parent, so val understates this member. RUNTIME: it is 6 slots with per-slot slice counts so it does NOT share the seven's decode group - 3 decode passes, 23.890 s/study against the 21.689 s that was observed to take 5.7 h, so about 6.3 h of the 9 h cap. Measured on a free kernel run first, exactly because of that extra decode group."
+   "notes": "THE 0.932 SEVEN PLUS AN EIGHTH, FLAT. The only change is adding convnext_base_25d_perfinding_slots_and_pooling, which pools each finding over only the views that can show it. It joins FLAT rather than nested: its logit correlation with the seven is 0.848 mean / 0.740 min where the other 2.5D ConvNeXt siblings sit at 0.95-0.99, so it is not a near-duplicate. Measured over 84 placements, flat +0.0006 val and every nested form +0.0003 to +0.0004; cross-fitted 0.9176 against the shipped 0.9172. Shipped SOLO it scored 0.915 against its parent's 0.914 while val had it 0.0049 BELOW that parent, so val understates this member. RUNTIME: it is 6 slots with per-slot slice counts so it does NOT share the seven's decode group - 3 decode passes, 23.890 s/study against the 21.689 s that was observed to take 5.7 h, so about 6.3 h of the 9 h cap. Measured on a free kernel run first, exactly because of that extra decode group. SCORED 0.932, EXACTLY the seven-member score. Adding convnext_base_25d_perfinding_slots_and_pooling flat moved the leaderboard by 0.000, against the +0.0006 val and +0.0004 cross-fitted that justified it. So its slot is NEUTRAL, not positive: the ensemble already covered whatever that member knows, even though its logit correlation with the seven was only 0.848 mean / 0.740 min. Decorrelation bought nothing here."
+  },
+  {
+   "ref": 56406266,
+   "date": "2026-09-20",
+   "slug": "knee-eight-laterality",
+   "kernel": "mamounhussam/knee-eight-laterality-submit",
+   "kernel_version": 1,
+   "members": [
+    "convnext_base_relabel",
+    "mricore_vitb_cross_attention",
+    "mricore_vitb_mae_cross_attention",
+    "dinov3_convnext_base",
+    "convnext_base_25d_all_knees_same_orientation",
+    "swinv2_base_in22k",
+    "convnext_base_25d_poolattn",
+    "convnext_base_25d_perfinding_slots_and_pooling"
+   ],
+   "blend": "flat",
+   "val_flat": 0.9169,
+   "audit58": 0.9173,
+   "public_score": 0.933,
+   "private_score": null,
+   "s_per_study": 23.89,
+   "decode_passes": 3,
+   "commit_run_minutes": 10.2,
+   "notes": "BEST SUBMISSION SO FAR, 0.933. ONE change from the 0.932 eight: convnext_base_25d_18slices replaced by convnext_base_25d_all_knees_same_orientation, which mirrors every LEFT knee so all studies face the same way, the mirror axis chosen per plane (sagittal reverses SLICE ORDER, coronal and axial reverse WIDTH). Validation scored the swap at -0.0001 and the leaderboard at +0.001. TAKEN WITH submission 56403779, which scored 0.932 - exactly the seven-member score - the two ensembles separate the two changes cleanly: adding the per-finding member bought 0.000 and swapping the laterality member bought +0.001. Laterality is the thing that is working. This is the THIRD consecutive time validation under-called laterality: the run solo was -0.0002 on val and +0.005 on the leaderboard (0.919 vs its parent's 0.914), and the swap was -0.0001 on val and +0.001 on the leaderboard."
   }
  ]
 }
