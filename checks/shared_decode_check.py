@@ -97,7 +97,12 @@ ck("timing ADDS across chunks", 'timing["member_s"][i] += gtiming["member_s"][sl
 ck("results land at the chunk's own positions", "allm[i, c0:c0 + k] = lg[slot]" in src)
 ck("the cache is cleared per chunk and removed at the end",
    'cache_dir.glob("*.npy")' in src and "shutil.rmtree(cache_dir" in src)
-ck("model replication is memoised across chunks", "_REPLICA_CACHE[key] = out" in src)
+# Placement is no longer memoised and does not need to be: nn.Module.to() moves a module
+# IN PLACE, so the grouped loop hands back the same objects each chunk and the second chunk
+# onward is a no-op. Memoising was only needed by the replicating design, which is gone.
+ck("placement is in-place, so chunks do not re-copy models",
+   "_shard_models" in src and "_REPLICA_CACHE" not in src)
+ck("the split banner prints once, not once per chunk", '_BANNERS.get("shard")' in src)
 
 print("\n" + "=" * 72)
 print("  %d passed, %d failed" % (len(PASS), len(FAIL)))

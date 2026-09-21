@@ -6300,6 +6300,9 @@ def _shard_models(models: list, cfgs: list, devices: list) -> tuple:
     for d, idxs in enumerate(assign):
         for i in idxs:
             placed[i] = models[i].eval().to(devices[d])
+    if _BANNERS.get("shard"):        # once, not once per chunk per group
+        return placed, assign
+    _BANNERS["shard"] = True
     print("  \u26a1 %d GPUs, members split by cost: %s"
           % (len(devices), " | ".join(
               "%s=%.1fs" % (str(devices[d]), load[d]) for d in range(len(devices)))),
@@ -6311,7 +6314,6 @@ def _shard_models(models: list, cfgs: list, devices: list) -> tuple:
     return placed, assign
 
 
-_REPLICA_CACHE: dict = {}
 _BANNERS: dict = {}
 
 
