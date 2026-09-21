@@ -192,11 +192,11 @@ inference:
   # model lives on exactly one card, so the weights cost no more than the single-card path.
   max_gpus: 2
 
-  # The forward pass is what fills a card, not the weights: a 512 px member sees 96 windows
-  # PER STUDY, so a whole batch in one go is already 15 GiB. Each member now walks its batch
-  # this many studies at a time. Studies are scored independently and pooling never crosses
-  # a study, so this cannot change a prediction - it only bounds peak memory.
-  micro_studies: 1
+  # 0 = whole batch per forward. Micro-batching was added to chase an out-of-memory that
+  # turned out to be a thread-local no_grad, and it starves the GPU: at 1 study per forward
+  # convnext_base_25d_poolattn went from 0.185 to 5.403 s per study and the ensemble from
+  # 18.418 to 40.353. Raise it above 0 only if a real memory limit reappears.
+  micro_studies: 0
 
   # DECODE ONCE across geometry groups. This is the bigger win anyway: decode was 10.589 of
   # 18.418 s per study (57%) in the nine-member run, because each group re-read and

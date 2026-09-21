@@ -6492,7 +6492,12 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
             """
             from concurrent.futures import ThreadPoolExecutor
             st_cpu = torch.full((len(models), x.shape[0], len(tasks)), float("nan"))
-            MICRO = max(1, int((cfg0.get("inference", {}) or {}).get("micro_studies", 1)))
+            # 0 = no micro-batching, the whole batch in one forward. Micro-batching was
+            # added to chase an out-of-memory that turned out to be the thread-local
+            # no_grad above; forcing one study per forward starves the GPU instead -
+            # convnext_base_25d_poolattn went from 0.185 to 5.403 s per study at MICRO=1.
+            MICRO = int((cfg0.get("inference", {}) or {}).get("micro_studies", 0) or 0)
+            MICRO = MICRO if MICRO > 0 else x.shape[0]
 
             @torch.no_grad()
             def _one(di):
