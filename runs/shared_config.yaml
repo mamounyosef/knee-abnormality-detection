@@ -200,7 +200,16 @@ inference:
   # is a small fraction. Threads cannot fix this; separate PROCESSES can, and that is the
   # next build. Until it lands, one card with decode-once is the honest number: 20.424 s per
   # study for nine members (16.376 GPU, 4.048 decode) against the threaded 23.3 wall clock.
-  max_gpus: 1
+  max_gpus: 2
+
+  # process | thread. THREADS DO NOT WORK for this workload: they share one Global
+  # Interpreter Lock, a CUDA kernel launch is Python work that holds it, and our members
+  # are many small launches over 96 images per study. Measured, each card took twice as
+  # long on its OWN members (cuda:0 7.751 -> 16.618 s, cuda:1 8.624 -> 19.536), which is
+  # zero throughput gained. A child PROCESS has its own lock. It needs model_specs from the
+  # caller (the bundle already ships m<i>_def.py / _config.json / _model.pt, which is all a
+  # child needs to rebuild its members); without them this falls back to one card.
+  split_mode: process
 
   # 0 = whole batch per forward. Micro-batching was added to chase an out-of-memory that
   # turned out to be a thread-local no_grad, and it starves the GPU: at 1 study per forward

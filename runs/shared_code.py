@@ -6288,6 +6288,198 @@ def _member_costs(cfgs: list) -> list:
     return out
 
 
+# ==========================================================================================
+# TWO CARDS, TWO PROCESSES.
+#
+# The threaded member split was correct and measured twice as slow PER CARD: cuda:0 went
+# 7.751 -> 16.618 s per study on its own members and cuda:1 8.624 -> 19.536, so two threads
+# at half speed each gained precisely nothing. That is the Global Interpreter Lock. Issuing
+# a CUDA kernel is Python work that holds the lock, and our members are many small kernels
+# over 96 images per study, so the second thread can only issue while the first is not.
+#
+# A separate PROCESS has its own interpreter and its own lock, so the two cards really do
+# issue at the same time. The cost is that a model cannot be handed to a child already built
+# (a CUDA tensor does not cross a process boundary), so the child REBUILDS its members from
+# the same three files the bundle already ships: m<i>_def.py, m<i>_config.json, m<i>_model.pt.
+# That happens once, at start-up, and is amortised over every study.
+#
+# The batch itself crosses as raw uint8 bytes on a pipe rather than through shared memory:
+# /dev/shm is only 64 MB in some containers and a batch is ~100 MB, so shared memory is a
+# silent failure waiting to happen. A pipe copy costs about 0.1 s per study against the
+# ~16 s of GPU it unblocks.
+# ==========================================================================================
+
+def build_member_from_bundle(spec: dict):
+    """Rebuild ONE member inside a worker process, from the bundle's own files.
+
+    spec is plain data so it survives pickling to a spawned child: {"i", "dir", "cfg"}.
+    Every run's train.py defines a class called SliceModel, so each member's model_def is
+    imported under its OWN module name - one shared name would hand every member the same
+    architecture and silently score the wrong thing.
+    """
+    import importlib.util
+    d, i = Path(spec["dir"]), int(spec["i"])
+    ms = importlib.util.spec_from_file_location("m%d_def" % i, d / ("m%d_def.py" % i))
+    mod = importlib.util.module_from_spec(ms)
+    sys.modules["m%d_def" % i] = mod
+    ms.loader.exec_module(mod)
+    model = mod.build_model(spec["cfg"])
+    ck = torch.load(d / ("m%d_model.pt" % i), map_location="cpu", weights_only=False)
+    sd = ck["model"]
+    if any(k.startswith("_orig_mod.") for k in sd):      # written from a compiled model
+        sd = {(k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k): v
+              for k, v in sd.items()}
+    getattr(model, "_orig_mod", model).load_state_dict(sd)
+    return model.eval()
+
+
+def _proc_worker(dev_str: str, specs: list, task_q, res_q):
+    """The child. Builds its members once, then scores whatever batches arrive.
+
+    Every failure is REPORTED, never swallowed: a silent worker death used to leave zero
+    logits behind, which sigmoid to exactly 0.5, and the run still announced "9/9 members".
+    """
+    import traceback
+    try:
+        dev = torch.device(dev_str)
+        if dev.type == "cuda":
+            torch.cuda.set_device(dev)
+        models, cfgs = {}, {}
+        for sp in specs:
+            # sp["i"] names the FILES (m<i>_def.py); sp["local"] is this member's slot in
+            # the calling group's stack, and that is what the parent scatters by.
+            loc = int(sp["local"])
+            models[loc] = build_member_from_bundle(sp).to(dev)
+            cfgs[loc] = sp["cfg"]
+        res_q.put(("ready", sorted(models)))
+    except Exception as e:
+        res_q.put(("error", "worker %s could not build its members: %r\n%s"
+                   % (dev_str, e, traceback.format_exc())))
+        return
+
+    while True:
+        msg = task_q.get()
+        if msg is None:
+            return
+        try:
+            shape, dtype, buf = msg
+            x = torch.from_numpy(
+                np.frombuffer(buf, dtype=np.dtype(dtype)).reshape(shape).copy())
+            out, times = {}, {}
+            with torch.no_grad():            # its own: no_grad is thread AND process local
+                for i in sorted(models):
+                    c = cfgs[i]
+                    amp = bool(c["training"]["amp"]) and dev.type == "cuda"
+                    t0 = time.perf_counter()
+                    with torch.autocast("cuda", enabled=amp):
+                        xb = prepare_batch(x, c, dev)
+                        o = models[i](xb).float()
+                    del xb
+                    if dev.type == "cuda":
+                        torch.cuda.synchronize(dev)
+                    times[i] = time.perf_counter() - t0
+                    out[i] = o.cpu().numpy()
+            res_q.put(("ok", (out, times)))
+        except Exception as e:
+            res_q.put(("error", "worker %s failed on a batch: %r\n%s"
+                       % (dev_str, e, traceback.format_exc())))
+            return
+
+
+class _CardProcess:
+    """One spawned child owning one card. Built once, reused for every batch."""
+
+    def __init__(self, dev_str: str, specs: list, build_timeout: float = 1800.0):
+        ctx = _mp.get_context("spawn")       # fork after CUDA init is undefined behaviour
+        self.dev_str, self.n = dev_str, len(specs)
+        self.task_q, self.res_q = ctx.Queue(), ctx.Queue()
+        self.p = ctx.Process(target=_proc_worker,
+                             args=(dev_str, specs, self.task_q, self.res_q), daemon=True)
+        self.p.start()
+        tag, payload = self.res_q.get(timeout=build_timeout)
+        if tag != "ready":
+            self.close()
+            raise RuntimeError(payload)
+        self.members = payload
+
+    def submit(self, x_np) -> None:
+        self.task_q.put((tuple(x_np.shape), x_np.dtype.str, x_np.tobytes()))
+
+    def result(self, timeout: float = 3600.0):
+        tag, payload = self.res_q.get(timeout=timeout)
+        if tag != "ok":
+            raise RuntimeError(payload)
+        return payload
+
+    def close(self) -> None:
+        try:
+            self.task_q.put(None)
+            self.p.join(30)
+        except Exception:
+            pass
+        if self.p.is_alive():
+            self.p.terminate()
+            self.p.join(10)
+
+
+_CARD_PROCS: dict = {}
+
+
+def _get_card_processes(devices: list, assign: list, model_specs: list):
+    """One long-lived child per extra card, cached across chunks and geometry groups.
+
+    predict_dicom_ensemble is called once per group per chunk, and rebuilding a card's
+    members every time would cost far more than the split saves.
+    """
+    cards = []
+    for di in range(1, len(devices)):
+        # model_specs is in the CALLER's order, so i is the local slot and spec["i"] the
+        # bundle number that names the files.
+        specs = [dict(model_specs[i], local=i) for i in assign[di]]
+        key = (str(devices[di]),
+               tuple(sorted((str(sp.get("dir")), int(sp["i"]), int(sp["local"]))
+                            for sp in specs)))
+        cp = _CARD_PROCS.get(key)
+        if cp is None or not cp.p.is_alive():
+            cp = _CardProcess(str(devices[di]), specs)
+            _CARD_PROCS[key] = cp
+        cards.append(cp)
+    return cards
+
+
+def shutdown_card_processes() -> None:
+    """Stop every worker. Safe to call twice, and called at the end of a grouped run."""
+    for cp in list(_CARD_PROCS.values()):
+        try:
+            cp.close()
+        except Exception:
+            pass
+    _CARD_PROCS.clear()
+
+
+import atexit as _atexit                     # a stranded child would hold the kernel open
+_atexit.register(shutdown_card_processes)
+
+
+def _assign_members(cfgs: list, n_dev: int) -> tuple:
+    """Greedy longest-processing-time: returns (assign, load).
+
+    assign[d] lists the member indices device d owns, load[d] their predicted seconds.
+    Balancing by measured cost matters because the members are wildly uneven -
+    swinv2_base_in22k is 4.237 s per study against convnext_base_25d_poolattn's 0.195, so
+    round-robin would idle most of the second card. Getting this wrong costs balance only,
+    never a number.
+    """
+    costs = _member_costs(cfgs)
+    load = [0.0] * n_dev
+    assign = [[] for _ in range(n_dev)]
+    for i in sorted(range(len(cfgs)), key=lambda j: -costs[j]):     # heaviest first
+        d = min(range(n_dev), key=lambda k: load[k])
+        assign[d].append(i)
+        load[d] += costs[i]
+    return assign, load
+
+
 def _shard_models(models: list, cfgs: list, devices: list) -> tuple:
     """Assign each member to ONE device. Returns (placed, assign).
 
@@ -6297,13 +6489,7 @@ def _shard_models(models: list, cfgs: list, devices: list) -> tuple:
     """
     if len(devices) == 1:
         return [m.eval().to(devices[0]) for m in models], [list(range(len(models)))]
-    costs = _member_costs(cfgs)
-    load = [0.0] * len(devices)
-    assign = [[] for _ in devices]
-    for i in sorted(range(len(models)), key=lambda j: -costs[j]):   # heaviest first
-        d = min(range(len(devices)), key=lambda k: load[k])
-        assign[d].append(i)
-        load[d] += costs[i]
+    assign, load = _assign_members(cfgs, len(devices))
     placed = [None] * len(models)
     for d, idxs in enumerate(assign):
         for i in idxs:
@@ -6330,7 +6516,7 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
                            index: pd.DataFrame, files_by_series: dict, device=None,
                            batch_size: int | None = None, num_workers: int | None = None,
                            report_every: int = 50, weights=None,
-                           return_member_logits: bool = False):
+                           return_member_logits: bool = False, model_specs=None):
     """Score several models in ONE pass over the DICOMs and average their logits.
 
     Decoding a study costs ~9s against <1s of GPU, so looping predict_dicom once per
@@ -6432,9 +6618,41 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
                if device.type == "cuda" and _ngpu > 1 else [device])
     if device.type == "cuda" and (cfg0.get("inference", {}) or {}).get("tune_backend", False):
         tune_inference_backend(models)
-    try:
+
+    # PROCESSES, not threads, when the caller can tell a child how to rebuild a member.
+    # Threads share one Global Interpreter Lock and our members are launch-bound, so the
+    # threaded split measured 2x slower per card. A child has its own lock.
+    _mode = str((cfg0.get("inference", {}) or {}).get("split_mode", "process")).lower()
+    cards, assign = [], None
+    if len(devices) > 1 and _mode == "process" and model_specs:
+        try:
+            assign, _load = _assign_members(cfgs, len(devices))
+            cards = _get_card_processes(devices, assign, model_specs)
+            # only THIS process's members go on card 0; the children own the rest and hold
+            # their own copies, so placing them here would waste a card's memory twice.
+            _placed = [None] * len(models)
+            for _i in assign[0]:
+                _placed[_i] = models[_i].eval().to(devices[0])
+            models = _placed
+            if not _BANNERS.get("shard"):
+                _BANNERS["shard"] = True
+                print("  \u26a1 %d cards, one PROCESS each, members split by cost: %s"
+                      % (len(devices), " | ".join("%s=%.1fs" % (devices[d], _load[d])
+                                                  for d in range(len(devices)))), flush=True)
+                for d, idxs in enumerate(assign):
+                    print("       %s: %s" % (devices[d], ", ".join(
+                        cfgs[i]["experiment"]["name"][:34] for i in idxs)), flush=True)
+        except Exception as _e:
+            # A card we cannot start is a speed loss; a submission we cannot write is the
+            # whole run. Fall back loudly and carry on with one card.
+            print("  \u26a0\ufe0f  could not start a worker process (%r) - one card only"
+                  % (_e,), flush=True)
+            shutdown_card_processes()
+            cards, assign, devices = [], None, [device]
+    if assign is None:
+      try:
         models, assign = _shard_models(models, cfgs, devices)
-    except torch.cuda.OutOfMemoryError:
+      except torch.cuda.OutOfMemoryError:
         # Losing the second card costs speed; losing the submission costs everything.
         print("  \u26a0\ufe0f  out of memory placing %d members on %d cards - one card only"
               % (len(models), len(devices)), flush=True)
@@ -6497,6 +6715,60 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
             break
         timing["decode_s"] += time.perf_counter() - _tdec
         k = x.shape[0]
+
+        def _score_batch_proc():
+            """Fire the children FIRST, then do this process's own members while they run.
+
+            The children are busy the whole time we are, which is the entire point: their
+            kernel launches go through their own interpreter lock, not ours. Everything
+            lands in a CPU stack because the members finish in different processes.
+            """
+            st_cpu = torch.full((len(models), x.shape[0], len(tasks)), float("nan"))
+            xnp = x.numpy() if x.is_contiguous() else x.contiguous().numpy()
+            _sub = time.perf_counter()
+            for cp in cards:
+                cp.submit(xnp)
+            _ship = time.perf_counter() - _sub
+
+            dev0 = devices[0]
+            for _mi in assign[0]:
+                c, m = cfgs[_mi], models[_mi]
+                amp = c["training"]["amp"] and dev0.type == "cuda"
+                _tm = time.perf_counter()
+                with torch.autocast("cuda", enabled=amp):
+                    xb = prepare_batch(x, c, dev0)
+                    o = m(xb).float()
+                del xb
+                if dev0.type == "cuda":
+                    torch.cuda.synchronize(dev0)
+                _dev_member_s[0][_mi] += time.perf_counter() - _tm
+                st_cpu[_mi][:, COLS[_mi].cpu()] = o.cpu()
+
+            # .result() RAISES what the child reported. A worker that dies quietly used to
+            # leave zero logits, which sigmoid to exactly 0.5, while the run still announced
+            # "9/9 members" and shipped a submission squeezed into [0.309, 0.707].
+            for di, cp in enumerate(cards, start=1):
+                got, times = cp.result()
+                for _mi, arr in got.items():
+                    st_cpu[_mi][:, COLS[_mi].cpu()] = torch.from_numpy(arr)
+                    _dev_member_s[di][_mi] += times[_mi]
+            timing["ship_s"] = timing.get("ship_s", 0.0) + _ship
+
+            _dead = [i for i in range(st_cpu.shape[0])
+                     if not torch.isfinite(st_cpu[i]).any()
+                     or float(st_cpu[i].abs().max()) == 0.0]
+            if _dead:
+                raise RuntimeError(
+                    "two-card process split: member(s) %s produced no usable logits - "
+                    "refusing to blend them as 0.5"
+                    % [cfgs[i]["experiment"]["name"] for i in _dead])
+            if return_member_logits:
+                return st_cpu.numpy()
+            if W is None:
+                avg = torch.nanmean(st_cpu, dim=0)
+            else:
+                avg = torch.nan_to_num(st_cpu, nan=0.0).mul(W.cpu()[:, None, :]).sum(dim=0)
+            return torch.sigmoid(avg).numpy()
 
         def _score_batch_split():
             """Every card runs ITS OWN members on the whole batch, at the same time.
@@ -6578,6 +6850,8 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
             # branches predict only their own group (4, 6 and 2 of the 12), so their
             # output is narrower than the head task list and has to be scattered into
             # the right columns rather than stacked as-is.
+            if cards:
+                return _score_batch_proc()
             if len(devices) > 1:
                 return _score_batch_split()
             stacked = torch.full((len(models), x.shape[0], len(tasks)),
@@ -6709,7 +6983,7 @@ def predict_dicom_ensemble_grouped(cfgs: list, models: list, studies_df: pd.Data
                                    plan: dict, index: pd.DataFrame, files_by_series: dict,
                                    device=None, batch_size: int | None = None,
                                    num_workers: int | None = None, report_every: int = 50,
-                                   weights=None) -> pd.DataFrame:
+                                   weights=None, model_specs=None) -> pd.DataFrame:
     """Score an ensemble whose members do NOT all agree on loader geometry.
 
     predict_dicom_ensemble decodes each study once and hands the same uint8 batch to every
@@ -6795,8 +7069,12 @@ def predict_dicom_ensemble_grouped(cfgs: list, models: list, studies_df: pd.Data
             for gi, idx, sub_cfgs, sub_models in group_plan:
                 if c0 == 0:
                     print(f"\n\u25b6 decode pass {gi + 1}/{len(groups)}", flush=True)
+                # idx maps this group's local slots back to the caller's member order,
+                # so the specs must be reordered with exactly the same map as the models.
+                sub_specs = ([model_specs[i] for i in idx] if model_specs else None)
                 lg, gtiming = predict_dicom_ensemble(
                     sub_cfgs, sub_models, cdf, plan, index, files_by_series, device=device,
+                    model_specs=sub_specs,
                     batch_size=batch_size, num_workers=num_workers,
                     report_every=report_every, return_member_logits=True)
                 # everything ADDS across chunks; assigning would keep only the last chunk
@@ -6823,6 +7101,9 @@ def predict_dicom_ensemble_grouped(cfgs: list, models: list, studies_df: pd.Data
                     except OSError:
                         pass
     finally:
+        # every child holds a card and its own copy of that card's weights, so a stranded
+        # one would keep the kernel alive past the end of the run
+        shutdown_card_processes()
         if cache_dir is not None:
             os.environ.pop("KNEE_VOLCACHE_DIR", None)
             import shutil
