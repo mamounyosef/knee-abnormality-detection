@@ -96,6 +96,11 @@ MEMBERS = [
     ("swinv2_base_in22k", "best"),
     ("convnext_base_25d_poolattn", "best"),
     ("convnext_base_25d_perfinding_slots_and_pooling", "best"),
+    # THE NINTH. Chosen to test one thing: audit-58 rates it 4th of 59 runs where
+    # val rates it 26th, and over 167 submission pairs audit wins 10 of the 14
+    # disagreements. Added flat it is val 0.9167 (-0.0002) and audit 0.9194
+    # (+0.0018). Free in decode: same loader geometry as convnext_base_25d_poolattn.
+    ("convnext_base_25d_spatial", "best"),
 ]
 # RadImageNet is deliberately ABSENT: its licence is "personal, non-commercial (e.g.,
 # academic) research purposes only... any commercial use, sale, or other monetization is
@@ -123,37 +128,35 @@ STRESS       = 0                 # >0 = MEASUREMENT run: repeat the 3 public stu
                               # no submission.csv. Use with SUBMIT = False.
 PUBLISH      = True
 WAIT_FOR_RUN = True
-SUBMIT       = True              # runtime measured on the free kernel: 23.890 s per
-                              # study over 3 decode passes, against the 21.689 s
-                              # that was observed to take 5.7 h. Scaled: 6.3 h of
-                              # the 9 h cap, so the extra decode group fits.
+SUBMIT       = False             # FREE RUN FIRST. Two untested things at once:
+                              # the second T4, never used before, and a ninth
+                              # member. Read inference_log.txt for the runtime
+                              # and the n_gpus line before committing.
 KAGGLE_USER  = "mamounhussam"
-SLUG         = "knee-eight-laterality"
+SLUG         = "knee-nine-spatial-2gpu"
 # KEEP THIS IN STEP WITH MEMBERS. Submission 56234763 shipped the 18-slice member while
 # this text still named the 24-slice one, because the swap changed MEMBERS and SLUG and
 # missed NOTE. Kaggle descriptions cannot be edited after submitting, so that record is
 # permanently wrong. Re-read this string whenever MEMBERS changes.
-NOTE         = ("THE 0.932 EIGHT WITH THE LATERALITY SWAP. One change only: "
-                "convnext_base_25d_18slices is replaced by "
-                "convnext_base_25d_all_knees_same_orientation, which mirrors every LEFT "
-                "knee so all studies face the same way. The mirror axis is chosen PER "
-                "PLANE - sagittal reverses SLICE ORDER, coronal and axial reverse WIDTH - "
-                "because on a sagittal view the medial-lateral direction IS the slice axis, "
-                "so a horizontal flip there would reverse front-to-back instead. At "
-                "inference the side is read from the DICOM headers (mean x of "
-                "ImagePositionPatient), which reproduces our training laterality file on "
-                "4407 of 4407 studies. WHY SWAP: shipped SOLO the newcomer scored 0.919 "
-                "against the parent's 0.914, the best single-run score we have, and the two "
-                "correlate 0.971 (two seeds of one config = 0.952) so they are "
-                "near-duplicates and only one slot is worth spending. Validation is "
-                "indifferent to the swap at -0.0001 and has now under-called this family "
-                "twice. Members: convnext_base_relabel, mricore_vitb_cross_attention, "
+NOTE         = ("THE 0.933 EIGHT PLUS convnext_base_25d_spatial, AND BOTH T4s. Two "
+                "changes. (1) A ninth member, convnext_base_25d_spatial, chosen to test a "
+                "measurement finding rather than a hunch: over 167 submission pairs the "
+                "58-study audit split orders them correctly 88.6% of the time against the "
+                "704-study val split's 85.0%, and on the 14 pairs where the two DISAGREE "
+                "audit is right 10 times to val's 4 - audit is scored against human panel "
+                "labels, the same kind of ground truth the leaderboard uses, and its "
+                "regression slope against the leaderboard is 0.99 where val's is 1.28. "
+                "This member is val 0.9167 (-0.0002) and audit 0.9194 (+0.0018), and it "
+                "costs no extra decode pass because its loader geometry matches "
+                "convnext_base_25d_poolattn's exactly. (2) Inference now splits the study "
+                "batch across BOTH T4s; every previous submission used one of the two "
+                "cards while 16.176 s of each study's 23.890 s was GPU work. Members: "
+                "convnext_base_relabel, mricore_vitb_cross_attention, "
                 "mricore_vitb_mae_cross_attention, dinov3_convnext_base, "
                 "convnext_base_25d_all_knees_same_orientation, swinv2_base_in22k, "
                 "convnext_base_25d_poolattn, "
-                "convnext_base_25d_perfinding_slots_and_pooling. Geometry is unchanged, so "
-                "the runtime stays at the measured 23.890 s per study over 3 decode "
-                "passes, about 6.3 h of the 9 h cap. | Built with DINOv3")
+                "convnext_base_25d_perfinding_slots_and_pooling, "
+                "convnext_base_25d_spatial. | Built with DINOv3")
 
 # ===========================================================================
 
