@@ -188,11 +188,18 @@ training:
 
 # Inference-only settings. These never touch training.
 inference:
-  # ONE card. The member split WORKS - the kernel logs "gpus used: 2", all 9 members score
-  # and the logits span -3.838 to 4.578 - but it is SLOWER, not faster: 42.098 s per study
-  # against 18.418. Every 336 px member lands near 5.6 s where one card gives 0.185 to
-  # 2.053, so the threaded path costs about 2.4x per member, more than the second card
-  # returns. Set to 2 to re-enable; the code and its 26 checks stay in place.
+  # THE THREADS ARE GIL-BOUND. Capping OpenMP/MKL barely moved it (42.098 -> 39.945 s per
+  # study), and the per-card arithmetic says why. Each card's OWN members took almost
+  # exactly twice as long as the same members on one card: cuda:0 went 7.751 -> 16.618 s
+  # and cuda:1 8.624 -> 19.536. Two threads, each 2x slower, is zero throughput gained -
+  # the signature of the Global Interpreter Lock, not of memory or of CUDA. Our members are
+  # kernel-LAUNCH bound (ConvNeXt and the 2.5D stacks are many small kernels over 96 images
+  # per study), and a launch is Python work holding the lock, so the second thread can only
+  # launch while the first is not. The public two-GPU notebook survives threads because its
+  # arm is one Vision Transformer over a large batch: few, large kernels, so launch overhead
+  # is a small fraction. Threads cannot fix this; separate PROCESSES can, and that is the
+  # next build. Until it lands, one card with decode-once is the honest number: 20.424 s per
+  # study for nine members (16.376 GPU, 4.048 decode) against the threaded 23.3 wall clock.
   max_gpus: 1
 
   # 0 = whole batch per forward. Micro-batching was added to chase an out-of-memory that
