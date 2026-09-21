@@ -108,6 +108,10 @@ ck("models are SHARDED, never replicated",
    "_shard_models" in src and "_replicate_models" not in src)
 ck("out of memory falls back to one card", "one card only" in src)
 ck("the reported total is the slowest card", 'timing.get("gpu_wall_s")' in src)
+ck("each member's forward is micro-batched so one member cannot fill a card",
+   "for _s0 in range(0, x.shape[0], MICRO)" in split and "micro_studies" in src)
+ck("micro-batch outputs are concatenated in order",
+   "torch.cat(outs, dim=0)" in split)
 ck("gpu_wall_s is the max over cards, not the sum",
    "timing[\"gpu_wall_s\"] = max(sum(d[i] for i in assign[di])" in src)
 

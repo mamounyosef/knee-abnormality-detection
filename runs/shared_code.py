@@ -6478,6 +6478,7 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
             """
             from concurrent.futures import ThreadPoolExecutor
             st_cpu = torch.full((len(models), x.shape[0], len(tasks)), float("nan"))
+            MICRO = max(1, int((cfg0.get("inference", {}) or {}).get("micro_studies", 1)))
 
             def _one(di):
                 dev = devices[di]
@@ -6487,15 +6488,23 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
                     c, m = cfgs[_mi], models[_mi]
                     amp = c["training"]["amp"] and dev.type == "cuda"
                     _tm = time.perf_counter()
-                    with torch.autocast("cuda", enabled=amp):
-                        xb = prepare_batch(x, c, dev)
-                        o = m(xb).float()
-                    del xb
+                    # MICRO-BATCH. A 512 px member sees 96 windows per study, so a whole
+                    # batch of studies in one forward is already a 15 GiB T4's worth of
+                    # activations - which is what ran the cards out, not the weights.
+                    # Studies are scored independently and pooling never crosses a study,
+                    # so slicing here cannot change a number.
+                    outs = []
+                    for _s0 in range(0, x.shape[0], MICRO):
+                        with torch.autocast("cuda", enabled=amp):
+                            xb = prepare_batch(x[_s0:_s0 + MICRO], c, dev)
+                            outs.append(m(xb).float().cpu())
+                        del xb
+                    o = torch.cat(outs, dim=0) if len(outs) > 1 else outs[0]
                     if dev.type == "cuda":
                         torch.cuda.synchronize(dev)
                     _dev_member_s[di][_mi] += time.perf_counter() - _tm
                     # COLS was built on cuda:0; index the CPU stack with a CPU copy
-                    st_cpu[_mi][:, COLS[_mi].cpu()] = o.cpu()
+                    st_cpu[_mi][:, COLS[_mi].cpu()] = o
 
             # ThreadPoolExecutor, NOT threading.Thread: .result() re-raises here. A bare
             # Thread swallows its exception and the outer handler then substitutes zeros,
