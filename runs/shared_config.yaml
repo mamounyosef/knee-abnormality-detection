@@ -188,9 +188,24 @@ training:
 
 # Inference-only settings. These never touch training.
 inference:
-  # Kaggle's "GPU T4 x2" gives TWO cards and every submission before 2026-09-21 used one,
-  # with 16.176 s of each study's 23.890 s being GPU work. 1 = the old single-card path.
+  # BOTH T4s, by splitting the MEMBERS across them rather than the batch. Each model lives
+  # on exactly one card, so the total weight memory equals the single-card path and each
+  # card carries about half. Replicating every model onto both cards - the first design -
+  # is what left a 15 GiB T4 with 256 MiB free before any work.
   max_gpus: 2
+
+  # DECODE ONCE across geometry groups. This is the bigger win anyway: decode was 10.589 of
+  # 18.418 s per study (57%) in the nine-member run, because each group re-read and
+  # re-decompressed every DICOM although the raw volume is geometry-independent. Studies are
+  # walked in chunks so scratch disk holds one chunk at a time. A cached read measured 65x
+  # faster than decoding, and byte-identical.
+  shared_decode: true
+  decode_chunk: 32
+
+  # The backend tweaks stay OFF for now: cudnn.benchmark profiles each convolution and its
+  # workspaces are a plausible part of the memory that ran the T4 out. Re-enable alone,
+  # after decode-once is confirmed, so a failure has one cause.
+  tune_backend: false
 
 evaluation:
   # validation cadence is driven by the GLOBAL STEP, not the epoch. The epoch only

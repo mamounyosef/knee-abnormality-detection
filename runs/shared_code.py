@@ -6157,7 +6157,9 @@ def _timing_report(timing: dict, n_studies: int) -> str:
              f"however many members"]
     for name, sec in zip(timing["members"], timing["member_s"]):
         lines.append(f"  gpu     {sec / n:8.3f}   {name}")
-    gpu = sum(timing["member_s"]) / n
+    # with the members split across cards the cards run at once, so the batch costs the
+    # SLOWEST card, not the sum of both
+    gpu = float(timing.get("gpu_wall_s") or sum(timing["member_s"])) / n
     lines.append(f"  ---")
     lines.append(f"  total   {timing['decode_s'] / n + gpu:8.3f}   "
                  f"({timing['decode_s'] / n / max(timing['decode_s'] / n + gpu, 1e-9) * 100:.0f}% decode)")
@@ -6250,26 +6252,65 @@ def tune_inference_backend(models=None, verbose: bool = True) -> None:
               "models" % (moved, len(models or [])), flush=True)
 
 
-def _replicate_models(models: list, devices: list) -> list:
-    """models[d][i] = member i, resident on devices[d].
+def _member_costs(cfgs: list) -> list:
+    """A rough GPU cost per member, used only to balance the two cards.
 
-    devices[0] keeps the ORIGINAL module objects rather than a copy, so a single-device run
-    is byte-identical to what it was before this function existed. Copies are deep, because
-    two threads calling forward on one module would share its buffers.
+    Measured seconds per study from the eight-member kernel run where we have them; for
+    anything else, the window count times a size factor, which is what actually drives the
+    forward pass. Being wrong here costs balance, never correctness.
     """
-    import copy
-    key = (tuple(id(m) for m in models), tuple(str(d) for d in devices))
-    if key in _REPLICA_CACHE:
-        return _REPLICA_CACHE[key]
-    out = [[m.eval().to(devices[0]) for m in models]]
-    for dev in devices[1:]:
-        out.append([copy.deepcopy(m).eval().to(dev) for m in models])
-    _REPLICA_CACHE[key] = out
+    known = {"convnext_base_relabel": 3.432, "mricore_vitb_cross_attention": 1.387,
+             "mricore_vitb_mae_cross_attention": 1.396, "dinov3_convnext_base": 1.507,
+             "convnext_base_25d_18slices": 2.005,
+             "convnext_base_25d_all_knees_same_orientation": 2.005,
+             "swinv2_base_in22k": 4.211, "convnext_base_25d_poolattn": 0.185,
+             "convnext_base_25d_perfinding_slots_and_pooling": 2.053}
+    out = []
+    for c in cfgs:
+        nm = c["experiment"]["name"]
+        if nm in known:
+            out.append(known[nm])
+            continue
+        try:
+            w = images_per_study(c)
+            px = float(c["input"]["size"]) ** 2
+            out.append(max(0.05, w * px / (24 * 336 * 336) * 2.0))
+        except Exception:
+            out.append(1.0)
     return out
 
 
-# Chunked scoring calls predict_dicom_ensemble once per chunk per group; without this every
-# call would deep-copy every model onto the second card again.
+def _shard_models(models: list, cfgs: list, devices: list) -> tuple:
+    """Assign each member to ONE device. Returns (placed, assign).
+
+    placed[i] is member i already on its device; assign[d] lists the member indices that
+    device d owns. Every model exists once, so two cards cost the same total memory as one
+    and each holds about half - the opposite of replicating, which is what ran the T4 out.
+    """
+    if len(devices) == 1:
+        return [m.eval().to(devices[0]) for m in models], [list(range(len(models)))]
+    costs = _member_costs(cfgs)
+    load = [0.0] * len(devices)
+    assign = [[] for _ in devices]
+    for i in sorted(range(len(models)), key=lambda j: -costs[j]):   # heaviest first
+        d = min(range(len(devices)), key=lambda k: load[k])
+        assign[d].append(i)
+        load[d] += costs[i]
+    placed = [None] * len(models)
+    for d, idxs in enumerate(assign):
+        for i in idxs:
+            placed[i] = models[i].eval().to(devices[d])
+    print("  \u26a1 %d GPUs, members split by cost: %s"
+          % (len(devices), " | ".join(
+              "%s=%.1fs" % (str(devices[d]), load[d]) for d in range(len(devices)))),
+          flush=True)
+    for d, idxs in enumerate(assign):
+        print("       %s: %s" % (devices[d],
+                                 ", ".join(cfgs[i]["experiment"]["name"][:34] for i in idxs)),
+              flush=True)
+    return placed, assign
+
+
 _REPLICA_CACHE: dict = {}
 _BANNERS: dict = {}
 
@@ -6364,21 +6405,25 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
     bs = int(batch_size or val_loader_settings(cfg0)[0])
     loader = DataLoader(ds, batch_size=bs, shuffle=False, num_workers=nw,
                         pin_memory=device.type == "cuda", persistent_workers=False)
-    # BOTH of Kaggle's T4s. Every submission before this ran on one of two cards: of the
-    # measured 23.890 s per study, 16.176 s was GPU, so half of that sat idle. The batch is
-    # split across devices rather than the members, so the halves are balanced by
-    # construction and every member's timing stays meaningful.
+    # BOTH of Kaggle's T4s. The MEMBERS are split across the cards, not the batch: each
+    # model lives on exactly one card, so the total weight memory equals the single-card
+    # path and each card carries about half of it. Splitting the BATCH instead needed every
+    # model on every card, which left a 15 GiB T4 with 256 MiB free before any work.
     _ngpu = usable_gpus(cfg0) if device.type == "cuda" else 1
     devices = ([torch.device("cuda", i) for i in range(_ngpu)]
                if device.type == "cuda" and _ngpu > 1 else [device])
-    if device.type == "cuda":
+    if device.type == "cuda" and (cfg0.get("inference", {}) or {}).get("tune_backend", False):
         tune_inference_backend(models)
-    models_by_dev = _replicate_models(models, devices)
-    models = models_by_dev[0]          # the originals; the single-device path is unchanged
-    if len(devices) > 1 and not _BANNERS.get("gpus"):
-        _BANNERS["gpus"] = True
-        print("  \u26a1 %d GPUs: the study batch is split across %s"
-              % (len(devices), ", ".join(str(d) for d in devices)), flush=True)
+    try:
+        models, assign = _shard_models(models, cfgs, devices)
+    except torch.cuda.OutOfMemoryError:
+        # Losing the second card costs speed; losing the submission costs everything.
+        print("  \u26a0\ufe0f  out of memory placing %d members on %d cards - one card only"
+              % (len(models), len(devices)), flush=True)
+        torch.cuda.empty_cache()
+        devices = [device]
+        models, assign = _shard_models(models, cfgs, devices)
+    dev_of = {i: devices[d] for d, idxs in enumerate(assign) for i in idxs}
 
     out, done, t0, failed = [], 0, time.time(), 0
     notes = []
@@ -6422,64 +6467,55 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
         k = x.shape[0]
 
         def _score_batch_split():
-            """The same arithmetic as _score_batch, with the studies split across devices.
+            """Every card runs ITS OWN members on the whole batch, at the same time.
 
-            Each study is scored independently, so splitting the batch cannot change any
-            number - that is the property the tests assert, and it is why this is the safe
-            way to use a second card. Members stay in their original order on every device.
+            Each member is resident on exactly one card, so this is the same arithmetic as
+            the single-card path with the members reordered - and reordering cannot change
+            a blend that is a mean. The stack is assembled on the CPU because the members
+            finish on different devices.
             """
             from concurrent.futures import ThreadPoolExecutor
-            parts = [p for p in torch.chunk(x, len(devices), dim=0) if p.shape[0]]
+            st_cpu = torch.full((len(models), x.shape[0], len(tasks)), float("nan"))
 
-            def _one(di, xp):
+            def _one(di):
                 dev = devices[di]
-                mods = models_by_dev[di]
                 if dev.type == "cuda":
-                    # any op that falls back to "the current device" must land on THIS card
                     torch.cuda.set_device(dev)
-                st = torch.full((len(mods), xp.shape[0], len(tasks)),
-                                float("nan"), device=dev)
-                # COLS holds index tensors built on cuda:0. Indexing a cuda:1 tensor with a
-                # cuda:0 index raises - and in the first two-GPU run that exception killed
-                # this thread silently, so every member on the second card voted 0.5.
-                cols_d = [c_.to(dev) for c_ in COLS]
-                for _mi, (c, m) in enumerate(zip(cfgs, mods)):
+                for _mi in assign[di]:
+                    c, m = cfgs[_mi], models[_mi]
                     amp = c["training"]["amp"] and dev.type == "cuda"
                     _tm = time.perf_counter()
                     with torch.autocast("cuda", enabled=amp):
-                        xb = prepare_batch(xp, c, dev)
+                        xb = prepare_batch(x, c, dev)
                         o = m(xb).float()
                     del xb
                     if dev.type == "cuda":
                         torch.cuda.synchronize(dev)
                     _dev_member_s[di][_mi] += time.perf_counter() - _tm
-                    st[_mi][:, cols_d[_mi]] = o
-                return st.cpu()
+                    # COLS was built on cuda:0; index the CPU stack with a CPU copy
+                    st_cpu[_mi][:, COLS[_mi].cpu()] = o.cpu()
 
             # ThreadPoolExecutor, NOT threading.Thread: .result() re-raises here. A bare
-            # Thread swallows its exception, the slot stays empty, and the outer handler
-            # substitutes _neutral() - zeros, which sigmoid to 0.5 and look like real
-            # predictions. That is exactly how the first two-GPU run produced a submission
+            # Thread swallows its exception and the outer handler then substitutes zeros,
+            # which sigmoid to 0.5 - that is how the first two-GPU run shipped a submission
             # squeezed into [0.309, 0.707] while reporting "9/9 members".
-            with ThreadPoolExecutor(max_workers=len(parts)) as ex:
-                futs = [ex.submit(_one, i, p) for i, p in enumerate(parts)]
-                slots = [f.result() for f in futs]
-            stacked = torch.cat(slots, dim=1)          # (n_members, k, n_tasks), on CPU
-            # POST-CONDITION: a member that contributed nothing must not pass silently.
-            _dead = [_i for _i in range(stacked.shape[0])
-                     if not torch.isfinite(stacked[_i]).any()
-                     or float(stacked[_i].abs().max()) == 0.0]
+            with ThreadPoolExecutor(max_workers=len(devices)) as ex:
+                for f in [ex.submit(_one, i) for i in range(len(devices))]:
+                    f.result()
+            _dead = [i for i in range(st_cpu.shape[0])
+                     if not torch.isfinite(st_cpu[i]).any()
+                     or float(st_cpu[i].abs().max()) == 0.0]
             if _dead:
                 raise RuntimeError(
-                    "two-GPU split: member(s) %s produced no usable logits "
-                    "(all NaN or all zero) - refusing to blend them as 0.5"
-                    % [cfgs[_i]["experiment"]["name"] for _i in _dead])
+                    "two-GPU split: member(s) %s produced no usable logits - refusing to "
+                    "blend them as 0.5"
+                    % [cfgs[i]["experiment"]["name"] for i in _dead])
             if return_member_logits:
-                return stacked.numpy()
+                return st_cpu.numpy()
             if W is None:
-                avg = torch.nanmean(stacked, dim=0)
+                avg = torch.nanmean(st_cpu, dim=0)
             else:
-                avg = torch.nan_to_num(stacked, nan=0.0).mul(W.cpu()[:, None, :]).sum(dim=0)
+                avg = torch.nan_to_num(st_cpu, nan=0.0).mul(W.cpu()[:, None, :]).sum(dim=0)
             return torch.sigmoid(avg).numpy()
 
         def _score_batch():
@@ -6560,9 +6596,13 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
         probs = np.concatenate(out) if out else np.zeros((0, len(tasks)))
         n_scored = len(probs)
     if len(devices) > 1:
-        # wall clock, not serial-equivalent: the devices ran at the same time
+        # each member ran on exactly one card, so its own time is already true. What is NOT
+        # the sum is the wall clock: the cards ran at the same time, so a batch costs the
+        # slowest card, and that is the number the 9 h cap turns on.
         for _i in range(len(models)):
-            timing["member_s"][_i] = sum(d[_i] for d in _dev_member_s) / len(devices)
+            timing["member_s"][_i] = sum(d[_i] for d in _dev_member_s)
+        timing["gpu_wall_s"] = max(sum(d[i] for i in assign[di])
+                                   for di, d in enumerate(_dev_member_s))
     summary = (f"scored {n_scored} studies with {len(models)} members in "
                f"{fmt(time.time() - t0)}"
                + (f" ({failed} fell back to 0.5)" if failed else ""))
