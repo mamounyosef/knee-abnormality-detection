@@ -14,7 +14,7 @@ import timm
 import torch
 import torch.nn as nn
 
-EXP_NAME = "medimageinsight_davit_huge_perslice_full"
+EXP_NAME = "medimageinsight_davit_huge_perslice_480_full"
 
 
 def _pkg_root() -> Path:

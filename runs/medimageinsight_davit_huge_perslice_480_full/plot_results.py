@@ -12,7 +12,7 @@ import argparse
 import sys
 from pathlib import Path
 
-EXP_NAME = "medimageinsight_davit_huge_perslice_full"
+EXP_NAME = "medimageinsight_davit_huge_perslice_480_full"
 
 
 def _pkg_root() -> Path:

@@ -19,7 +19,7 @@ from pathlib import Path
 
 import torch
 
-EXP_NAME = "medimageinsight_davit_huge_perslice_336"
+EXP_NAME = "medimageinsight_davit_huge_perslice_480_full"
 
 
 def _pkg_root() -> Path:

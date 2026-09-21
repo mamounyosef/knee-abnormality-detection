@@ -1,36 +1,43 @@
-# medimageinsight_davit_huge_perslice_336
+# medimageinsight_davit_huge_perslice_480
 #
-# MedImageInsight's DaViT-Huge, PER-SLICE instead of 2.5D. One variable against the model
-# that scored 0.929 solo: the packing.
+# MedImageInsight's DaViT-Huge at its NATIVE 480 px, PER-SLICE. Two changes from the model
+# that scored 0.929 solo, taken together on purpose rather than split into separate runs:
 #
-# WHAT CHANGES. slices_as_channels goes from 6 to null. Instead of three consecutive slices
-# being packed into the red, green and blue channels of one image, each slice becomes its
-# own image with the grayscale value replicated across all three channels. 18 slices x 4
-# slots = 72 windows per study, against 24 before, so 3x the compute.
+#   1. PER-SLICE instead of 2.5D. slices_as_channels goes from 6 to null, so each slice is
+#      its own image with the grayscale value replicated across all three channels, instead
+#      of three consecutive slices packed into red, green and blue. 18 slices x 4 slots = 72
+#      windows per study against 24.
+#      Our own evidence, same model, same 336 px, only the packing differing:
+#          convnext_base_336px         per-slice  96 windows  val 0.9044  LB 0.917
+#          convnext_base_25d_18slices  2.5D       24 windows  val 0.9010  LB 0.914
+#      And it should help THIS backbone more: MedImageInsight was pretrained on medical
+#      images - X-ray, MRI, CT - which are grayscale, so its three channels saw the same
+#      picture replicated. Per-slice reproduces that. Three different slices in RGB is
+#      off-distribution for it in a way it is not for an ImageNet ConvNeXt.
 #
-# WHY. Same model, same 336 px, only the packing differs:
-#     convnext_base_336px         per-slice  96 windows   val 0.9044   LB 0.917
-#     convnext_base_25d_18slices  2.5D       24 windows   val 0.9010   LB 0.914
-# Per-slice wins by 0.0034 val and 0.003 LB at 4x the compute.
+#   2. 480 px, which is exactly what MedImageInsight was pretrained at, and 480/32 = 15
+#      divides cleanly through DaViT's four downsamples.
 #
-# AND IT SHOULD HELP THIS BACKBONE MORE THAN IT HELPED CONVNEXT. MedImageInsight was
-# pretrained on medical images - X-ray, MRI, CT - which are GRAYSCALE, so its three input
-# channels saw the same picture replicated. Per-slice reproduces that exactly. Packing three
-# DIFFERENT slices into red, green and blue is off-distribution for this backbone in a way
-# it is not for an ImageNet ConvNeXt, whose pretraining images were genuinely colour.
+# WHAT 480 DOES AND DOES NOT DO. mm_per_px stays 0.40, as in every run in this project, so
+# 480 px is 192 mm of frame against 336 px's 134 mm. It does not magnify the knee - it puts
+# more of the leg in the picture at the same physical scale. To magnify instead, mm_per_px
+# would have to drop to 0.28, which would upsample nearly every series and interpolate
+# detail that is not in the data.
 #
-# WHY 18 SLICES, NOT 24. The comparison must have one variable, and the 0.929 model is 18.
-# 18 also beat 24 head to head last time (convnext_base_25d_18slices LB 0.914, audit 0.9054
-# against convnext_base_25d_group3's 0.913 and 0.9005) at 25% less compute.
+# COST. 72 windows at 480 px is 2.04x the pixels of the same run at 336, which was itself 3x
+# the 2.5D run, so expect roughly 6x the 1h07m the 2.5D version took. Batch 1 x accum 8
+# keeps the effective batch at 8. DO NOT size the batch from epoch 1 - lp_ft_epochs makes it
+# a FROZEN probe whose memory peak says nothing about the unfrozen phase, which is exactly
+# how the 2.5D run came to run out of memory at batch 8.
 #
-# LATERALITY IS ON, as it is on every new run: left knees mirrored so all studies face the
-# same way, the axis chosen per plane (sagittal reverses SLICE ORDER, coronal and axial
-# reverse WIDTH).
+# LATERALITY IS ON, as on every new run: left knees mirrored so all studies face the same
+# way, the axis chosen per plane (sagittal reverses SLICE ORDER, coronal and axial reverse
+# WIDTH).
 #
 # Beat: medimageinsight_davit_huge_336, val 0.9041 / audit 0.9124 / LB 0.929.
 
 experiment:
-  name: "medimageinsight_davit_huge_perslice_336"
+  name: "medimageinsight_davit_huge_perslice_480"
 
 paths:
   # Byte-identical split MEMBERSHIP to convnext_base_25d_group3 and convnext_base_336px.
@@ -74,7 +81,10 @@ input:
 
   norm_mean: [0.485, 0.456, 0.406]   # MedImageInsight config.yaml AND timm agree
   norm_std:  [0.229, 0.224, 0.225]
-  size: 336
+  size: 480                         # MedImageInsight's native resolution.
+                                    # mm_per_px stays 0.40, so this is 192 mm of
+                                    # frame against 336's 134 mm - more of the
+                                    # leg, NOT a magnified knee.
 
   # 18 real slices per slot, down from the shared default of 24. This is the ONLY difference
   # from convnext_base_25d_group3.
@@ -123,14 +133,12 @@ training:
 # CPU-side loading; decoding shards is the bottleneck and stays one here, though 18 slices
 # is a quarter less to decode per study than 24.
 dataloader:
-  batch_size: 2                     # 2 studies x 72 windows = 144 images per
-                                    # step, close to the 192 the 2.5D run held at
-                                    # batch 8 x 24. Raise it once a real peak from
-                                    # an UNFROZEN epoch is known - epoch 1 is a
-                                    # frozen probe and its memory says nothing.
+  batch_size: 1                     # 72 windows at 480 px per study. 2.04x the
+                                    # pixels of the 336 version, which was already
+                                    # 3x the 2.5D run.
 
-  accum_steps: 4                    # effective batch stays 8
-  val_batch_size: 4
+  accum_steps: 8                    # effective batch stays 8
+  val_batch_size: 2
                                     # backward pass there are no stored activations, so this
                                     # is far cheaper than the training batch despite being
                                     # twice the studies. Speeds the validations up.

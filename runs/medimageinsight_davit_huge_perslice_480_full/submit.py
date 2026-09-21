@@ -27,7 +27,7 @@ KAGGLE_USER = "mamounhussam"   # owner slug for the dataset and the notebook
 CHECKPOINT = "best"            # best | last | top1.. | <step> | path
 VERIFY_STUDIES = 3             # DICOM-vs-shard check; 0 skips it
 
-EXP_NAME = "medimageinsight_davit_huge_perslice_336"
+EXP_NAME = "medimageinsight_davit_huge_perslice_480_full"
 
 
 def _pkg_root() -> Path:
