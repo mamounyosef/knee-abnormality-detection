@@ -5855,10 +5855,16 @@ def _load_model_state(model, sd):
               for k, v in sd.items()}
     return getattr(model, '_orig_mod', model).load_state_dict(sd)
 
+# SPECS say how to rebuild a member from nothing. The second T4 is driven by a separate
+# PROCESS, because threads share one interpreter lock and measured 2x slower per card, and
+# a built model holding CUDA tensors cannot be pickled to a child. The child rebuilds its
+# own members from these same three files. Plain data only, so it survives the spawn.
+SPECS = []
 try:
     MODELS = []
     for m, cfg in zip(MEMBERS, CFGS):
         i = m['i']
+        SPECS.append({'i': int(i), 'dir': str(W), 'cfg': cfg})
         model = _load_def(i).build_model(cfg)
         ck = torch.load(W / ('m%d_model.pt' % i), map_location='cpu', weights_only=False)
         _load_model_state(model, ck['model'])
@@ -5900,7 +5906,7 @@ try:
     # per geometry GROUP and blends at the end. With every member on one geometry this does
     # exactly what predict_dicom_ensemble did, in one pass, so it is safe as the default.
     pred = sc.predict_dicom_ensemble_grouped(CFGS, MODELS, todo, plan, idx, files_by_series,
-                                             batch_size=1, weights=_W)
+                                             batch_size=1, weights=_W, model_specs=SPECS)
     # the 9h cap is enforced on the HIDDEN test set, which is larger than what runs
     # here, so the number that has to be extrapolated is s/study, not the total
     _el = _time.time() - _t0

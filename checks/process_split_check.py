@@ -201,6 +201,15 @@ def main():
        'if len(devices) > 1 and _mode == "process" and model_specs:' in src)
     ck("a worker that cannot start falls back loudly",
        "could not start a worker process" in src)
+    # The generated notebook is a BUILD OUTPUT: build_kaggle_ensemble_assets rewrites it
+    # every run. The first process-split attempt edited the OUTPUT, so the specs vanished
+    # and the kernel silently fell back to the threaded path - it cost a full Kaggle run to
+    # notice. Assert against the GENERATOR.
+    gen = src[src.find("def build_kaggle_ensemble_assets"):]
+    ck("the notebook GENERATOR builds SPECS next to MODELS",
+       "SPECS.append({'i': int(i), 'dir': str(W), 'cfg': cfg})" in gen)
+    ck("and passes them to the ensemble", "model_specs=SPECS" in gen)
+    ck("SPECS is defined before the try that fills it", gen.find("SPECS = []") < gen.find("MODELS = []"))
     ck("split_mode is configurable", "split_mode" in src
        and "split_mode" in (ROOT / "runs" / "shared_config.yaml").read_text(encoding="utf-8"))
 
