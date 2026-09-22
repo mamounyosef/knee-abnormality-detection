@@ -7573,11 +7573,15 @@ def verify_kernel_output(user: str, notebook_slug: str, n_members: int,
                   quiet=True, check=False)
     log = d / "inference_log.txt"
     sub = d / "submission.csv"
-    if not log.exists():
-        # The notebook writes this before anything else finishes. Missing means inference
-        # never completed and bail() wrote 0.5 for the whole test set.
-        problems.append("no inference_log.txt: inference did not complete, so "
-                        "submission.csv is the 0.5 fallback")
+    missing_log = not log.exists()
+    if missing_log:
+        # NOT fatal on its own. The ENSEMBLE notebook writes this file, so a missing one
+        # there means inference died and bail() wrote 0.5. The per-run SOLO notebook never
+        # writes it at all, and treating that as failure blocked a perfectly good
+        # coatnet_rmlp2_384 submission whose predictions spanned 0.0285 to 0.9938.
+        # submission.csv is the ground truth; the log only adds per-member detail.
+        print("      note: no inference_log.txt (normal for a solo run) - judging on "
+              "submission.csv alone", flush=True)
     else:
         txt = log.read_text(encoding="utf-8", errors="replace")
         if "CONTRIBUTING NOTHING" in txt:
@@ -7597,7 +7601,8 @@ def verify_kernel_output(user: str, notebook_slug: str, n_members: int,
         if "failed (" in txt or "-> 0.5" in txt:
             problems.append("the log reports failed batches that fell back to 0.5")
     if not sub.exists():
-        problems.append("no submission.csv in the kernel output")
+        problems.append("no submission.csv in the kernel output%s"
+                        % (" and no inference_log.txt either" if missing_log else ""))
     else:
         import pandas as _pd
         df = _pd.read_csv(sub)

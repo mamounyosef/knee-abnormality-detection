@@ -39,9 +39,10 @@ import numpy as np
 RUNS = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(RUNS))
 
-PARENT = "medimageinsight_davit_huge_336"
+PARENT = "convnext_base_relabel"
 
-NEW = ["medimageinsight_davit_huge_perslice_480_warm"]
+NEW = ["eva02_base_448", "coatnet_rmlp2_384", "convnext_large",
+       "medimageinsight_davit_huge_perslice_480_warm"]
 
 # the ensemble currently shipped, LB 0.935. convnext_base_relabel stands in for
 # convnext_base_full_all_knees_same_orientation, which is what actually ships: the full-data
