@@ -126,6 +126,139 @@
    "decode_passes": 3,
    "commit_run_minutes": 10.2,
    "notes": "BEST SUBMISSION SO FAR, 0.933. ONE change from the 0.932 eight: convnext_base_25d_18slices replaced by convnext_base_25d_all_knees_same_orientation, which mirrors every LEFT knee so all studies face the same way, the mirror axis chosen per plane (sagittal reverses SLICE ORDER, coronal and axial reverse WIDTH). Validation scored the swap at -0.0001 and the leaderboard at +0.001. TAKEN WITH submission 56403779, which scored 0.932 - exactly the seven-member score - the two ensembles separate the two changes cleanly: adding the per-finding member bought 0.000 and swapping the laterality member bought +0.001. Laterality is the thing that is working. This is the THIRD consecutive time validation under-called laterality: the run solo was -0.0002 on val and +0.005 on the leaderboard (0.919 vs its parent's 0.914), and the swap was -0.0001 on val and +0.001 on the leaderboard."
+  },
+  {
+   "submission_ref": 56443547,
+   "kernel": "mamounhussam/knee-nine-spatial-2gpu-submit",
+   "members": [
+    "convnext_base_relabel",
+    "mricore_vitb_cross_attention",
+    "mricore_vitb_mae_cross_attention",
+    "dinov3_convnext_base",
+    "convnext_base_25d_all_knees_same_orientation",
+    "swinv2_base_in22k",
+    "convnext_base_25d_poolattn",
+    "convnext_base_25d_perfinding_slots_and_pooling",
+    "convnext_base_25d_spatial"
+   ],
+   "public_score": 0.932,
+   "submitted": "2026-09-21",
+   "notes": "0.933 eight + convnext_base_25d_spatial. The audit-58 bet (audit +0.0018, val -0.0002); LOST -0.001. First submission on both T4s.",
+   "private_score": null
+  },
+  {
+   "submission_ref": 56443932,
+   "kernel": "mamounhussam/knee-eight-full-swap-submit",
+   "members": [
+    "convnext_base_full_all_knees_same_orientation",
+    "mricore_vitb_cross_attention",
+    "mricore_vitb_mae_cross_attention",
+    "dinov3_convnext_base",
+    "convnext_base_25d_all_knees_same_orientation",
+    "swinv2_base_in22k",
+    "convnext_base_25d_poolattn",
+    "convnext_base_25d_perfinding_slots_and_pooling"
+   ],
+   "public_score": 0.934,
+   "submitted": "2026-09-21",
+   "notes": "0.933 eight with convnext_base_relabel -> convnext_base_full_all_knees_same_orientation. +0.001.",
+   "private_score": null
+  },
+  {
+   "submission_ref": 56444173,
+   "kernel": "mamounhussam/knee-nine-medimageinsight-submit",
+   "members": [
+    "convnext_base_relabel",
+    "mricore_vitb_cross_attention",
+    "mricore_vitb_mae_cross_attention",
+    "dinov3_convnext_base",
+    "convnext_base_25d_all_knees_same_orientation",
+    "swinv2_base_in22k",
+    "convnext_base_25d_poolattn",
+    "convnext_base_25d_perfinding_slots_and_pooling",
+    "medimageinsight_davit_huge_336"
+   ],
+   "public_score": 0.934,
+   "submitted": "2026-09-21",
+   "notes": "0.933 eight + medimageinsight_davit_huge_336. +0.001.",
+   "private_score": null
+  },
+  {
+   "submission_ref": 56459152,
+   "kernel": "mamounhussam/knee-nine-full-medimageinsight-submit",
+   "members": [
+    "convnext_base_full_all_knees_same_orientation",
+    "mricore_vitb_cross_attention",
+    "mricore_vitb_mae_cross_attention",
+    "dinov3_convnext_base",
+    "convnext_base_25d_all_knees_same_orientation",
+    "swinv2_base_in22k",
+    "convnext_base_25d_poolattn",
+    "convnext_base_25d_perfinding_slots_and_pooling",
+    "medimageinsight_davit_huge_336"
+   ],
+   "public_score": null,
+   "submitted": "2026-09-22",
+   "notes": "DEGRADED - ignore any score. Process split OOM'd, a child died, later batches blocked an hour each and fell back to 0.5; medimageinsight contributed nothing.",
+   "private_score": null
+  },
+  {
+   "submission_ref": 56461328,
+   "kernel": "mamounhussam/knee-nine-full-medimageinsight-submit",
+   "members": [
+    "convnext_base_full_all_knees_same_orientation",
+    "mricore_vitb_cross_attention",
+    "mricore_vitb_mae_cross_attention",
+    "dinov3_convnext_base",
+    "convnext_base_25d_all_knees_same_orientation",
+    "swinv2_base_in22k",
+    "convnext_base_25d_poolattn",
+    "convnext_base_25d_perfinding_slots_and_pooling",
+    "medimageinsight_davit_huge_336"
+   ],
+   "public_score": 0.935,
+   "submitted": "2026-09-22",
+   "notes": "BEST. Both changes at once, after the process-split fix; the two isolating submissions (0.934 each) show they add.",
+   "private_score": null
+  },
+  {
+   "submission_ref": 56468176,
+   "kernel": "mamounhussam/knee-ten-perslice480-submit",
+   "members": [
+    "convnext_base_full_all_knees_same_orientation",
+    "mricore_vitb_cross_attention",
+    "mricore_vitb_mae_cross_attention",
+    "dinov3_convnext_base",
+    "convnext_base_25d_all_knees_same_orientation",
+    "swinv2_base_in22k",
+    "convnext_base_25d_poolattn",
+    "convnext_base_25d_perfinding_slots_and_pooling",
+    "medimageinsight_davit_huge_336",
+    "medimageinsight_davit_huge_perslice_480_warm"
+   ],
+   "public_score": null,
+   "submitted": "2026-09-22",
+   "notes": "0.935 nine + the warm 480 per-slice MedImageInsight (added, not swapped). Pending at time of recording.",
+   "private_score": null
+  },
+  {
+   "submission_ref": null,
+   "kernel": "mamounhussam/knee-nine-fulldata-swap-submit",
+   "members": [
+    "convnext_base_full_all_knees_same_orientation",
+    "mricore_vitb_cross_attention",
+    "mricore_vitb_mae_cross_attention_fulldata_flip",
+    "dinov3_convnext_base",
+    "convnext_base_25d_all_knees_same_orientation",
+    "swinv2_base_in22k",
+    "convnext_base_25d_poolattn_fulldata_flip",
+    "convnext_base_25d_perfinding_slots_and_pooling",
+    "medimageinsight_davit_huge_336_fulldata"
+   ],
+   "public_score": null,
+   "submitted": "2026-09-22",
+   "notes": "0.935 nine with three members swapped for full-data (+mirror) retrains, final steps 6050/3850/4400. 4 decode passes. Pending at time of recording.",
+   "private_score": null
   }
  ]
 }
