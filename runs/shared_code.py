@@ -6963,7 +6963,13 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
                 del xb                                 # the (96, 3, 512, 512) input
                 if device.type == "cuda":
                     torch.cuda.synchronize()           # else we time the launch, not the work
-                timing["member_s"][_mi] += time.perf_counter() - _tm
+                _el = time.perf_counter() - _tm
+                timing["member_s"][_mi] += _el
+                # With more than one device configured, the fold at the end rebuilds
+                # member_s from the per-device accumulators, so a member scored on
+                # THIS path has to be recorded there too or it reports 0.000 s.
+                if len(devices) > 1:
+                    _dev_member_s[0][_mi] += _el
                 stacked[_mi][:, COLS[_mi]] = o
             if return_member_logits:
                 # Raw per-member LOGITS, un-blended, for predict_dicom_ensemble_grouped:
