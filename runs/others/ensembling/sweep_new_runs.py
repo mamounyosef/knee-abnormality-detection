@@ -54,10 +54,27 @@ SHIPPED = ["convnext_base_relabel", "mricore_vitb_cross_attention",
            "medimageinsight_davit_huge_336"]
 
 # trained on the val studies - including one makes every score meaningless
-# `convnext_base_full` alone was not enough: EVERY *_full run trains on train+val+audit,
-# so mricore_vitb_mae_cross_attention_full was being forward-selected into "the best
-# ensemble" while scoring its own training data. It was picked at step 3 for +0.0025.
-LEAKY = re.compile(r"_f[0-4]$|_full$|_full_|convnext_base_full")
+# Leakage is decided by the run's OWN train_csv, not by its name. Matching "_full" was
+# wrong in both directions: mricore_vitb_mae_cross_attention_full is NOT a full-data run
+# (its "full" means full cross-slice fusion, and it trains on the normal split), while a
+# future full-data run named anything else would slip straight through. The fold runs stay
+# a name rule because their split is encoded only in the suffix.
+FULL_CSVS = ("08_train_full",)
+LEAKY = re.compile(r"_f[0-4]$")
+
+
+def _trains_on_val(run_name: str) -> bool:
+    """True if this run's config trains on the validation studies."""
+    import yaml
+    p = RUNS / run_name / "config.yaml"
+    if not p.exists():
+        return False
+    try:
+        csv = str(((yaml.safe_load(p.read_text(encoding="utf-8")) or {})
+                   .get("paths") or {}).get("train_csv") or "")
+    except Exception:
+        return False
+    return any(t in csv for t in FULL_CSVS)
 
 # RadImageNet's weights are "personal, non-commercial (e.g., academic) research purposes
 # only... any commercial use, sale, or other monetization is strictly prohibited", and a
@@ -266,6 +283,7 @@ def main():
     print("\n  3. FORWARD SELECTION over the whole non-leaky pool")
     pool = sorted(p.parent.parent.name for p in RUNS.glob("*/results/predictions")
                   if not LEAKY.search(p.parent.parent.name)
+                  and not _trains_on_val(p.parent.parent.name)
                   and not BANNED.search(p.parent.parent.name))
     pool = [r for r in pool if best_npz(r, split) is not None]
     print("     %d runs with predictions (leaky excluded)" % len(pool))
