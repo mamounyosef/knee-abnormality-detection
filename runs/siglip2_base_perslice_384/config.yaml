@@ -149,7 +149,7 @@ dataloader:
                                     # a batch from an epoch-1 number.
 
   accum_steps: 2                    # effective batch stays 8
-  val_batch_size: 8
+  val_batch_size: 16                # 16 x 96 = 1536 images per forward, no gradients kept
                                     # backward pass there are no stored activations, so this
                                     # is far cheaper than the training batch despite being
                                     # twice the studies. Speeds the validations up.

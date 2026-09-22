@@ -45,6 +45,35 @@ import torch.nn.functional as F
 import yaml
 from torch.utils.data import DataLoader, Dataset, Sampler
 
+import logging as _logging
+
+
+class _ExitWhenAppStopped(_logging.Filter):
+    """Swallow modal's heartbeat tracebacks once the app is stopped, and exit the client.
+
+    Stopping a run from the Modal dashboard leaves the local `modal run` process heartbeating
+    a dead app every 10 s, and each reply - ConflictError "App state is APP_STATE_STOPPED" -
+    is logged as a full traceback until Ctrl+C. That reply means the app is already gone, so
+    the right end state is simply this process exiting. Anything else passes through.
+    """
+
+    _done = False
+
+    def filter(self, record):
+        exc = record.exc_info[1] if record.exc_info else None
+        text = "%s %s" % (record.getMessage(), exc or "")
+        if "APP_STATE_STOPPED" not in text:
+            return True
+        if not _ExitWhenAppStopped._done:
+            _ExitWhenAppStopped._done = True
+            print("\n  app stopped on Modal - closing the local client", flush=True)
+            os._exit(0)                  # the remote app is already stopped; nothing to clean up
+        return False
+
+
+for _name in ("modal-utils", "modal-client"):
+    _logging.getLogger(_name).addFilter(_ExitWhenAppStopped())
+
 try:
     import cv2
     cv2.setNumThreads(0)          # workers do their own parallelism
