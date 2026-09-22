@@ -393,7 +393,13 @@ def build_model(cfg: dict) -> nn.Module:
 
 def _weights_path(cfg: dict) -> Path:
     name = cfg["model"]["weights"]
-    for c in (Path(cfg["modal"]["runs_mount"]) / "_pretrained" / name,
+    # BOTH conventions. These runs were written against <runs_mount>/_pretrained/, while
+    # external_backbones.resolve_weights (and therefore every workspace seeded since) uses
+    # <runs_mount>/pretrained/ without the underscore. Looking in both costs a stat call
+    # and means neither convention can strand a run on a volume that has the file.
+    for c in (Path(cfg["modal"]["runs_mount"]) / "pretrained" / name,
+              Path(cfg["modal"]["runs_mount"]) / "_pretrained" / name,
+              Path("/runs/pretrained") / name,
               Path(cfg["paths"]["data_dir"]) / "pretrained" / name):
         if c.exists():
             return c

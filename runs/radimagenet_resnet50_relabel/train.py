@@ -45,14 +45,20 @@ def _weights_path(cfg: dict) -> Path:
     with `modal volume put`. Locally it sits in data/pretrained/.
     """
     name = cfg["model"]["weights"]
-    for c in (Path(cfg["modal"]["runs_mount"]) / "_pretrained" / name,
+    # BOTH conventions. These runs were written against <runs_mount>/_pretrained/, while
+    # external_backbones.resolve_weights (and therefore every workspace seeded since) uses
+    # <runs_mount>/pretrained/ without the underscore. Looking in both costs a stat call
+    # and means neither convention can strand a run on a volume that has the file.
+    for c in (Path(cfg["modal"]["runs_mount"]) / "pretrained" / name,
+              Path(cfg["modal"]["runs_mount"]) / "_pretrained" / name,
+              Path("/runs/pretrained") / name,
               Path(cfg["paths"]["data_dir"]) / "pretrained" / name):
         if c.exists():
             return c
     raise FileNotFoundError(
         f"{name} not found. Locally: data/pretrained/. On Modal, upload it once with\n"
         f"  modal volume put {cfg['modal']['runs_volume']} "
-        f"data/pretrained/{name} /_pretrained/{name}")
+        f"data/pretrained/{name} /pretrained/{name}")
 
 
 def _load_radimagenet(backbone: nn.Module, path: Path):
