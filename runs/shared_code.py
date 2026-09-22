@@ -7472,15 +7472,75 @@ def _kaggle_title(exp: str, suffix: str) -> str:
     return ("%s %s" % (exp[:50 - len(suffix) - 1], suffix))[:50]
 
 
+def verify_kernel_output(user: str, notebook_slug: str, n_members: int,
+                         expect_rows: int | None = None) -> list:
+    """Return the reasons this kernel's output must NOT be submitted. Empty means good.
+
+    Reads what the notebook itself wrote: inference_log.txt for the member accounting and
+    submission.csv for the predictions. A kernel can finish happily and still have produced
+    a file that wastes an attempt.
+    """
+    import tempfile
+
+    problems, d = [], Path(tempfile.mkdtemp(prefix="knee_kout_"))
+    out = _kaggle("kernels", "output", "%s/%s" % (user, notebook_slug), "-p", str(d),
+                  quiet=True, check=False)
+    log = d / "inference_log.txt"
+    sub = d / "submission.csv"
+    if not log.exists():
+        # The notebook writes this before anything else finishes. Missing means inference
+        # never completed and bail() wrote 0.5 for the whole test set.
+        problems.append("no inference_log.txt: inference did not complete, so "
+                        "submission.csv is the 0.5 fallback")
+    else:
+        txt = log.read_text(encoding="utf-8", errors="replace")
+        if "CONTRIBUTING NOTHING" in txt:
+            line = [l for l in txt.splitlines() if "CONTRIBUTING NOTHING" in l]
+            problems.append(line[0].strip() if line else "members contributed nothing")
+        import re as _re
+        m = _re.search(r"with (\d+)/(\d+) members", txt)
+        if m and (int(m.group(1)) != n_members or int(m.group(2)) != n_members):
+            problems.append("scored %s/%s members, expected %d/%d"
+                            % (m.group(1), m.group(2), n_members, n_members))
+        # A member at exactly 0.000 s never ran. That is how medimageinsight_davit_huge_336
+        # shipped: present in the member list, absent from the arithmetic.
+        idle = [nm for sec, nm in _re.findall(r"gpu\s+(\d+\.\d+)\s+(\S+)", txt)
+                if float(sec) == 0.0]
+        if idle:
+            problems.append("member(s) took 0.000 s, so they never ran: %s" % ", ".join(idle))
+        if "failed (" in txt or "-> 0.5" in txt:
+            problems.append("the log reports failed batches that fell back to 0.5")
+    if not sub.exists():
+        problems.append("no submission.csv in the kernel output")
+    else:
+        import pandas as _pd
+        df = _pd.read_csv(sub)
+        cols = [c for c in df.columns if c != "StudyInstanceUID"]
+        if expect_rows is not None and len(df) != expect_rows:
+            problems.append("submission.csv has %d rows, expected %d" % (len(df), expect_rows))
+        v = df[cols].to_numpy(dtype="float64")
+        neutral = float((v == 0.5).mean())
+        if neutral > 0.02:
+            problems.append("%.1f%% of the predictions are exactly 0.5" % (neutral * 100))
+        if float(v.max()) - float(v.min()) < 0.2:
+            problems.append("predictions span only %.3f to %.3f, which is not a real blend"
+                            % (float(v.min()), float(v.max())))
+    import shutil as _sh
+    _sh.rmtree(d, ignore_errors=True)
+    return problems
+
+
 def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
                    message: str, wait: bool = True, poll_secs: int = 60,
-                   submit: bool = True) -> str | None:
+                   submit: bool = True, n_members: int | None = None) -> str | None:
     """Dataset -> notebook -> wait for the run -> submit. Returns the kernel version.
 
     The weights go up as a dataset because a code-competition notebook has no
     internet; the notebook itself is what Kaggle scores.
     """
     assets = Path(assets_dir)
+    if n_members is None:                      # count what we are about to ship
+        n_members = len(list((Path(assets_dir) / "weights").glob("m*_model.pt")))
     _banner("KAGGLE PUBLISH", "\U0001F680")
 
     print(f"  1/4 dataset {user}/{dataset_slug}")
@@ -7543,6 +7603,20 @@ def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
 
     if not submit:
         return version
+
+    # "Complete" is not "correct". knee-nine-full-medimageinsight finished, was submitted,
+    # and only then turned out to have run two of its nine members not at all and written
+    # 0.5 for two of three studies. The kernel writes down everything needed to catch that,
+    # so read it before spending an attempt.
+    print("\n  4/4 checking the kernel's own output before submitting")
+    bad = verify_kernel_output(user, notebook_slug, n_members=n_members)
+    if bad:
+        print("      \u274c NOT SUBMITTING - the kernel completed but its output is bad:")
+        for b in bad:
+            print("         - %s" % b)
+        print("      no attempt was spent. Fix it and push again.")
+        return version
+    print("      \u2705 output looks sound: every member ran, no 0.5 fallbacks")
     print("\n  4/4 submitting")
     args = ["competitions", "submit", "-c", "rsna-knee-abnormality-detection",
             "-f", "submission.csv", "-k", f"{user}/{notebook_slug}", "-m", message]
