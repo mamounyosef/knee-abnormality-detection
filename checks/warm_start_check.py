@@ -71,9 +71,15 @@ def main():
     ck("four epochs, not twelve", cfg["training"]["epochs"] == 4, cfg["training"]["epochs"])
     ck("no frozen-probe epoch: the head arrives trained",
        cfg["training"]["lp_ft_epochs"] == 0)
-    ck("learning rate is halved against the donor",
-       abs(cfg["training"]["optimizer"]["lr"] - dcfg["training"]["optimizer"]["lr"] / 2) < 1e-12,
+    # `lr` is the BACKBONE rate and the head is DERIVED as lr / backbone_lr_mult, so a
+    # mult of 0.5 makes the head run twice as fast, not half. Easy to read backwards, so
+    # assert the rates the optimizer actually ends up with, not the config number.
+    ck("learning rate is a quarter of the donor's",
+       abs(cfg["training"]["optimizer"]["lr"] - dcfg["training"]["optimizer"]["lr"] / 4) < 1e-12,
        "%g -> %g" % (dcfg["training"]["optimizer"]["lr"], cfg["training"]["optimizer"]["lr"]))
+    ck("head runs FASTER than the trunk, not slower",
+       cfg["training"]["optimizer"]["backbone_lr_mult"] < 1.0,
+       "head = lr / %g" % cfg["training"]["optimizer"]["backbone_lr_mult"])
     ck("grad_clip is above the floor of 3", cfg["training"]["grad_clip"] >= 3.0,
        cfg["training"]["grad_clip"])
 

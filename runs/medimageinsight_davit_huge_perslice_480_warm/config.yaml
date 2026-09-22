@@ -127,9 +127,17 @@ training:
   optimizer:
     name: "adamw"
     weight_decay: 0.05
-    # Half the 336 run's 3.0e-5: the weights start where a full fine-tune ended, so the
-    # job is to adapt them to the new input geometry, not to move them far.
-    lr: 1.5e-5
+    # A QUARTER of the 336 run's 3.0e-5. Note what this knob actually is: `lr` is the
+    # BACKBONE rate and the head is derived as lr / backbone_lr_mult, so 0.5 makes the head
+    # run twice as fast, not half. With layer_decay the head sits at 2x this and the trunk
+    # decays downward from there, so at 0.75e-5 the head gets 1.5e-5, the trunk's top layer
+    # 1.2e-5 and its earliest layer 8.2e-7.
+    # Why a quarter and not the half we started with: the donor's 3.0e-5 was chosen to pull
+    # PUBLIC MedImageInsight weights onto our labels. These weights are already converged on
+    # our labels; only the input geometry changed. Half the donor's rate is still a
+    # fine-tuning rate, and four epochs is not long enough to recover from disturbing a
+    # 0.9041 model.
+    lr: 0.75e-5
                                     # the slice count is the only variable
     backbone_lr_mult: 0.5
     layer_decay: 0.8
