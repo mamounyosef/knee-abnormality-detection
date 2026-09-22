@@ -116,8 +116,9 @@ training:
   # Four, not twelve. The backbone is already fitted to these labels at 336 px, so this
   # adapts it to a bigger un-stacked input rather than fine-tuning from scratch. At 6.1x
   # the step cost of the 336 run (72 images per study at 480 against 24 at 336), twelve
-  # epochs is exactly what made this run unaffordable.
-  epochs: 4
+  # epochs is exactly what made this run unaffordable. Five, not four: the extra epoch
+  # is cheap next to the 6.1x step cost already being paid.
+  epochs: 5
   # 0, not 1. lp_ft_epochs freezes the backbone for a linear probe on epoch 1, which is how
   # an untrained head finds its feet. This head arrives already trained, so a probe epoch
   # would burn a quarter of the budget re-learning what it knows.
@@ -157,7 +158,7 @@ training:
     enable: true
     monitor: "val_macro_auroc"
     mode: "max"
-    patience: 4                     # only four epochs to spend
+    patience: 4                     # only five epochs to spend
 
 # CPU-side loading; decoding shards is the bottleneck and stays one here, though 18 slices
 # is a quarter less to decode per study than 24.
@@ -192,3 +193,15 @@ modal:
   memory_gb: 96
 
 # inherits resume: "last" from shared_config - the preemption-safe setting.
+
+evaluation:
+  # SCORE THE WARM-STARTED WEIGHTS BEFORE TOUCHING THEM. This runs at step 0, after
+  # init_from has loaded all 406 tensors and before any gradient is applied, so it answers
+  # exactly one question: what is a model trained at 336 px on six stacked-slice images
+  # worth when it is handed 480 px, one image per slice, and nothing else has changed?
+  # The donor scores val 0.9041 on ITS OWN geometry. Whatever this prints is the same
+  # weights on the new geometry, so the gap between the two is the cost of the change, and
+  # everything the run does afterwards is measured from that line rather than from zero.
+  # It fires only when this run has no checkpoint of its own, exactly like init_from, so a
+  # preempted container resumes instead of re-probing.
+  validate_before_training: true

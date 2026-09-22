@@ -68,7 +68,9 @@ def main():
     print("\n2. the warm-start settings")
     ck("init_from names the donor's best checkpoint",
        cfg["model"]["init_from"] == "%s/best_weights" % DONOR, cfg["model"].get("init_from"))
-    ck("four epochs, not twelve", cfg["training"]["epochs"] == 4, cfg["training"]["epochs"])
+    ck("five epochs, not twelve", cfg["training"]["epochs"] == 5, cfg["training"]["epochs"])
+    ck("it scores the warm-started weights BEFORE any gradient step",
+       cfg["evaluation"]["validate_before_training"] is True)
     ck("no frozen-probe epoch: the head arrives trained",
        cfg["training"]["lp_ft_epochs"] == 0)
     # `lr` is the BACKBONE rate and the head is DERIVED as lr / backbone_lr_mult, so a
@@ -138,6 +140,13 @@ def main():
        "warm start is incomplete" in src_txt and "raise RuntimeError" in src_txt)
     ck("the donor's step and score are printed, so the log says what it started from",
        "donor: step %s  epoch %s  score %s" in src_txt)
+    # The step-0 probe is only meaningful if the warm-started weights are already in the
+    # model when it runs. Probing before init_from would score the public weights, or worse
+    # a random head, and read as a catastrophic result for the new geometry.
+    ck("the step-0 probe runs AFTER the warm start, not before",
+       src_txt.index("WARM START from") < src_txt.index("_vbt = cfg"))
+    ck("and it is skipped on a resume, like the warm start itself",
+       "if _vbt and not ck:" in src_txt)
 
     print("\n" + "=" * 72)
     print("  %d passed, %d failed" % (len(PASS), len(FAIL)))
