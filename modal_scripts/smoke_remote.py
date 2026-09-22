@@ -110,9 +110,13 @@ def smoke(run_name: str, steps: int = 4):
              if n.startswith("backbone.") and p.ndim >= 2][:1]
     before = {n: p.detach().clone() for n, p in model.named_parameters() if n in watch}
     losses, t0 = [], time.time()
+    step_s, wait_s = [], []
     it = iter(loaders["train"])
     for st in range(steps):
+        _tw = time.perf_counter()
         b = next(it)
+        _tc = time.perf_counter()
+        wait_s.append(_tc - _tw)
         x = s.prepare_batch(b[0], c, dev)
         y = b[1].to(dev).float()
         with torch.autocast("cuda", enabled=c["training"]["amp"]):
@@ -121,6 +125,8 @@ def smoke(run_name: str, steps: int = 4):
         loss.backward()
         gn = torch.nn.utils.clip_grad_norm_(model.parameters(), c["training"]["grad_clip"])
         opt.step()
+        torch.cuda.synchronize()
+        step_s.append(time.perf_counter() - _tc)
         losses.append(float(loss.detach()))
         print("      step %d  loss %.4f  grad_norm %.3f  peak %.2f GB"
               % (st, losses[-1], gn, torch.cuda.max_memory_allocated() / 1e9), flush=True)
@@ -138,16 +144,28 @@ def smoke(run_name: str, steps: int = 4):
            "log10(update/weight) per step %.2f" % np.log10(max(rel, 1e-30)))
     print("\n  UNFROZEN PEAK %.2f GB of %.0f GB (%.0f%%) - THIS is the number to size a "
           "batch from" % (peak, total, 100 * peak / total))
-    print("  %.1f s for %d steps = %.1f s/step, %.0f images/s"
+    print("  %.1f s for %d steps = %.1f s/step, %.0f images/s  (WALL, includes warm-up)"
           % (el, steps, el / steps, steps * B * per / el))
+    # STEADY STATE: skip the warm-up steps (CUDA init, cuDNN autotune, allocator growth)
+    # and time compute on its own. The loader wait is reported separately, since a real run
+    # overlaps it with compute through prefetching.
+    warm = min(3, max(1, steps // 3))
+    tail = step_s[warm:] or step_s
+    med = float(np.median(tail))
+    ips = B * per / med
+    print("  per-step compute: %s s" % " ".join("%.2f" % v for v in step_s))
+    print("  loader wait     : %s s" % " ".join("%.2f" % v for v in wait_s))
+    print("  STEADY STATE %.2f s/step = %.0f images/s  (median of steps %d..%d)"
+          % (med, ips, warm, len(step_s) - 1))
+    print("  => %.2f h per epoch at 3638 studies x %d images" % (3638 * per / ips / 3600, per))
     print("\n  %d passed, %d failed" % (len(ok), len(bad)))
-    return {"peak_gb": peak, "total_gb": total, "s_per_step": el / steps,
-            "losses": losses, "failed": bad}
+    return {"peak_gb": peak, "total_gb": total, "s_per_step": med,
+            "images_per_s": ips, "losses": losses, "failed": bad}
 
 
 @app.local_entrypoint()
 def main(run: str = RUN, steps: int = 4):
     r = smoke.remote(run, steps)
     print("\n  %s" % ("SMOKE PASSED" if not r["failed"] else "FAILED: %s" % r["failed"]))
-    print("  peak %.2f GB of %.0f GB, %.1f s/step"
-          % (r["peak_gb"], r["total_gb"], r["s_per_step"]))
+    print("  peak %.2f GB of %.0f GB, steady %.2f s/step = %.0f images/s"
+          % (r["peak_gb"], r["total_gb"], r["s_per_step"], r["images_per_s"]))
