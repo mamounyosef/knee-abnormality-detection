@@ -139,8 +139,8 @@ training:
 # CPU-side loading; decoding shards is the bottleneck and stays one here, though 18 slices
 # is a quarter less to decode per study than 24.
 dataloader:
-  batch_size: 2                     # 2 x 96 = 192 images per step, the same as the
-                                    # 2.5D smoke (8 x 24) that peaked at 40.6 GB
+  batch_size: 4                     # 4 x 96 = 384 images per step; batch 2 peaked at
+                                    # 37.5 GB unfrozen, so this lands near 72 GB of 141
                                     # This OOM'd on an H100's 80 GB with the trunk unfrozen;
                                     # the H200's 141 GB is the reason it is back.
                                     # NOTE the 4.54 GB once logged here came from EPOCH 1,
@@ -148,7 +148,7 @@ dataloader:
                                     # activations, gradients or optimizer state. Never size
                                     # a batch from an epoch-1 number.
 
-  accum_steps: 4                    # effective batch stays 8
+  accum_steps: 2                    # effective batch stays 8
   val_batch_size: 8
                                     # backward pass there are no stored activations, so this
                                     # is far cheaper than the training batch despite being
