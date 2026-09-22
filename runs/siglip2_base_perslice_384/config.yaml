@@ -1,4 +1,4 @@
-# siglip2_base_384 - the most promising external backbone we have tried.
+# siglip2_base_perslice_384 - the most promising external backbone we have tried.
 #
 # WHY, stated as a pattern rather than a hope. Four external backbones failed: medsam
 # (segmentation masks, 0.7664), beitv2 (discrete tokens on natural images, 0.7661), triad
@@ -48,7 +48,7 @@
 # Below 0.60 kill it. Above 0.75 is the first genuinely new thing in five attempts.
 
 experiment:
-  name: "siglip2_base_384"
+  name: "siglip2_base_perslice_384"
 
 paths:
   # Byte-identical split MEMBERSHIP to convnext_base_25d_group3 and convnext_base_336px.
@@ -96,7 +96,8 @@ input:
 
   # 18 real slices per slot, down from the shared default of 24. This is the ONLY difference
   # from convnext_base_25d_group3.
-  n_slices: 18
+  n_slices: 24                      # 24 not 18: SigLIP 2 is cheap enough that the extra
+                                    # slices cost little. 96 images per study.
 
   # 6 IMAGES PER SLOT, each holding 3 consecutive slices in its 3 channels.
   # prepare_batch reshapes (B, 4, 18, H, W) -> (B*4*6, 3, H, W). The slice axis splits with
@@ -104,7 +105,8 @@ input:
   # contiguous and non-overlapping: (0,1,2), (3,4,5), ... (15,16,17).
   # 18 / 6 = 3 means train.py builds the backbone with in_chans=3, i.e. the pretrained stem
   # exactly as shipped. No filter tiling, no rescaling, no adaptation.
-  slices_as_channels: 6
+  slices_as_channels: null          # PER-SLICE: one image per slice, 72 per study.
+                                    # SigLIP 2 runs at 784 img/s, so the 3x costs ~1.1 h.
 
 training:
   epochs: 12
@@ -137,7 +139,8 @@ training:
 # CPU-side loading; decoding shards is the bottleneck and stays one here, though 18 slices
 # is a quarter less to decode per study than 24.
 dataloader:
-  batch_size: 8
+  batch_size: 2                     # 2 x 96 = 192 images per step, the same as the
+                                    # 2.5D smoke (8 x 24) that peaked at 40.6 GB
                                     # This OOM'd on an H100's 80 GB with the trunk unfrozen;
                                     # the H200's 141 GB is the reason it is back.
                                     # NOTE the 4.54 GB once logged here came from EPOCH 1,
@@ -145,7 +148,7 @@ dataloader:
                                     # activations, gradients or optimizer state. Never size
                                     # a batch from an epoch-1 number.
 
-  accum_steps: 1                    # effective batch 8
+  accum_steps: 4                    # effective batch stays 8
   val_batch_size: 8
                                     # backward pass there are no stored activations, so this
                                     # is far cheaper than the training batch despite being

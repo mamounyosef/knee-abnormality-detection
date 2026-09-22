@@ -12,7 +12,7 @@ import argparse
 import sys
 from pathlib import Path
 
-EXP_NAME = "siglip2_base_384"
+EXP_NAME = "siglip2_base_perslice_384"
 
 
 def _pkg_root() -> Path:

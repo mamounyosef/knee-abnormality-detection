@@ -14,7 +14,7 @@ import timm
 import torch
 import torch.nn as nn
 
-EXP_NAME = "siglip2_base_384"
+EXP_NAME = "siglip2_base_perslice_384"
 
 
 def _pkg_root() -> Path:

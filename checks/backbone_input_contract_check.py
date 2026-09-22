@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "runs"))
 import shared_code as sc  # noqa: E402
 
-RUNS = ["siglip2_base_384", "efficientnetv2_l_384", "eva02_large_448", "maxvit_base_384",
+RUNS = ["siglip2_base_perslice_384", "efficientnetv2_l_384", "eva02_large_448", "maxvit_base_384",
         "focalnet_large_336", "medimageinsight_davit_huge_336"]
 PASS, FAIL = [], []
 
