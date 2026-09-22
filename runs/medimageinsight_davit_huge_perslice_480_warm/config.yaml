@@ -168,7 +168,12 @@ dataloader:
                                     # 3x the 2.5D run.
 
   accum_steps: 8                    # effective batch stays 8
-  val_batch_size: 2
+  val_batch_size: 4                 # no backward pass, so nothing is stored for
+                                    # gradients and validation costs a fraction of the
+                                    # 91.4 GB training peak. 4 studies is 288 images of
+                                    # 480 px per forward; the card has about 50 GB spare
+                                    # at the training peak, and inference needs far less
+                                    # than that.
                                     # backward pass there are no stored activations, so this
                                     # is far cheaper than the training batch despite being
                                     # twice the studies. Speeds the validations up.
@@ -210,8 +215,11 @@ evaluation:
   # epoch 5 and 100 at epoch 7 - thresholds written for a twelve-epoch run. This one stops
   # at five, so it would have sat on 400 for almost all of it: five validations total, on a
   # warm start where the interesting part is the first few hundred steps. 100 gives 23.
-  eval_every_steps_before: 100
-  eval_every_steps_mid: 100
+  # 200 through epoch 1, then 100 from epoch 2 on. The tiers read as:
+  # epoch < threshold -> _before, epoch >= threshold -> _after, so threshold 2 is
+  # "epoch 1 only". The middle tier is unused here.
+  eval_every_steps_before: 200
   eval_every_steps_after: 100
+  eval_every_steps_epoch_threshold: 2
+  eval_every_steps_mid: 100
   eval_every_steps_epoch_mid_threshold: 0
-  eval_every_steps_epoch_threshold: 0

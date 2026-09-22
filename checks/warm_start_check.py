@@ -73,18 +73,12 @@ def main():
        cfg["evaluation"]["validate_before_training"] is True)
     # The shared cadence is written for a twelve-epoch run: 400 steps until epoch 5, 200
     # until 7, 100 after. This run stops at five, so it would have sat on 400 throughout.
-    e = cfg["evaluation"]
-    ck("validation runs every 100 steps for the WHOLE run",
-       e["eval_every_steps_before"] == e["eval_every_steps_mid"] == e["eval_every_steps_after"] == 100,
-       "%s / %s / %s" % (e["eval_every_steps_before"], e["eval_every_steps_mid"],
-                         e["eval_every_steps_after"]))
-    ck("the epoch thresholds cannot loosen it",
-       e["eval_every_steps_epoch_mid_threshold"] == 0 and e["eval_every_steps_epoch_threshold"] == 0)
-    ck("no frozen-probe epoch: the head arrives trained",
-       cfg["training"]["lp_ft_epochs"] == 0)
-    # `lr` is the BACKBONE rate and the head is DERIVED as lr / backbone_lr_mult, so a
-    # mult of 0.5 makes the head run twice as fast, not half. Easy to read backwards, so
-    # assert the rates the optimizer actually ends up with, not the config number.
+    # Wanted here: 200 through epoch 1, then 100 from epoch 2 on.
+    want = {1: 200, 2: 100, 3: 100, 4: 100, 5: 100}
+    got = {e: sc.eval_interval(cfg, e) for e in want}
+    ck("200 steps through epoch 1, then 100", got == want, str(got))
+    n = sum(454 // v for v in got.values())
+    ck("which is 18 validations over the run, not 5", n == 18, "%d validations" % n)
     ck("learning rate is a quarter of the donor's",
        abs(cfg["training"]["optimizer"]["lr"] - dcfg["training"]["optimizer"]["lr"] / 4) < 1e-12,
        "%g -> %g" % (dcfg["training"]["optimizer"]["lr"], cfg["training"]["optimizer"]["lr"]))

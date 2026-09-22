@@ -3053,6 +3053,11 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
 
     loss_fn = build_loss(cfg, train_df, device)
     opt = build_optimizer(model, cfg, loss_fn)
+    # Which groups are the pretrained trunk? Structural, not by name: everything under
+    # .backbone is the trunk, the rest is the freshly initialised head. Computed once,
+    # because param_groups never change shape after this.
+    _bb_pids = {id(p) for n, p in model.named_parameters() if n.startswith("backbone.")}
+    _grp_is_bb = [any(id(p) in _bb_pids for p in g["params"]) for g in opt.param_groups]
     accum = accum_steps(cfg)
     steps_per_epoch = max(1, len(loaders["train"]) // accum)
     total = steps_per_epoch * epochs
@@ -3822,6 +3827,15 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                               "contributing nothing yet")
                 lrs = sched.get_last_lr()
                 lr, lr_lo, lr_hi = lrs[-1], min(lrs), max(lrs)
+                # Named, not just min and max. With layer_decay the minimum is the EARLIEST
+                # trunk layer (0.8**depth of the head rate), which is not "the backbone
+                # rate" in any useful sense - the trunk's TOP layer is what is really
+                # training. Report both ends of the trunk and the head separately.
+                _bb = [v for v, isb in zip(lrs, _grp_is_bb) if isb]
+                _hd = [v for v, isb in zip(lrs, _grp_is_bb) if not isb]
+                lr_bb_hi = max(_bb) if _bb else None
+                lr_bb_lo = min(_bb) if _bb else None
+                lr_head = max(_hd) if _hd else lr_hi
                 l = loss.item() * accum
                 # dt spans the whole window; the waits inside it aren't compute
                 dt = time.time() - win_t0
@@ -3871,6 +3885,8 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                                "epoch": epoch, "epoch_step": it // accum,
                                "global_step": gstep, "loss": round(l, 6), "lr": lr,
                                "lr_min": lr_lo, "lr_max": lr_hi,
+                               "lr_head": lr_head,
+                               "lr_backbone_max": lr_bb_hi, "lr_backbone_min": lr_bb_lo,
                                "gnorm": round(gnorm, 4),
                                "clip_pct": (round(100.0 * clip_hit[0] / clip_seen[0], 1)
                                             if clip_seen[0] else None),
@@ -3925,14 +3941,24 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                     print(f"  ▶️  no warmup: PESG holds lr at {lr_hi:.3e} until "
                           f"update_regularizer drops it")
                 if warm and gstep == warm:   # not elif: warm can be 1 on tiny runs
+                    _bbs = ("backbone %.3e" % lr_bb_hi if lr_bb_hi == lr_bb_lo
+                            else "backbone top %.3e, bottom %.3e" % (lr_bb_hi, lr_bb_lo)) \
+                        if lr_bb_hi is not None else "no trunk group"
                     print(f"  ✅ warmup COMPLETE at step {warm} - base lr reached "
-                          f"(backbone {lr_lo:.3e}, head {lr_hi:.3e}); cosine decay begins")
+                          f"(head {lr_head:.3e}, {_bbs}); cosine decay begins")
                 if gstep % cfg["output"]["console_log_every"] == 0 or gstep == 1:
                     d = "" if prev_loss is None else f" ({l - prev_loss:+.4f})"
                     # one lr when every group shares it, both ends when LLRD or
                     # backbone_lr_mult splits them
-                    lr_s = (f"lr={lr_hi:.3e}" if lr_lo == lr_hi
-                            else f"lr[head={lr_hi:.3e} backbone={lr_lo:.3e}]")
+                    if lr_lo == lr_hi:
+                        lr_s = f"lr={lr_hi:.3e}"
+                    elif lr_bb_hi is None:
+                        lr_s = f"lr[head={lr_head:.3e}]"
+                    elif lr_bb_hi == lr_bb_lo:
+                        lr_s = f"lr[head={lr_head:.3e} backbone={lr_bb_hi:.3e}]"
+                    else:
+                        lr_s = (f"lr[head={lr_head:.3e}  backbone top={lr_bb_hi:.3e} "
+                                f"bottom={lr_bb_lo:.3e}]")
                     print("─" * 70)
                     print(f"  Epoch {epoch}/{epochs}  epoch_step: {it // accum}/{steps_per_epoch}"
                           f"  global_step: {gstep}/{total}")
