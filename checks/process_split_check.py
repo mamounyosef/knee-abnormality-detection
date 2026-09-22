@@ -183,6 +183,34 @@ def main():
     ck("and empties the cache", not sc._CARD_PROCS)
     card.close()
 
+    print("\n6b. a dead child is noticed in SECONDS, not an hour")
+    # knee-nine-full-medimageinsight: group 2's child died of CUDA out of memory, and every
+    # later batch then sat on res_q.get(timeout=3600) for a FULL HOUR before falling back
+    # to 0.5. Two studies, two hours, two neutral rows in a shipped submission.
+    victim = sc._CardProcess("cpu", [dict(spec, local=0)])
+    victim.p.terminate()
+    time.sleep(1.0)
+    t = time.perf_counter()
+    try:
+        victim.submit(x.numpy())
+        victim.result(timeout=120)
+        ck("a killed child raises", False, "it returned instead")
+    except RuntimeError as e:
+        el = time.perf_counter() - t
+        ck("a killed child raises within seconds", el < 30, "%.1f s" % el)
+        ck("and the message says so", "died" in str(e) or "nothing" in str(e), str(e)[:60])
+    except Exception as e:
+        ck("a killed child raises within seconds", False, repr(e)[:80])
+    victim.close()
+
+    print("\n6c. a card with no members spawns no child")
+    sc.shutdown_card_processes()
+    devs2 = [torch.device("cpu"), torch.device("cpu")]
+    got_cards = sc._get_card_processes(devs2, [[0, 1], []], [dict(spec), dict(spec)])
+    ck("an empty assignment yields a None card, not a worker", got_cards == [None],
+       str(got_cards))
+    ck("and nothing was cached for it", not sc._CARD_PROCS, "%d cached" % len(sc._CARD_PROCS))
+
     print("\n7. the wiring in shared_code")
     src = (ROOT / "runs" / "shared_code.py").read_text(encoding="utf-8")
     ck("spawn, never fork (fork after CUDA init is undefined)", '_mp.get_context("spawn")' in src)
@@ -227,6 +255,17 @@ def main():
        [ln.strip()[:52] for ln in ens.splitlines() if " in models" in ln])
     ck("the single-card zip over models is unreachable once cards exist",
        ens.find("return _score_batch_proc()") < ens.find("zip(cfgs, models)"))
+    # The five fixes that knee-nine-full-medimageinsight paid for.
+    ck("a child hands its cached blocks back after every batch",
+       "torch.cuda.empty_cache()" in
+       src[src.find("def _proc_worker"):src.find("class _CardProcess")])
+    ck("result() polls and checks liveness instead of one long block",
+       "self.p.is_alive()" in src and "timeout=5.0" in src)
+    ck("a failed card is RETIRED, not retried every batch", "_dead_cards.add(di)" in src)
+    ck("and its members are rebuilt HERE rather than blended as 0.5",
+       "_run_here(assign[di], di)" in src and "_fallback_models[_mi] = m" in src)
+    ck("a group that gave card 1 nothing does not fall into the THREADED path",
+       "if len(devices) > 1 and not _proc_mode:" in src)
     ck("split_mode is configurable", "split_mode" in src
        and "split_mode" in (ROOT / "runs" / "shared_config.yaml").read_text(encoding="utf-8"))
 

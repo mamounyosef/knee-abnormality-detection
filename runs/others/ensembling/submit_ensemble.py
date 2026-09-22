@@ -88,7 +88,10 @@ MEMBERS = [
     #
     # COST: it is 6 slots with per-slot slice counts, so it does NOT share the seven's
     # decode group and adds one extra decode pass. Solo it priced at 22.3 min.
-    ("convnext_base_relabel", "best"),
+    # BOTH CHANGES AT ONCE. knee-eight-full-swap isolates this swap and
+    # knee-nine-medimageinsight isolates the ninth member below, so whatever this scores
+    # can be attributed to one, the other, or their interaction.
+    ("convnext_base_full_all_knees_same_orientation", "best"),
     ("mricore_vitb_cross_attention", "best"),
     ("mricore_vitb_mae_cross_attention", "best"),
     ("dinov3_convnext_base", "best"),
@@ -96,11 +99,15 @@ MEMBERS = [
     ("swinv2_base_in22k", "best"),
     ("convnext_base_25d_poolattn", "best"),
     ("convnext_base_25d_perfinding_slots_and_pooling", "best"),
-    # THE NINTH. Chosen to test one thing: audit-58 rates it 4th of 59 runs where
-    # val rates it 26th, and over 167 submission pairs audit wins 10 of the 14
-    # disagreements. Added flat it is val 0.9167 (-0.0002) and audit 0.9194
-    # (+0.0018). Free in decode: same loader geometry as convnext_base_25d_poolattn.
-    ("convnext_base_25d_spatial", "best"),
+    # THE NINTH, and the only change against the 0.933 eight. MedImageInsight is
+    # Microsoft's DaViT-Huge (360.6M parameters, MIT licence), trained with Unified
+    # Contrastive Learning on about 3.8M MEDICAL images against their CLINICAL labels. It
+    # is the first external backbone to reach our range: val 0.9041 against
+    # convnext_base_relabel's 0.9050, where the five external backbones before it landed
+    # between 0.7088 and 0.8455. Shipped SOLO it scored 0.929, the best single model we
+    # have. Free in decode: its loader geometry (336 px, 18 slices, laterality_flip left)
+    # matches convnext_base_25d_all_knees_same_orientation's exactly.
+    ("medimageinsight_davit_huge_336", "best"),
 ]
 # RadImageNet is deliberately ABSENT: its licence is "personal, non-commercial (e.g.,
 # academic) research purposes only... any commercial use, sale, or other monetization is
@@ -123,40 +130,52 @@ _OLD = None                    # FLAT. The per-class search is fitting noise now
                                # For the 9-member branch-group construct instead, set this
                                # to "branch_group_weights.json" (make_branch_group_weights.py
                                # writes it; check_partial_head_blend.py verifies it).
-STRESS       = 0                 # >0 = MEASUREMENT run: repeat the 3 public studies this
-                              # many times to get a marginal per-study rate, and write
-                              # no submission.csv. Use with SUBMIT = False.
+STRESS       = 0                 # PRICED. The STRESS = 24 run measured
+                              # medimageinsight_davit_huge_336 at 0.784 s per study, the
+                              # cheapest of the large members: it is 336 px over 18 slices,
+                              # so its 360.6M parameters see very few images per study.
+                              # Nine members price at about 12.1 s per study end to end,
+                              # roughly 3.2 h of the 9 h cap on the ledger's 946 studies.
 PUBLISH      = True
-WAIT_FOR_RUN = True
-SUBMIT       = False             # FREE RUN FIRST. Two untested things at once:
-                              # the second T4, never used before, and a ninth
-                              # member. Read inference_log.txt for the runtime
-                              # and the n_gpus line before committing.
+# PUSH NOW, SUBMIT LATER. Four submissions, each about five hours on the real test set, is
+# a day of blocking on this PC for work Kaggle will happily run in parallel. Push them all,
+# then hand the slugs to submit_when_done.py, which submits each one as its kernel
+# completes. It is also the safe order for an unpriced member: a kernel that breaches the
+# 9 h cap fails on Kaggle and is never submitted, so it costs a run and not an attempt.
+WAIT_FOR_RUN = True              # read the rate before deciding
+SUBMIT       = True              # priced and inside the cap
 KAGGLE_USER  = "mamounhussam"
-SLUG         = "knee-nine-spatial-2gpu"
+SLUG         = "knee-nine-full-medimageinsight"
 # KEEP THIS IN STEP WITH MEMBERS. Submission 56234763 shipped the 18-slice member while
 # this text still named the 24-slice one, because the swap changed MEMBERS and SLUG and
 # missed NOTE. Kaggle descriptions cannot be edited after submitting, so that record is
 # permanently wrong. Re-read this string whenever MEMBERS changes.
-NOTE         = ("THE 0.933 EIGHT PLUS convnext_base_25d_spatial, AND BOTH T4s. Two "
-                "changes. (1) A ninth member, convnext_base_25d_spatial, chosen to test a "
-                "measurement finding rather than a hunch: over 167 submission pairs the "
-                "58-study audit split orders them correctly 88.6% of the time against the "
-                "704-study val split's 85.0%, and on the 14 pairs where the two DISAGREE "
-                "audit is right 10 times to val's 4 - audit is scored against human panel "
-                "labels, the same kind of ground truth the leaderboard uses, and its "
-                "regression slope against the leaderboard is 0.99 where val's is 1.28. "
-                "This member is val 0.9167 (-0.0002) and audit 0.9194 (+0.0018), and it "
-                "costs no extra decode pass because its loader geometry matches "
-                "convnext_base_25d_poolattn's exactly. (2) Inference now splits the study "
-                "batch across BOTH T4s; every previous submission used one of the two "
-                "cards while 16.176 s of each study's 23.890 s was GPU work. Members: "
-                "convnext_base_relabel, mricore_vitb_cross_attention, "
-                "mricore_vitb_mae_cross_attention, dinov3_convnext_base, "
-                "convnext_base_25d_all_knees_same_orientation, swinv2_base_in22k, "
-                "convnext_base_25d_poolattn, "
+NOTE         = ("THE 0.933 EIGHT WITH BOTH CHANGES AT ONCE: "
+                "convnext_base_full_all_knees_same_orientation REPLACES "
+                "convnext_base_relabel, AND medimageinsight_davit_huge_336 joins as a "
+                "ninth member. Each change is also submitted on its own, as "
+                "knee-eight-full-swap and knee-nine-medimageinsight, so whatever this "
+                "scores can be attributed to one, the other, or their interaction. (1) THE "
+                "SWAP: the same config trained on TRAIN+VAL rather than train alone, so it "
+                "never validates and its checkpoint score is a step counter; and it "
+                "mirrors left knees so every study faces the same way, the axis chosen per "
+                "plane (sagittal reverses SLICE ORDER, coronal and axial reverse WIDTH). "
+                "Validation called mirroring -0.0002 and the leaderboard called it +0.005, "
+                "which is what took the ensemble to 0.933. (2) THE NINTH: MedImageInsight, "
+                "Microsoft's DaViT-Huge, 360.6M parameters under the MIT licence, trained "
+                "with Unified Contrastive Learning on about 3.8M MEDICAL images against "
+                "their CLINICAL labels. Val 0.9041 and 0.929 shipped solo, the best single "
+                "model in the pool, where five earlier external backbones landed between "
+                "0.7088 and 0.8455. Measured at 0.784 s per study, the cheapest of the "
+                "large members. Inference runs both T4s, one PROCESS per card, with decode "
+                "shared across geometry groups: about 12.1 s per study for nine members "
+                "against 23.890 for the eight. Members: "
+                "convnext_base_full_all_knees_same_orientation, "
+                "mricore_vitb_cross_attention, mricore_vitb_mae_cross_attention, "
+                "dinov3_convnext_base, convnext_base_25d_all_knees_same_orientation, "
+                "swinv2_base_in22k, convnext_base_25d_poolattn, "
                 "convnext_base_25d_perfinding_slots_and_pooling, "
-                "convnext_base_25d_spatial. | Built with DINOv3")
+                "medimageinsight_davit_huge_336. | Built with DINOv3")
 
 # ===========================================================================
 
@@ -205,7 +224,11 @@ def main():
     sc._banner(f"ENSEMBLE SUBMISSION ({len(members)} members)", "\U0001F9E9")
     out = sc.build_kaggle_ensemble_assets(
         members, Path(__file__).resolve().parent / "kaggle", KAGGLE_USER,
-        SLUG, f"{SLUG}-submit", title=f"knee ensemble {len(members)}",
+        # The title must be UNIQUE per slug: Kaggle refuses to create a second dataset
+        # under a title that already exists, so "knee ensemble 9" blocked every later
+        # nine-member submission from getting its own dataset. Derive it from the slug,
+        # which is unique by construction, and let _kaggle_title cut it to Kaggle's 50.
+        SLUG, f"{SLUG}-submit", title=sc._kaggle_title(SLUG, f"x{len(members)}"),
         blend_weights=blend, stress=STRESS)
 
     # A name the notebook uses but never defines parses fine, uploads fine, and fails on

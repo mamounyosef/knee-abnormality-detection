@@ -6385,6 +6385,13 @@ def _proc_worker(dev_str: str, specs: list, task_q, res_q):
                         torch.cuda.synchronize(dev)
                     times[i] = time.perf_counter() - t0
                     out[i] = o.cpu().numpy()
+            del x
+            if dev.type == "cuda":
+                # Hand the allocator's cached blocks back to the driver. Several children
+                # share one card across geometry groups, and a child that keeps 11.5 GiB
+                # reserved leaves the next one 124 MiB to work with - which is exactly how
+                # knee-nine-full-medimageinsight died.
+                torch.cuda.empty_cache()
             res_q.put(("ok", (out, times)))
         except Exception as e:
             res_q.put(("error", "worker %s failed on a batch: %r\n%s"
@@ -6411,11 +6418,28 @@ class _CardProcess:
     def submit(self, x_np) -> None:
         self.task_q.put((tuple(x_np.shape), x_np.dtype.str, x_np.tobytes()))
 
-    def result(self, timeout: float = 3600.0):
-        tag, payload = self.res_q.get(timeout=timeout)
-        if tag != "ok":
-            raise RuntimeError(payload)
-        return payload
+    def result(self, timeout: float = 1800.0):
+        """Wait in short slices, and give up the moment the child is gone.
+
+        A single get(timeout=3600) meant a dead worker cost a FULL HOUR per batch before
+        anyone noticed: two studies took two hours that way, and both ended up as 0.5.
+        """
+        import queue as _q
+        waited = 0.0
+        while waited < timeout:
+            try:
+                tag, payload = self.res_q.get(timeout=5.0)
+            except _q.Empty:
+                waited += 5.0
+                if not self.p.is_alive():
+                    raise RuntimeError(
+                        "worker %s died without reporting (exit code %r)"
+                        % (self.dev_str, self.p.exitcode))
+                continue
+            if tag != "ok":
+                raise RuntimeError(payload)
+            return payload
+        raise RuntimeError("worker %s produced nothing in %.0f s" % (self.dev_str, timeout))
 
     def close(self) -> None:
         try:
@@ -6442,6 +6466,12 @@ def _get_card_processes(devices: list, assign: list, model_specs: list):
         # model_specs is in the CALLER's order, so i is the local slot and spec["i"] the
         # bundle number that names the files.
         specs = [dict(model_specs[i], local=i) for i in assign[di]]
+        if not specs:
+            # A one-member geometry group gives the second card nothing. Spawning an empty
+            # child still costs a CUDA context (a few hundred MB) on a card that other
+            # groups' children are sharing, so don't.
+            cards.append(None)
+            continue
         key = (str(devices[di]),
                tuple(sorted((str(sp.get("dir")), int(sp["i"]), int(sp["local"]))
                             for sp in specs)))
@@ -6457,6 +6487,8 @@ def shutdown_card_processes() -> None:
     """Stop every worker. Safe to call twice, and called at the end of a grouped run."""
     for cp in list(_CARD_PROCS.values()):
         try:
+            if cp is None:
+                continue
             cp.close()
         except Exception:
             pass
@@ -6629,11 +6661,12 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
     # Threads share one Global Interpreter Lock and our members are launch-bound, so the
     # threaded split measured 2x slower per card. A child has its own lock.
     _mode = str((cfg0.get("inference", {}) or {}).get("split_mode", "process")).lower()
-    cards, assign = [], None
+    cards, assign, _proc_mode = [], None, False
     if len(devices) > 1 and _mode == "process" and model_specs:
         try:
             assign, _load = _assign_members(cfgs, len(devices))
             cards = _get_card_processes(devices, assign, model_specs)
+            _proc_mode = True
             # only THIS process's members go on card 0; the children own the rest and hold
             # their own copies, so placing them here would waste a card's memory twice.
             _placed = [None] * len(models)
@@ -6654,7 +6687,7 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
             print("  \u26a0\ufe0f  could not start a worker process (%r) - one card only"
                   % (_e,), flush=True)
             shutdown_card_processes()
-            cards, assign, devices = [], None, [device]
+            cards, assign, devices, _proc_mode = [], None, [device], False
     if assign is None:
       try:
         models, assign = _shard_models(models, cfgs, devices)
@@ -6698,6 +6731,11 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
     # one accumulator per device; combined as a MEAN at the end, because the devices run
     # concurrently and it is the wall clock that the 9 h cap measures
     _dev_member_s = [[0.0] * len(models) for _ in devices]
+    # A card that fails is retired for the REST of the run, and its members are rebuilt in
+    # this process. Retrying a card that has already run itself out of memory just buys the
+    # same failure once per batch.
+    _dead_cards: set = set()
+    _fallback_models: dict = {}
 
     def _neutral(k: int) -> np.ndarray:
         """What a failed batch of k studies contributes: a no-opinion score.
@@ -6736,8 +6774,9 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
             st_cpu = torch.full((len(models), x.shape[0], len(tasks)), float("nan"))
             xnp = x.numpy() if x.is_contiguous() else x.contiguous().numpy()
             _sub = time.perf_counter()
-            for cp in cards:
-                cp.submit(xnp)
+            for _di, cp in enumerate(cards, start=1):
+                if cp is not None and _di not in _dead_cards:
+                    cp.submit(xnp)
             _ship = time.perf_counter() - _sub
 
             dev0 = devices[0]
@@ -6754,11 +6793,56 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
                 _dev_member_s[0][_mi] += time.perf_counter() - _tm
                 st_cpu[_mi][:, COLS[_mi].cpu()] = o.cpu()
 
+            def _run_here(idxs, di):
+                """Score these members in THIS process, rebuilding them if we must.
+
+                The parent holds None for a member a child owns, so losing a card means
+                rebuilding from its spec. That costs a model load once; emitting 0.5 costs
+                the submission.
+                """
+                for _mi in idxs:
+                    m = _fallback_models.get(_mi)
+                    if m is None:
+                        m = build_member_from_bundle(
+                            dict(model_specs[_mi], local=_mi)).to(devices[0])
+                        _fallback_models[_mi] = m
+                    c = cfgs[_mi]
+                    amp = c["training"]["amp"] and devices[0].type == "cuda"
+                    _t2 = time.perf_counter()
+                    with torch.autocast("cuda", enabled=amp):
+                        xb = prepare_batch(x, c, devices[0])
+                        o = m(xb).float()
+                    del xb
+                    if devices[0].type == "cuda":
+                        torch.cuda.synchronize(devices[0])
+                    _dev_member_s[di][_mi] += time.perf_counter() - _t2
+                    st_cpu[_mi][:, COLS[_mi].cpu()] = o.cpu()
+
             # .result() RAISES what the child reported. A worker that dies quietly used to
             # leave zero logits, which sigmoid to exactly 0.5, while the run still announced
             # "9/9 members" and shipped a submission squeezed into [0.309, 0.707].
             for di, cp in enumerate(cards, start=1):
-                got, times = cp.result()
+                if cp is None:
+                    continue                 # nothing was assigned to this card
+                if di in _dead_cards:
+                    _run_here(assign[di], di)
+                    continue
+                try:
+                    got, times = cp.result()
+                except Exception as _e:
+                    print("  \u26a0\ufe0f  card %s failed (%s) - retiring it and scoring "
+                          "its %d member(s) on %s for the rest of the run"
+                          % (devices[di], str(_e).split(chr(10))[0][:150],
+                             len(assign[di]), devices[0]), flush=True)
+                    _dead_cards.add(di)
+                    try:
+                        cp.close()
+                    except Exception:
+                        pass
+                    if devices[0].type == "cuda":
+                        torch.cuda.empty_cache()
+                    _run_here(assign[di], di)
+                    continue
                 for _mi, arr in got.items():
                     st_cpu[_mi][:, COLS[_mi].cpu()] = torch.from_numpy(arr)
                     _dev_member_s[di][_mi] += times[_mi]
@@ -6860,9 +6944,13 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
             # branches predict only their own group (4, 6 and 2 of the 12), so their
             # output is narrower than the head task list and has to be scattered into
             # the right columns rather than stacked as-is.
-            if cards:
+            # In PROCESS mode every member this process owns is already on devices[0],
+            # so a group that gave the second card nothing falls through to the plain
+            # single-card path below. It must NOT reach _score_batch_split, which is the
+            # threaded path and is 2x slower per card.
+            if any(c is not None for c in cards):
                 return _score_batch_proc()
-            if len(devices) > 1:
+            if len(devices) > 1 and not _proc_mode:
                 return _score_batch_split()
             stacked = torch.full((len(models), x.shape[0], len(tasks)),
                                  float("nan"), device=device)
@@ -6931,6 +7019,8 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
     else:
         probs = np.concatenate(out) if out else np.zeros((0, len(tasks)))
         n_scored = len(probs)
+    if device.type == "cuda":
+        torch.cuda.empty_cache()          # the next geometry group's children share this card
     if len(devices) > 1:
         # each member ran on exactly one card, so its own time is already true. What is NOT
         # the sum is the wall clock: the cards ran at the same time, so a batch costs the
