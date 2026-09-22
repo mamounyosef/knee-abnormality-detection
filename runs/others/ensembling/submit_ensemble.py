@@ -66,57 +66,27 @@ from pathlib import Path
 # 6.9-8.3 h of the 9 h cap against 5.5-6.6 h for these six, and +0.0004 val is well inside
 # the 0.0055 noise. A timeout forfeits the run, so the cap decides. See runtime_budget.py.
 MEMBERS = [
-    # THE SHIPPED SEVEN (val 0.9164 / LB 0.932) PLUS AN EIGHTH, FLAT.
-    #
-    # convnext_base_25d_perfinding_slots_and_pooling joins as a full member rather than
-    # nested. It is a ConvNeXt on the 2.5D geometry like three of the seven, so nesting was
-    # the obvious guess - but it is NOT a near-duplicate: its logit correlation with the
-    # shipped members is 0.848 mean / 0.740 minimum, where the other convnext_base_25d_*
-    # siblings sit at 0.95-0.99. Nesting averages away an opinion that is genuinely its own.
-    # Measured over 84 placements: flat +0.0006, every nested form +0.0003 to +0.0004.
-    #
-    # Cross-fitted on val (choose on 4/5, score the held-out fifth): 0.9176 against the
-    # shipped 0.9172, +0.0004. Small, but from 84 candidates rather than the 151,889 of the
-    # structure search, so far less selection bias, and the winner is the a-priori obvious
-    # placement rather than a scan artifact.
-    #
-    # The real argument is the leaderboard's. Shipped SOLO it scored 0.915 against its
-    # parent's 0.914, while validation had it at 0.8961 against 0.9010 - val understates
-    # this run by roughly 0.005. If that carries into the ensemble the gain is larger than
-    # val can see. Audit-58 disagrees (-0.0005 cross-fitted) but 58 studies cannot outweigh
-    # 704.
-    #
-    # COST: it is 6 slots with per-slot slice counts, so it does NOT share the seven's
-    # decode group and adds one extra decode pass. Solo it priced at 22.3 min.
-    # The full-data laterality swap, shipped in the 0.935 nine.
+    # THE 0.935 NINE WITH THREE MEMBERS SWAPPED FOR THEIR FULL-DATA RETRAINS. Full data plus
+    # mirroring left knees is the change that took convnext_base_relabel from 0.918 to 0.934,
+    # so it is applied here to three more members at once. None of the three can be scored
+    # offline: each trained on train+val+audit, so any val or audit number would be scoring
+    # its own training data. Epochs were fixed at each donor's peak epoch, since nothing was
+    # held out to early-stop on.
     ("convnext_base_full_all_knees_same_orientation", "best"),
     ("mricore_vitb_cross_attention", "best"),
-    ("mricore_vitb_mae_cross_attention", "best"),
+    # SWAP 1 of 3: replaces mricore_vitb_mae_cross_attention. Full data AND the mirror; the
+    # ViT, the one architecture family that had had neither. Final step 6050 = 11 x 550.
+    ("mricore_vitb_mae_cross_attention_fulldata_flip", "best"),
     ("dinov3_convnext_base", "best"),
     ("convnext_base_25d_all_knees_same_orientation", "best"),
     ("swinv2_base_in22k", "best"),
-    ("convnext_base_25d_poolattn", "best"),
+    # SWAP 2 of 3: replaces convnext_base_25d_poolattn. Full data AND the mirror. Weakest
+    # member solo, historically the strongest ensemble contributor. Final step 3850 = 7 x 550.
+    ("convnext_base_25d_poolattn_fulldata_flip", "best"),
     ("convnext_base_25d_perfinding_slots_and_pooling", "best"),
-    # THE NINTH, and the only change against the 0.933 eight. MedImageInsight is
-    # Microsoft's DaViT-Huge (360.6M parameters, MIT licence), trained with Unified
-    # Contrastive Learning on about 3.8M MEDICAL images against their CLINICAL labels. It
-    # is the first external backbone to reach our range: val 0.9041 against
-    # convnext_base_relabel's 0.9050, where the five external backbones before it landed
-    # between 0.7088 and 0.8455. Shipped SOLO it scored 0.929, the best single model we
-    # have. Free in decode: its loader geometry (336 px, 18 slices, laterality_flip left)
-    # matches convnext_base_25d_all_knees_same_orientation's exactly.
-    ("medimageinsight_davit_huge_336", "best"),
-    # THE TENTH, and the only change against the 0.935 nine. Warm-started from member 9's
-    # own step-3200 weights and moved to 480 px with one image per slice instead of six
-    # images of stacked slices: all 406 tensors transferred with no reshaping, because
-    # DaViT encodes position with convolutions and the stem is 3-channel on both sides.
-    # It ADDS rather than replaces, which was measured rather than assumed: beside its own
-    # parent it is val 0.9116 (+0.0075) and audit 0.9154 (+0.0029), and against the shipped
-    # nine adding gives val 0.9181 (+0.0007) / audit 0.9199 (+0.0002) where REPLACING the
-    # parent gives 0.9179 / 0.9182, negative on audit.
-    # COST: 480 px per-slice is a geometry no other member shares, so it owns a sixth
-    # decode group, and at 72 images per study it is the most expensive member in the pool.
-    ("medimageinsight_davit_huge_perslice_480_warm", "best"),
+    # SWAP 3 of 3: replaces medimageinsight_davit_huge_336. Full data only - it was already
+    # mirrored. Our best single model on the leaderboard (0.929). Final step 4400 = 8 x 550.
+    ("medimageinsight_davit_huge_336_fulldata", "best"),
 ]
 # RadImageNet is deliberately ABSENT: its licence is "personal, non-commercial (e.g.,
 # academic) research purposes only... any commercial use, sale, or other monetization is
@@ -147,38 +117,35 @@ PUBLISH      = True
 # completes. It is also the safe order for an unpriced member: a kernel that breaches the
 # 9 h cap fails on Kaggle and is never submitted, so it costs a run and not an attempt.
 WAIT_FOR_RUN = True
-SUBMIT       = True              # free run clean: 10/10 members, every one with a
+SUBMIT       = False             # FREE RUN FIRST: three new checkpoints, none scorable offline
                               # real time, gate passed. 31.624 s/study serial over
                               # 6 decode groups; the tenth member costs 4.307.
 KAGGLE_USER  = "mamounhussam"
-SLUG         = "knee-ten-perslice480"
+SLUG         = "knee-nine-fulldata-swap"
 # KEEP THIS IN STEP WITH MEMBERS. Submission 56234763 shipped the 18-slice member while
 # this text still named the 24-slice one, because the swap changed MEMBERS and SLUG and
 # missed NOTE. Kaggle descriptions cannot be edited after submitting, so that record is
 # permanently wrong. Re-read this string whenever MEMBERS changes.
-NOTE         = ("THE 0.935 NINE PLUS medimageinsight_davit_huge_perslice_480_warm. One "
-                "change. The tenth member is the ninth's own weights, continued: it was "
-                "WARM-STARTED from medimageinsight_davit_huge_336's step-3200 checkpoint "
-                "rather than from the public MedImageInsight weights, then adapted for 5 "
-                "epochs to 480 px with ONE IMAGE PER SLICE instead of six images of stacked "
-                "slices. All 406 tensors transferred with no surgery, because DaViT encodes "
-                "position with convolutions (so 336 to 480 needs no interpolation) and the "
-                "stem takes 3 channels either way. Scored before any gradient step it was "
-                "val 0.8988, so the geometry change alone cost -0.0053 against the donor's "
-                "0.9041; it passed the donor by step 100 and peaked 0.9095 at step 600, "
-                "+0.0054. It is ADDED, not swapped, and that was measured both ways: beside "
-                "its parent val 0.9116 (+0.0075) and audit 0.9154 (+0.0029); against the "
-                "shipped nine, adding gives val 0.9181 (+0.0007) and audit 0.9199 (+0.0002) "
-                "where replacing the parent gives 0.9179 and 0.9182, negative on audit. It "
-                "is the most expensive member in the pool, 72 images per study at 480 px, "
-                "and its geometry is shared by nothing else so it owns a sixth decode "
-                "group. Members: convnext_base_full_all_knees_same_orientation, "
-                "mricore_vitb_cross_attention, mricore_vitb_mae_cross_attention, "
-                "dinov3_convnext_base, convnext_base_25d_all_knees_same_orientation, "
-                "swinv2_base_in22k, convnext_base_25d_poolattn, "
+NOTE         = ("THE 0.935 NINE WITH THREE MEMBERS SWAPPED FOR THEIR FULL-DATA "
+                "RETRAINS. Training on train+val+audit rather than train alone, and "
+                "mirroring left knees so every study faces the same way, is the change that "
+                "took convnext_base_relabel from 0.918 to 0.934; this applies it to three more "
+                "members at once. (1) mricore_vitb_mae_cross_attention -> "
+                "mricore_vitb_mae_cross_attention_fulldata_flip: full data and the mirror, the "
+                "ViT and the one architecture family that had had neither change. (2) "
+                "convnext_base_25d_poolattn -> convnext_base_25d_poolattn_fulldata_flip: full "
+                "data and the mirror. (3) medimageinsight_davit_huge_336 -> "
+                "medimageinsight_davit_huge_336_fulldata: full data only, it was already "
+                "mirrored. Each ran a fixed epoch count equal to its donor's peak epoch, since "
+                "nothing was held out to early-stop on, and each shipped checkpoint is its "
+                "exact final step (6050, 3850, 4400). None can be scored offline because each "
+                "trained on every val and audit study. Members: "
+                "convnext_base_full_all_knees_same_orientation, mricore_vitb_cross_attention, "
+                "mricore_vitb_mae_cross_attention_fulldata_flip, dinov3_convnext_base, "
+                "convnext_base_25d_all_knees_same_orientation, swinv2_base_in22k, "
+                "convnext_base_25d_poolattn_fulldata_flip, "
                 "convnext_base_25d_perfinding_slots_and_pooling, "
-                "medimageinsight_davit_huge_336, "
-                "medimageinsight_davit_huge_perslice_480_warm. | Built with DINOv3")
+                "medimageinsight_davit_huge_336_fulldata. | Built with DINOv3")
 
 # ===========================================================================
 

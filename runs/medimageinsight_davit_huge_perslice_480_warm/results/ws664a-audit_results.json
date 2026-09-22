@@ -1,0 +1,160 @@
+{
+  "experiment": "medimageinsight_davit_huge_perslice_480_warm",
+  "run_id": "run004",
+  "set": "audit",
+  "csv": "05_audit58.csv",
+  "checkpoint": "/runs/medimageinsight_davit_huge_perslice_480_warm/results/checkpoints/step100.pt",
+  "checkpoint_step": 100,
+  "checkpoint_epoch": 1,
+  "n_studies": 58,
+  "device": "cuda",
+  "amp": 1,
+  "threshold_source": "per-task max-F1 on 05_val_qwen24t-med.csv",
+  "thresholds": {
+    "ACL": 0.38052868843078613,
+    "MCL": 0.24744144082069397,
+    "Medial Meniscus": 0.39940157532691956,
+    "Lateral Meniscus": 0.46800029277801514,
+    "Medial OA": 0.5248512625694275,
+    "Lateral OA": 0.4992050230503082,
+    "PF OA": 0.4423353374004364,
+    "Effusion": 0.4812709391117096,
+    "Synovitis": 0.5125705599784851,
+    "Baker's": 0.33404606580734253,
+    "Contusion": 0.36886024475097656,
+    "Fracture": 0.24095314741134644
+  },
+  "loss": 0.39398051130360573,
+  "macro": {
+    "macro_auroc": 0.9049849998267326,
+    "macro_auprc": 0.8430179459732378,
+    "f1": 0.7515400410677617,
+    "precision": 0.7408906882591093,
+    "recall": 0.7625,
+    "specificity": 0.8596491228070176
+  },
+  "per_task": {
+    "ACL": {
+      "auroc": 0.9191176470588235,
+      "auprc": 0.9073965585314944,
+      "pos": 24,
+      "threshold": 0.38052868843078613,
+      "precision": 0.8148148148148148,
+      "recall": 0.9166666666666666,
+      "f1": 0.8627450980392156,
+      "specificity": 0.8529411764705882
+    },
+    "MCL": {
+      "auroc": 0.9659863945578232,
+      "auprc": 0.770666987333654,
+      "pos": 9,
+      "threshold": 0.24744144082069397,
+      "precision": 0.3333333333333333,
+      "recall": 1.0,
+      "f1": 0.5,
+      "specificity": 0.6326530612244898
+    },
+    "Medial Meniscus": {
+      "auroc": 0.9615384615384616,
+      "auprc": 0.9249687547115765,
+      "pos": 26,
+      "threshold": 0.39940157532691956,
+      "precision": 0.8125,
+      "recall": 1.0,
+      "f1": 0.896551724137931,
+      "specificity": 0.8125
+    },
+    "Lateral Meniscus": {
+      "auroc": 0.831055900621118,
+      "auprc": 0.7848094149934366,
+      "pos": 23,
+      "threshold": 0.46800029277801514,
+      "precision": 0.7333333333333333,
+      "recall": 0.4782608695652174,
+      "f1": 0.5789473684210527,
+      "specificity": 0.8857142857142857
+    },
+    "Medial OA": {
+      "auroc": 0.9720930232558139,
+      "auprc": 0.9327666685403257,
+      "pos": 15,
+      "threshold": 0.5248512625694275,
+      "precision": 0.8333333333333334,
+      "recall": 0.6666666666666666,
+      "f1": 0.7407407407407408,
+      "specificity": 0.9534883720930233
+    },
+    "Lateral OA": {
+      "auroc": 0.8259187620889749,
+      "auprc": 0.6773467760309866,
+      "pos": 11,
+      "threshold": 0.4992050230503082,
+      "precision": 0.75,
+      "recall": 0.5454545454545454,
+      "f1": 0.631578947368421,
+      "specificity": 0.9574468085106383
+    },
+    "PF OA": {
+      "auroc": 0.8803088803088802,
+      "auprc": 0.8710281085591645,
+      "pos": 21,
+      "threshold": 0.4423353374004364,
+      "precision": 0.9333333333333333,
+      "recall": 0.6666666666666666,
+      "f1": 0.7777777777777778,
+      "specificity": 0.972972972972973
+    },
+    "Effusion": {
+      "auroc": 0.9403726708074535,
+      "auprc": 0.9614719593641936,
+      "pos": 35,
+      "threshold": 0.4812709391117096,
+      "precision": 0.8857142857142857,
+      "recall": 0.8857142857142857,
+      "f1": 0.8857142857142857,
+      "specificity": 0.8260869565217391
+    },
+    "Synovitis": {
+      "auroc": 0.7992831541218638,
+      "auprc": 0.7567603753337269,
+      "pos": 27,
+      "threshold": 0.5125705599784851,
+      "precision": 0.7894736842105263,
+      "recall": 0.5555555555555556,
+      "f1": 0.6521739130434783,
+      "specificity": 0.8709677419354839
+    },
+    "Baker's": {
+      "auroc": 0.9538043478260869,
+      "auprc": 0.8762950012950014,
+      "pos": 12,
+      "threshold": 0.33404606580734253,
+      "precision": 0.6111111111111112,
+      "recall": 0.9166666666666666,
+      "f1": 0.7333333333333334,
+      "specificity": 0.8478260869565217
+    },
+    "Contusion": {
+      "auroc": 0.931174089068826,
+      "auprc": 0.8520192481449043,
+      "pos": 19,
+      "threshold": 0.36886024475097656,
+      "precision": 0.7083333333333334,
+      "recall": 0.8947368421052632,
+      "f1": 0.7906976744186046,
+      "specificity": 0.8205128205128205
+    },
+    "Fracture": {
+      "auroc": 0.8791666666666667,
+      "auprc": 0.8006854988403886,
+      "pos": 18,
+      "threshold": 0.24095314741134644,
+      "precision": 0.7333333333333333,
+      "recall": 0.6111111111111112,
+      "f1": 0.6666666666666666,
+      "specificity": 0.9
+    }
+  },
+  "predictions_csv": "/runs/medimageinsight_davit_huge_perslice_480_warm/results/audit_predictions.csv",
+  "evaluated_at": "2026-09-22T11:00:18"
+}
