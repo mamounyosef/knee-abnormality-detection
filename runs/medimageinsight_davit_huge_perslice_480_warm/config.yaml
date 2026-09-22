@@ -158,7 +158,7 @@ training:
     enable: true
     monitor: "val_macro_auroc"
     mode: "max"
-    patience: 4                     # only five epochs to spend
+    patience: 14                     # only five epochs to spend
 
 # CPU-side loading; decoding shards is the bottleneck and stays one here, though 18 slices
 # is a quarter less to decode per study than 24.
@@ -205,3 +205,13 @@ evaluation:
   # It fires only when this run has no checkpoint of its own, exactly like init_from, so a
   # preempted container resumes instead of re-probing.
   validate_before_training: true
+
+  # EVERY 100 STEPS, FLAT. The shared cadence starts at 400 and only tightens to 200 at
+  # epoch 5 and 100 at epoch 7 - thresholds written for a twelve-epoch run. This one stops
+  # at five, so it would have sat on 400 for almost all of it: five validations total, on a
+  # warm start where the interesting part is the first few hundred steps. 100 gives 23.
+  eval_every_steps_before: 100
+  eval_every_steps_mid: 100
+  eval_every_steps_after: 100
+  eval_every_steps_epoch_mid_threshold: 0
+  eval_every_steps_epoch_threshold: 0

@@ -71,6 +71,15 @@ def main():
     ck("five epochs, not twelve", cfg["training"]["epochs"] == 5, cfg["training"]["epochs"])
     ck("it scores the warm-started weights BEFORE any gradient step",
        cfg["evaluation"]["validate_before_training"] is True)
+    # The shared cadence is written for a twelve-epoch run: 400 steps until epoch 5, 200
+    # until 7, 100 after. This run stops at five, so it would have sat on 400 throughout.
+    e = cfg["evaluation"]
+    ck("validation runs every 100 steps for the WHOLE run",
+       e["eval_every_steps_before"] == e["eval_every_steps_mid"] == e["eval_every_steps_after"] == 100,
+       "%s / %s / %s" % (e["eval_every_steps_before"], e["eval_every_steps_mid"],
+                         e["eval_every_steps_after"]))
+    ck("the epoch thresholds cannot loosen it",
+       e["eval_every_steps_epoch_mid_threshold"] == 0 and e["eval_every_steps_epoch_threshold"] == 0)
     ck("no frozen-probe epoch: the head arrives trained",
        cfg["training"]["lp_ft_epochs"] == 0)
     # `lr` is the BACKBONE rate and the head is DERIVED as lr / backbone_lr_mult, so a
