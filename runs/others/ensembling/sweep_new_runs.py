@@ -39,20 +39,31 @@ import numpy as np
 RUNS = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(RUNS))
 
-PARENT = "convnext_base_25d_18slices"
-NEW = ["convnext_base_25d_left_knees_mirrored",
-       "convnext_base_25d_perfinding_pool_features",
-       "convnext_base_25d_perfinding_pool_scores",
-       "convnext_base_25d_pfoa"]
+PARENT = "medimageinsight_davit_huge_336"
 
-# the ensemble currently shipped, val 0.9170
+NEW = ["medimageinsight_davit_huge_perslice_480_warm"]
+
+# the ensemble currently shipped, LB 0.935. convnext_base_relabel stands in for
+# convnext_base_full_all_knees_same_orientation, which is what actually ships: the full-data
+# run trained ON the val studies, so scoring it here would score its own training data.
 SHIPPED = ["convnext_base_relabel", "mricore_vitb_cross_attention",
            "mricore_vitb_mae_cross_attention", "dinov3_convnext_base",
-           "convnext_base_25d_18slices", "swinv2_base_in22k",
-           "convnext_base_25d_poolattn"]
+           "convnext_base_25d_all_knees_same_orientation", "swinv2_base_in22k",
+           "convnext_base_25d_poolattn",
+           "convnext_base_25d_perfinding_slots_and_pooling",
+           "medimageinsight_davit_huge_336"]
 
 # trained on the val studies - including one makes every score meaningless
-LEAKY = re.compile(r"_f[0-4]$|convnext_base_full")
+# `convnext_base_full` alone was not enough: EVERY *_full run trains on train+val+audit,
+# so mricore_vitb_mae_cross_attention_full was being forward-selected into "the best
+# ensemble" while scoring its own training data. It was picked at step 3 for +0.0025.
+LEAKY = re.compile(r"_f[0-4]$|_full$|_full_|convnext_base_full")
+
+# RadImageNet's weights are "personal, non-commercial (e.g., academic) research purposes
+# only... any commercial use, sale, or other monetization is strictly prohibited", and a
+# cash prize is a commercial use. It cannot ship, so it must not be allowed to win a sweep
+# either - it was selected at step 2 here for +0.0055.
+BANNED = re.compile(r"^radimagenet")
 
 
 def auroc(y, p):
@@ -254,7 +265,8 @@ def main():
     # ---- stage 3: the wider pool, forward selection ------------------------------------
     print("\n  3. FORWARD SELECTION over the whole non-leaky pool")
     pool = sorted(p.parent.parent.name for p in RUNS.glob("*/results/predictions")
-                  if not LEAKY.search(p.parent.parent.name))
+                  if not LEAKY.search(p.parent.parent.name)
+                  and not BANNED.search(p.parent.parent.name))
     pool = [r for r in pool if best_npz(r, split) is not None]
     print("     %d runs with predictions (leaky excluded)" % len(pool))
     chosen, cur = [], -1
