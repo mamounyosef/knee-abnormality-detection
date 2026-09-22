@@ -2261,6 +2261,32 @@ def _resolve_resume(resume, ckpt_dir: Path) -> Path | None:
     return None
 
 
+def resolve_init_from(spec: str, out_dir, cfg: dict) -> Path:
+    """Where another run's checkpoint lives, given "<run>/<checkpoint>" or a path.
+
+    out_dir is THIS run's folder, so its parent is the runs root on either side: the Modal
+    volume mount or the local repo. A bare run name means that run's best.pt.
+    """
+    p = Path(str(spec))
+    if p.is_absolute() and p.exists():
+        return p
+    runs_root = Path(out_dir).parent
+    parts = str(spec).replace("\\", "/").split("/")
+    run = parts[0]
+    name = parts[1] if len(parts) > 1 else cfg["output"]["best_name"]
+    if not name.endswith(".pt"):
+        name += ".pt"
+    cand = [runs_root / run / cfg["output"]["run_dir"] / cfg["output"]["checkpoints_dir"] / name,
+            runs_root / str(spec),
+            Path(str(spec))]
+    for c in cand:
+        if c.exists():
+            return c
+    raise FileNotFoundError(
+        "model.init_from=%r matched nothing. Looked in:\n  %s"
+        % (spec, "\n  ".join(str(c) for c in cand)))
+
+
 def load_checkpoint(resume, model, ckpt_dir: Path, opt=None, sched=None,
                     scaler=None, device=None, cfg_now: dict | None = None) -> dict:
     """Restore whatever the checkpoint holds. Returns {} when there is nothing to do."""
@@ -3112,6 +3138,34 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     ck = load_checkpoint(cfg.get("resume"), model, ckpt_dir,
                          None if _pesg else opt, None if _pesg else sched,
                          scaler, device, cfg_now=cfg)
+    # WARM START. Only when this run has nothing of its own: a preempted container must
+    # resume ITS progress, not jump back to the donor and lose the epochs in between.
+    _init = (cfg.get("model") or {}).get("init_from")
+    if _init and not ck:
+        _src = resolve_init_from(_init, out_dir, cfg)
+        _dck = torch.load(_src, map_location="cpu", weights_only=False)
+        _sd = _dck.get("model", _dck)
+        _res = _load_model_state(
+            model, _sd,
+            allow_head_mismatch=bool((cfg.get("model") or {}).get("init_from_allow_head")))
+        _miss = list(getattr(_res, "missing_keys", []) or [])
+        _unex = list(getattr(_res, "unexpected_keys", []) or [])
+        print("\n  \U0001F331 WARM START from %s" % _src)
+        print("       donor: step %s  epoch %s  score %s"
+              % (_dck.get("global_step") or _dck.get("step"), _dck.get("epoch"),
+                 _dck.get("score")))
+        print("       %d tensor(s) loaded, %d missing, %d unexpected"
+              % (len(_sd) - len(_unex), len(_miss), len(_unex)))
+        print("       WEIGHTS ONLY: optimizer, scheduler and the step counter stay fresh, "
+              "so warmup and the whole cosine schedule run again")
+        if _miss or _unex:
+            # A silent partial load is how a half-random model trains for an hour and looks
+            # completely normal doing it.
+            raise RuntimeError(
+                "warm start is incomplete: %d missing %s, %d unexpected %s. Set "
+                "model.init_from_allow_head if only the head should differ."
+                % (len(_miss), _miss[:6], len(_unex), _unex[:6]))
+
     # Is this checkpoint one THIS stage wrote, or the stage-1 hand-off? Everything
     # below turns on the answer, and a workspace hand-off mid-run must land on the
     # "same stage" side or it would throw the run away and silently restart it.

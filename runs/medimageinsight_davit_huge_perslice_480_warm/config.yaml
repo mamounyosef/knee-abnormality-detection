@@ -1,0 +1,186 @@
+# medimageinsight_davit_huge_perslice_480
+#
+# MedImageInsight's DaViT-Huge at its NATIVE 480 px, PER-SLICE. Two changes from the model
+# that scored 0.929 solo, taken together on purpose rather than split into separate runs:
+#
+#   1. PER-SLICE instead of 2.5D. slices_as_channels goes from 6 to null, so each slice is
+#      its own image with the grayscale value replicated across all three channels, instead
+#      of three consecutive slices packed into red, green and blue. 18 slices x 4 slots = 72
+#      windows per study against 24.
+#      Our own evidence, same model, same 336 px, only the packing differing:
+#          convnext_base_336px         per-slice  96 windows  val 0.9044  LB 0.917
+#          convnext_base_25d_18slices  2.5D       24 windows  val 0.9010  LB 0.914
+#      And it should help THIS backbone more: MedImageInsight was pretrained on medical
+#      images - X-ray, MRI, CT - which are grayscale, so its three channels saw the same
+#      picture replicated. Per-slice reproduces that. Three different slices in RGB is
+#      off-distribution for it in a way it is not for an ImageNet ConvNeXt.
+#
+#   2. 480 px, which is exactly what MedImageInsight was pretrained at, and 480/32 = 15
+#      divides cleanly through DaViT's four downsamples.
+#
+# WHAT 480 DOES AND DOES NOT DO. mm_per_px stays 0.40, as in every run in this project, so
+# 480 px is 192 mm of frame against 336 px's 134 mm. It does not magnify the knee - it puts
+# more of the leg in the picture at the same physical scale. To magnify instead, mm_per_px
+# would have to drop to 0.28, which would upsample nearly every series and interpolate
+# detail that is not in the data.
+#
+# COST. 72 windows at 480 px is 2.04x the pixels of the same run at 336, which was itself 3x
+# the 2.5D run, so expect roughly 6x the 1h07m the 2.5D version took. Batch 1 x accum 8
+# keeps the effective batch at 8. DO NOT size the batch from epoch 1 - lp_ft_epochs makes it
+# a FROZEN probe whose memory peak says nothing about the unfrozen phase, which is exactly
+# how the 2.5D run came to run out of memory at batch 8.
+#
+# LATERALITY IS ON, as on every new run: left knees mirrored so all studies face the same
+# way, the axis chosen per plane (sagittal reverses SLICE ORDER, coronal and axial reverse
+# WIDTH).
+#
+# Beat: medimageinsight_davit_huge_336, val 0.9041 / audit 0.9124 / LB 0.929.
+
+experiment:
+  name: "medimageinsight_davit_huge_perslice_480_warm"
+
+paths:
+  # Byte-identical split MEMBERSHIP to convnext_base_25d_group3 and convnext_base_336px.
+  train_csv: "05_train_qwen24t-med.csv"
+  val_csv:   "05_val_qwen24t-med.csv"
+  # audit_csv stays 05_audit58.csv - the panel labels never change, so it is the one
+  # honest cross-label-set comparison.
+
+model:
+  # WARM START from our own fine-tune, not from the public MedImageInsight weights.
+  # medimageinsight_davit_huge_336 is already at val 0.9041 (step 3200), and all 406 of its
+  # tensors transfer EXACTLY: DaViT encodes position with convolutions, so there is no
+  # position embedding to interpolate for 336 -> 480, and the stem is (256, 3, 7, 7) on
+  # both sides (slices_as_channels 6 over 18 slices is 6 images of 3 channels; per-slice is
+  # 3 channels too). Nothing is reshaped and nothing is dropped.
+  # This is NOT resume. The weights come across; the optimizer, scheduler and step counter
+  # stay fresh, so warmup and the whole cosine schedule run again. It applies only when
+  # this run has no checkpoint of its own, so a preempted container resumes ITS progress
+  # instead of jumping back to the donor.
+  init_from: "medimageinsight_davit_huge_336/best_weights"
+  name: "davit_huge_fl"
+  # pretrained still loads the public MedImageInsight weights first; init_from then
+  # overwrites all 406 of them. Kept true so the build path is identical to the donor's and
+  # a missing tensor would still be caught by the loader rather than silently left random.
+  pretrained: true
+  pool: "mean"
+  feat_norm: true
+  drop_rate: 0.1                    # dropout in the head, mild regularization
+  grad_checkpointing: false         # OFF on an H200: 141 GB buys the headroom outright,
+                                    # and recomputation costs ~30% of every step forever.
+                                    # Turn it back on if batch 4 still does not fit.
+
+input:
+  # 336 x 0.40 = 134 mm of frame, unchanged. mm_per_px stays 0.40, the value every run in
+  # this project has used: it is the knob that controls interpolation, and at 0.40 exactly
+  # 24.4% of series are upsampled (median 1.17x).
+  # LATERALITY NORMALISATION IS ON. Every LEFT knee is mirrored so all studies face the
+  # same way. The mirror axis is chosen PER PLANE by shared_code._mirror_slot, which is the
+  # whole subtlety: on a SAGITTAL series the medial-lateral direction is the SLICE axis
+  # (measured fraction 0.991 along slice order, only 0.097 across the image), so mirroring
+  # reverses SLICE ORDER; on coronal and axial it runs across the image (0.987 and 0.989),
+  # so mirroring reverses WIDTH. Flipping width on a sagittal series would reverse
+  # front-to-back instead, which is anatomical corruption - that was the original bug and
+  # it cost two runs.
+  # At submission time the side is read from the DICOM headers (mean x of
+  # ImagePositionPatient), because the test studies are not in data/12_laterality.csv;
+  # checks/laterality_run_check.py proves that rule reproduces the file on 4407/4407.
+  # Adopted because convnext_base_25d_all_knees_same_orientation scored 0.919 solo against
+  # its parent convnext_base_25d_18slices' 0.914.
+  laterality_flip: "left"        # mirror the MINORITY side (1,938 left vs 2,469 right)
+
+  norm_mean: [0.485, 0.456, 0.406]   # MedImageInsight config.yaml AND timm agree
+  norm_std:  [0.229, 0.224, 0.225]
+  size: 480                         # MedImageInsight's native resolution.
+                                    # mm_per_px stays 0.40, so this is 192 mm of
+                                    # frame against 336's 134 mm - more of the
+                                    # leg, NOT a magnified knee.
+
+  # 18 real slices per slot, down from the shared default of 24. This is the ONLY difference
+  # from convnext_base_25d_group3.
+  n_slices: 18
+
+  # 6 IMAGES PER SLOT, each holding 3 consecutive slices in its 3 channels.
+  # prepare_batch reshapes (B, 4, 18, H, W) -> (B*4*6, 3, H, W). The slice axis splits with
+  # the GROUP as the outer index and the CHANNEL as the inner one, so the groups are
+  # contiguous and non-overlapping: (0,1,2), (3,4,5), ... (15,16,17).
+  # 18 / 6 = 3 means train.py builds the backbone with in_chans=3, i.e. the pretrained stem
+  # exactly as shipped. No filter tiling, no rescaling, no adaptation.
+  slices_as_channels: null          # PER-SLICE: one image per slice, the
+                                    # grayscale value replicated across all 3
+                                    # channels - what a medical-image backbone
+                                    # actually saw in pretraining.
+                                    # 18 slices x 4 slots = 72 windows/study.
+
+training:
+  # Four, not twelve. The backbone is already fitted to these labels at 336 px, so this
+  # adapts it to a bigger un-stacked input rather than fine-tuning from scratch. At 6.1x
+  # the step cost of the 336 run (72 images per study at 480 against 24 at 336), twelve
+  # epochs is exactly what made this run unaffordable.
+  epochs: 4
+  # 0, not 1. lp_ft_epochs freezes the backbone for a linear probe on epoch 1, which is how
+  # an untrained head finds its feet. This head arrives already trained, so a probe epoch
+  # would burn a quarter of the budget re-learning what it knows.
+  lp_ft_epochs: 0
+  grad_clip: 5.0
+                                    # throttles the effective learning rate.
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    # Half the 336 run's 3.0e-5: the weights start where a full fine-tune ended, so the
+    # job is to adapt them to the new input geometry, not to move them far.
+    lr: 1.5e-5
+                                    # the slice count is the only variable
+    backbone_lr_mult: 0.5
+    layer_decay: 0.8
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.1                # longer than usual: the first steps hand this backbone
+                                    # an input geometry it has never seen, and a warm start
+                                    # has real weights to damage rather than noise to sort
+    min_lr_mult: 0.01               # floor: ends at 1% of the base learning rate
+  loss:
+    name: "bce"                     # bce = binary cross-entropy | focal = focuses on hard cases
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 4                     # only four epochs to spend
+
+# CPU-side loading; decoding shards is the bottleneck and stays one here, though 18 slices
+# is a quarter less to decode per study than 24.
+dataloader:
+  batch_size: 1                     # 72 windows at 480 px per study. 2.04x the
+                                    # pixels of the 336 version, which was already
+                                    # 3x the 2.5D run.
+
+  accum_steps: 8                    # effective batch stays 8
+  val_batch_size: 2
+                                    # backward pass there are no stored activations, so this
+                                    # is far cheaper than the training batch despite being
+                                    # twice the studies. Speeds the validations up.
+
+  num_workers: 26                   # the GPU does a quarter of convnext_base_336px's work
+                                    # per study, so the loader is the binding constraint
+  val_num_workers: null             # null = same as num_workers
+
+  prefetch_factor: 6                # batches queued per worker
+  pin_memory: true                  # page-locked memory, faster CPU -> GPU copies
+  persistent_workers: true          # don't respawn workers every epoch
+  drop_last: false                  # keep the ragged final batch
+
+modal:
+  gpu: "H200"                       # 141 GB. Batch 8 ran out of memory on an H100's 80,
+                                    # so rather than pay 30% per step for gradient
+                                    # checkpointing, buy the memory: an H200 is ~15% more
+                                    # per hour for the same GH100 die, which is cheaper
+                                    # than a 30% slowdown.
+
+  cpu: 16.0
+  memory_gb: 96
+
+# inherits resume: "last" from shared_config - the preemption-safe setting.
