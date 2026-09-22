@@ -41,8 +41,7 @@ sys.path.insert(0, str(RUNS))
 
 PARENT = "convnext_base_relabel"
 
-NEW = ["eva02_base_448", "coatnet_rmlp2_384", "convnext_large",
-       "medimageinsight_davit_huge_perslice_480_warm"]
+NEW = ["efficientnetv2_l_384", "coatnet_rmlp2_384"]
 
 # the ensemble currently shipped, LB 0.935. convnext_base_relabel stands in for
 # convnext_base_full_all_knees_same_orientation, which is what actually ships: the full-data
