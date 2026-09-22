@@ -163,7 +163,7 @@ dataloader:
   drop_last: false
 
 modal:
-  gpu: "H200"
+  gpu: "H100"
   cpu: 14.0
   memory_gb: 56
   timeout_hours: 10                 # ViT-B at 512 is slower per step than ConvNeXt-Small;

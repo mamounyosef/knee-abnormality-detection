@@ -88,9 +88,7 @@ MEMBERS = [
     #
     # COST: it is 6 slots with per-slot slice counts, so it does NOT share the seven's
     # decode group and adds one extra decode pass. Solo it priced at 22.3 min.
-    # BOTH CHANGES AT ONCE. knee-eight-full-swap isolates this swap and
-    # knee-nine-medimageinsight isolates the ninth member below, so whatever this scores
-    # can be attributed to one, the other, or their interaction.
+    # The full-data laterality swap, shipped in the 0.935 nine.
     ("convnext_base_full_all_knees_same_orientation", "best"),
     ("mricore_vitb_cross_attention", "best"),
     ("mricore_vitb_mae_cross_attention", "best"),
@@ -108,6 +106,17 @@ MEMBERS = [
     # have. Free in decode: its loader geometry (336 px, 18 slices, laterality_flip left)
     # matches convnext_base_25d_all_knees_same_orientation's exactly.
     ("medimageinsight_davit_huge_336", "best"),
+    # THE TENTH, and the only change against the 0.935 nine. Warm-started from member 9's
+    # own step-3200 weights and moved to 480 px with one image per slice instead of six
+    # images of stacked slices: all 406 tensors transferred with no reshaping, because
+    # DaViT encodes position with convolutions and the stem is 3-channel on both sides.
+    # It ADDS rather than replaces, which was measured rather than assumed: beside its own
+    # parent it is val 0.9116 (+0.0075) and audit 0.9154 (+0.0029), and against the shipped
+    # nine adding gives val 0.9181 (+0.0007) / audit 0.9199 (+0.0002) where REPLACING the
+    # parent gives 0.9179 / 0.9182, negative on audit.
+    # COST: 480 px per-slice is a geometry no other member shares, so it owns a sixth
+    # decode group, and at 72 images per study it is the most expensive member in the pool.
+    ("medimageinsight_davit_huge_perslice_480_warm", "best"),
 ]
 # RadImageNet is deliberately ABSENT: its licence is "personal, non-commercial (e.g.,
 # academic) research purposes only... any commercial use, sale, or other monetization is
@@ -130,52 +139,46 @@ _OLD = None                    # FLAT. The per-class search is fitting noise now
                                # For the 9-member branch-group construct instead, set this
                                # to "branch_group_weights.json" (make_branch_group_weights.py
                                # writes it; check_partial_head_blend.py verifies it).
-STRESS       = 0                 # PRICED. The STRESS = 24 run measured
-                              # medimageinsight_davit_huge_336 at 0.784 s per study, the
-                              # cheapest of the large members: it is 336 px over 18 slices,
-                              # so its 360.6M parameters see very few images per study.
-                              # Nine members price at about 12.1 s per study end to end,
-                              # roughly 3.2 h of the 9 h cap on the ledger's 946 studies.
+STRESS       = 0
 PUBLISH      = True
 # PUSH NOW, SUBMIT LATER. Four submissions, each about five hours on the real test set, is
 # a day of blocking on this PC for work Kaggle will happily run in parallel. Push them all,
 # then hand the slugs to submit_when_done.py, which submits each one as its kernel
 # completes. It is also the safe order for an unpriced member: a kernel that breaches the
 # 9 h cap fails on Kaggle and is never submitted, so it costs a run and not an attempt.
-WAIT_FOR_RUN = True              # read the rate before deciding
-SUBMIT       = True              # priced and inside the cap
+WAIT_FOR_RUN = True
+SUBMIT       = True              # free run clean: 10/10 members, every one with a
+                              # real time, gate passed. 31.624 s/study serial over
+                              # 6 decode groups; the tenth member costs 4.307.
 KAGGLE_USER  = "mamounhussam"
-SLUG         = "knee-nine-full-medimageinsight"
+SLUG         = "knee-ten-perslice480"
 # KEEP THIS IN STEP WITH MEMBERS. Submission 56234763 shipped the 18-slice member while
 # this text still named the 24-slice one, because the swap changed MEMBERS and SLUG and
 # missed NOTE. Kaggle descriptions cannot be edited after submitting, so that record is
 # permanently wrong. Re-read this string whenever MEMBERS changes.
-NOTE         = ("THE 0.933 EIGHT WITH BOTH CHANGES AT ONCE: "
-                "convnext_base_full_all_knees_same_orientation REPLACES "
-                "convnext_base_relabel, AND medimageinsight_davit_huge_336 joins as a "
-                "ninth member. Each change is also submitted on its own, as "
-                "knee-eight-full-swap and knee-nine-medimageinsight, so whatever this "
-                "scores can be attributed to one, the other, or their interaction. (1) THE "
-                "SWAP: the same config trained on TRAIN+VAL rather than train alone, so it "
-                "never validates and its checkpoint score is a step counter; and it "
-                "mirrors left knees so every study faces the same way, the axis chosen per "
-                "plane (sagittal reverses SLICE ORDER, coronal and axial reverse WIDTH). "
-                "Validation called mirroring -0.0002 and the leaderboard called it +0.005, "
-                "which is what took the ensemble to 0.933. (2) THE NINTH: MedImageInsight, "
-                "Microsoft's DaViT-Huge, 360.6M parameters under the MIT licence, trained "
-                "with Unified Contrastive Learning on about 3.8M MEDICAL images against "
-                "their CLINICAL labels. Val 0.9041 and 0.929 shipped solo, the best single "
-                "model in the pool, where five earlier external backbones landed between "
-                "0.7088 and 0.8455. Measured at 0.784 s per study, the cheapest of the "
-                "large members. Inference runs both T4s, one PROCESS per card, with decode "
-                "shared across geometry groups: about 12.1 s per study for nine members "
-                "against 23.890 for the eight. Members: "
-                "convnext_base_full_all_knees_same_orientation, "
+NOTE         = ("THE 0.935 NINE PLUS medimageinsight_davit_huge_perslice_480_warm. One "
+                "change. The tenth member is the ninth's own weights, continued: it was "
+                "WARM-STARTED from medimageinsight_davit_huge_336's step-3200 checkpoint "
+                "rather than from the public MedImageInsight weights, then adapted for 5 "
+                "epochs to 480 px with ONE IMAGE PER SLICE instead of six images of stacked "
+                "slices. All 406 tensors transferred with no surgery, because DaViT encodes "
+                "position with convolutions (so 336 to 480 needs no interpolation) and the "
+                "stem takes 3 channels either way. Scored before any gradient step it was "
+                "val 0.8988, so the geometry change alone cost -0.0053 against the donor's "
+                "0.9041; it passed the donor by step 100 and peaked 0.9095 at step 600, "
+                "+0.0054. It is ADDED, not swapped, and that was measured both ways: beside "
+                "its parent val 0.9116 (+0.0075) and audit 0.9154 (+0.0029); against the "
+                "shipped nine, adding gives val 0.9181 (+0.0007) and audit 0.9199 (+0.0002) "
+                "where replacing the parent gives 0.9179 and 0.9182, negative on audit. It "
+                "is the most expensive member in the pool, 72 images per study at 480 px, "
+                "and its geometry is shared by nothing else so it owns a sixth decode "
+                "group. Members: convnext_base_full_all_knees_same_orientation, "
                 "mricore_vitb_cross_attention, mricore_vitb_mae_cross_attention, "
                 "dinov3_convnext_base, convnext_base_25d_all_knees_same_orientation, "
                 "swinv2_base_in22k, convnext_base_25d_poolattn, "
                 "convnext_base_25d_perfinding_slots_and_pooling, "
-                "medimageinsight_davit_huge_336. | Built with DINOv3")
+                "medimageinsight_davit_huge_336, "
+                "medimageinsight_davit_huge_perslice_480_warm. | Built with DINOv3")
 
 # ===========================================================================
 

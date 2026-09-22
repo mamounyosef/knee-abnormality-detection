@@ -27,7 +27,7 @@ KAGGLE_USER = "mamounhussam"   # owner slug for the dataset and the notebook
 CHECKPOINT = "best"            # best | last | top1.. | <step> | path
 VERIFY_STUDIES = 3             # DICOM-vs-shard check; 0 skips it
 
-EXP_NAME = "eva02_large_336"
+EXP_NAME = "eva02_large_448"
 
 
 def _pkg_root() -> Path:

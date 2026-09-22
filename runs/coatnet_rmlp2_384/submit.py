@@ -20,7 +20,8 @@ credit, and it needs the checkpoint already synced locally.
 import sys
 from pathlib import Path
 
-RUN_LOCAL = False              # True = do it here, False = do it on Modal
+RUN_LOCAL = True               # the step-6700 checkpoint is now local (pulled from the
+                               # workspace the run FINISHED on; the copy here was step 5600)
 PUBLISH = True                 # after building: push the dataset + notebook and submit
 WAIT_FOR_RUN = True            # poll until the notebook finishes, then submit
 KAGGLE_USER = "mamounhussam"   # owner slug for the dataset and the notebook

@@ -19,7 +19,7 @@ from pathlib import Path
 
 import torch
 
-EXP_NAME = "eva02_large_336"
+EXP_NAME = "eva02_large_448"
 
 
 def _pkg_root() -> Path:

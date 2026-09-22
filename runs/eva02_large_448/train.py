@@ -14,7 +14,7 @@ import timm
 import torch
 import torch.nn as nn
 
-EXP_NAME = "eva02_large_336"
+EXP_NAME = "eva02_large_448"
 
 
 def _pkg_root() -> Path:

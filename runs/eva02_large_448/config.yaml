@@ -1,4 +1,4 @@
-# eva02_large_336 - the most promising external backbone we have tried.
+# eva02_large_448 - the most promising external backbone we have tried.
 #
 # WHY, stated as a pattern rather than a hope. Four external backbones failed: medsam
 # (segmentation masks, 0.7664), beitv2 (discrete tokens on natural images, 0.7661), triad
@@ -48,7 +48,7 @@
 # Below 0.60 kill it. Above 0.75 is the first genuinely new thing in five attempts.
 
 experiment:
-  name: "eva02_large_336"
+  name: "eva02_large_448"
 
 paths:
   # Byte-identical split MEMBERSHIP to convnext_base_25d_group3 and convnext_base_336px.
@@ -73,13 +73,10 @@ model:
   # It is not medical, but neither are convnext_base.fb_in22k_ft_in1k or
   # swinv2_base_window12to16_192to256.ms_in22k, which are two of our strongest members.
   name: "eva02_large_patch14_448.mim_m38m_ft_in22k"
-  create_kwargs:
-    # Patch 14, so the input side must divide by 14: 336 = 14 x 24 gives a 24 x 24 grid,
-    # 576 tokens. 480 would NOT divide and is why this run is 336 and not the 480 the
-    # MedImageInsight warm run uses. Position information is ROTARY here, not a learned
-    # table, so timm rebuilds it for our size rather than interpolating a pretrained grid -
-    # the failure mode that cost us on Qwen and MedSAM cannot arise.
-    img_size: 336
+  # NATIVE 448, no create_kwargs override. EVA-02 carries a LEARNED absolute
+  # position table (pos_embed, 32 x 32 at 448) in addition to its rotary
+  # embeddings. At 336 timm resampled that table to 24 x 24 - the bug class that
+  # cost us on Qwen and MedSAM. 448 = 14 x 32, so the grid is exact.
   pretrained: true
   pool: "mean"
   feat_norm: true
@@ -113,7 +110,7 @@ input:
   # would shift every input by a fraction of a standard deviation and never say so.
   norm_mean: [0.48145466, 0.4578275, 0.40821073]
   norm_std:  [0.26862954, 0.26130258, 0.27577711]
-  size: 336
+  size: 448                         # native: eva02_large_patch14_448 was trained at 448; 179 mm at 0.40 mm/px
 
   # 18 real slices per slot, down from the shared default of 24. This is the ONLY difference
   # from convnext_base_25d_group3.
@@ -161,21 +158,10 @@ training:
 # CPU-side loading; decoding shards is the bottleneck and stays one here, though 18 slices
 # is a quarter less to decode per study than 24.
 dataloader:
-  batch_size: 4                     # 4 studies x 24 windows = 96 images per step. Half
-                                    # MedImageInsight's 8 because a 303.6M ViT-Large at 336
-                                    # holds 576 tokens per image against DaViT's pooled
-                                    # pyramid, and attention memory grows with the token
-                                    # count. Raise it if the first epoch's peak leaves room
-                                    # - but never size it from epoch 1, which lp_ft_epochs
-                                    # makes a FROZEN probe with no trunk activations.
-                                    # This OOM'd on an H100's 80 GB with the trunk unfrozen;
-                                    # the H200's 141 GB is the reason it is back.
-                                    # NOTE the 4.54 GB once logged here came from EPOCH 1,
-                                    # which lp_ft_epochs makes a FROZEN probe - no trunk
-                                    # activations, gradients or optimizer state. Never size
-                                    # a batch from an epoch-1 number.
+  batch_size: 2                     # 448 is 1024 tokens per image against 336's 576;
+                                    # batch 4 at 336 already peaked at 88.6 GB
 
-  accum_steps: 2                    # effective batch stays 8
+  accum_steps: 4                    # effective batch stays 8
   val_batch_size: 8
                                     # backward pass there are no stored activations, so this
                                     # is far cheaper than the training batch despite being
