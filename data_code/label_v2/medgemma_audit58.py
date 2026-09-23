@@ -28,8 +28,8 @@ reused for the 12 questions. checks/medgemma_prefix_cache_check.py proves that e
 forward on a tiny random Gemma 3, and the first study of every mode re-checks it on the real
 model.
 
-Needs the Hugging Face gate accepted for google/medgemma-1.5-4b-it; the local HF token is
-passed to the container for this one run, no Modal secret is created.
+Needs the Hugging Face gate accepted for google/medgemma-1.5-4b-it, and a Modal secret named
+`huggingface` holding HF_TOKEN in the workspace it runs on.
 
     python data_code/label_v2/medgemma_audit58.py --dry     # local: every prompt, no GPU
     python -m modal run data_code/label_v2/medgemma_audit58.py --limit 2
@@ -246,8 +246,9 @@ def yes_prob_shared(model, inp_list, yes_ids, no_ids, check=False):
 
 @app.function(gpu="L40S", image=image, timeout=3 * 3600,
               volumes={"/shards": shards, "/root/.cache/huggingface": hf_cache,
-                       "/runs_vol": runs_vol})
-def score(jobs, modes, hf_token, tag):
+                       "/runs_vol": runs_vol},
+              secrets=[modal.Secret.from_name("huggingface")])
+def score(jobs, modes, tag):
     """Returns (rows, log text). Also writes log.txt and rows.jsonl to the knee-runs volume
     after EVERY study, so a crash or a stop keeps everything done so far."""
     import os
@@ -258,7 +259,7 @@ def score(jobs, modes, hf_token, tag):
     from PIL import Image
     from transformers import AutoModelForImageTextToText, AutoProcessor
 
-    os.environ["HF_TOKEN"] = hf_token
+    assert os.environ.get("HF_TOKEN"), "Modal secret `huggingface` has no HF_TOKEN"
     out_dir = f"{REMOTE_DIR}/{tag}"
     os.makedirs(out_dir, exist_ok=True)
     logf = open(f"{out_dir}/log.txt", "a", encoding="utf-8")
@@ -410,7 +411,6 @@ def main(modes: str = ",".join(MODES), limit: int = 0):
     import io as _io
 
     import pandas as pd
-    hf_token = (Path.home() / ".cache/huggingface/token").read_text().strip()
     jobs = build_jobs()
     if limit:
         jobs = jobs[:limit]
@@ -425,7 +425,7 @@ def main(modes: str = ",".join(MODES), limit: int = 0):
     (out / "meta.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
     print("local results folder:", out)
 
-    rows, log_text = score.remote(jobs, ms, hf_token, tag)
+    rows, log_text = score.remote(jobs, ms, tag)
     (out / "log.txt").write_text(log_text + "\n", encoding="utf-8")
     df = pd.DataFrame(rows)
     df.to_csv(out / "raw.csv", index=False)
