@@ -286,7 +286,7 @@
    "kernel": "mamounhussam/knee-eleven-coatnet-submit",
    "kernel_version": 1,
    "submitted": "2026-09-23",
-   "public_score": null,
+   "public_score": 0.937,
    "private_score": null,
    "members": [
     "convnext_base_full_all_knees_same_orientation",
@@ -301,7 +301,29 @@
     "medimageinsight_davit_huge_perslice_480_warm",
     "coatnet_rmlp2_384"
    ],
-   "notes": "The 0.938 ten + coatnet_rmlp2_384 (step 6700). CoAtNet solo LB 0.918; offline add val +0.0001 (CI -0.0005..+0.0007), audit +0.0007. Gate clean: 11/11 members, 2 GPUs, 6 decode passes, 33.5 s/study serial (8.8 h single-card at 946 studies, ~5 h on two). Pending at time of recording."
+   "notes": "The 0.938 ten + coatnet_rmlp2_384 (step 6700). CoAtNet solo LB 0.918; offline add val +0.0001 (CI -0.0005..+0.0007), audit +0.0007. Gate clean: 11/11 members, 2 GPUs, 6 decode passes, 33.5 s/study serial (8.8 h single-card at 946 studies, ~5 h on two). Public 0.937 (-0.001 vs the 0.938 ten): CoAtNet does not help on top of the ten."
+  },
+  {
+   "submission_ref": 56504398,
+   "kernel": "mamounhussam/knee-eleven-effnetv2-submit",
+   "kernel_version": 1,
+   "submitted": "2026-09-24",
+   "public_score": null,
+   "private_score": null,
+   "members": [
+    "convnext_base_full_all_knees_same_orientation",
+    "mricore_vitb_cross_attention",
+    "mricore_vitb_mae_cross_attention_fulldata_flip",
+    "dinov3_convnext_base",
+    "convnext_base_25d_all_knees_same_orientation_fulldata",
+    "swinv2_base_in22k",
+    "convnext_base_25d_poolattn_fulldata_flip",
+    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+    "medimageinsight_davit_huge_336_fulldata",
+    "medimageinsight_davit_huge_perslice_480_warm",
+    "efficientnetv2_l_384"
+   ],
+   "notes": "The 0.938 ten + efficientnetv2_l_384 (step 3900). Best single add of 53 clean runs offline: val +0.0003, audit -0.0001. Gate clean: 11/11 members, 2 GPUs, 6 decode passes, 32.7 s/study serial. The first upload hit Kaggle's private-storage quota (403 on create); the old sign-bridge dataset (~108 GB) was deleted with the user's OK. Pending at time of recording."
   }
  ]
 }

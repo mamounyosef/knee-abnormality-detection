@@ -89,12 +89,11 @@ MEMBERS = [
     # public split; kept because it was the one consistent contributor offline (val +0.0007,
     # selected in half of the per-finding cross-fits) and the private split decides.
     ("medimageinsight_davit_huge_perslice_480_warm", "best"),
-    # THE ELEVENTH (on top of the 0.938 ten). Solo LB 0.918, tying convnext_base_relabel,
-    # though val had it 0.0076 lower: val under-calls it. Offline add to the ten: val +0.0001
-    # (CI -0.0005..+0.0007, P 65%), audit +0.0007. Checkpoint step 6700 (recovered from the
-    # workspace the run finished on). Its loader is 512 @ 0.40 with resize_to 384, so it
-    # should join an existing decode group rather than add a pass.
-    ("coatnet_rmlp2_384", "best"),
+    # THE ELEVENTH (on top of the 0.938 ten): EfficientNetV2-L, a pure convolutional family
+    # none of the ten shares. Offline add to a val-clean stand-in for the ten: val +0.0003
+    # (the best single add of 53 clean runs), audit -0.0001. The CoAtNet eleven (ref 56500443)
+    # is scored separately.
+    ("efficientnetv2_l_384", "best"),
 ]
 # RadImageNet is deliberately ABSENT: its licence is "personal, non-commercial (e.g.,
 # academic) research purposes only... any commercial use, sale, or other monetization is
@@ -125,27 +124,26 @@ PUBLISH      = True
 # completes. It is also the safe order for an unpriced member: a kernel that breaches the
 # 9 h cap fails on Kaggle and is never submitted, so it costs a run and not an attempt.
 WAIT_FOR_RUN = True
-SUBMIT       = False             # FREE RUN FIRST: new member coatnet_rmlp2_384
+SUBMIT       = False             # FREE RUN FIRST: new member efficientnetv2_l_384
                               # real time, gate passed. 31.624 s/study serial over
                               # 6 decode groups; the tenth member costs 4.307.
 KAGGLE_USER  = "mamounhussam"
-SLUG         = "knee-eleven-coatnet"
+SLUG         = "knee-eleven-effnetv2"
 # KEEP THIS IN STEP WITH MEMBERS. Submission 56234763 shipped the 18-slice member while
 # this text still named the 24-slice one, because the swap changed MEMBERS and SLUG and
 # missed NOTE. Kaggle descriptions cannot be edited after submitting, so that record is
 # permanently wrong. Re-read this string whenever MEMBERS changes.
-NOTE         = ("THE 0.938 TEN PLUS coatnet_rmlp2_384 AS AN ELEVENTH MEMBER. CoAtNet "
-                "(convolution stages then relative-position attention) scored 0.918 SOLO on the "
-                "leaderboard, tying convnext_base_relabel, although val had it 0.0076 lower - val "
-                "under-calls it. Offline, adding it to a val-clean stand-in for the ten is +0.0001 "
-                "on val and +0.0007 on audit-58. Checkpoint step 6700. Members: "
-                "convnext_base_full_all_knees_same_orientation, mricore_vitb_cross_attention, "
+NOTE         = ("THE 0.938 TEN PLUS efficientnetv2_l_384 AS AN ELEVENTH MEMBER. "
+                "EfficientNetV2-L is a pure convolutional family none of the ten shares. Offline, "
+                "adding it to a val-clean stand-in for the ten is +0.0003 on val, the best single "
+                "add of 53 clean runs, and -0.0001 on audit-58. Members: the 0.938 ten "
+                "(convnext_base_full_all_knees_same_orientation, mricore_vitb_cross_attention, "
                 "mricore_vitb_mae_cross_attention_fulldata_flip, dinov3_convnext_base, "
                 "convnext_base_25d_all_knees_same_orientation_fulldata, swinv2_base_in22k, "
                 "convnext_base_25d_poolattn_fulldata_flip, "
                 "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip, "
                 "medimageinsight_davit_huge_336_fulldata, "
-                "medimageinsight_davit_huge_perslice_480_warm, coatnet_rmlp2_384. "
+                "medimageinsight_davit_huge_perslice_480_warm) + efficientnetv2_l_384. "
                 "| Built with DINOv3")
 
 # ===========================================================================
