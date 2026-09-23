@@ -1,0 +1,178 @@
+# convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip
+#
+# The per-finding slots-and-pooling member, 6 slots with its own decode group. Full data AND the mirror.
+# convnext_base_25d_perfinding_pool_features, but on ALL SIX views, with each finding
+# reading only the views that can actually show it.
+#
+# TWO THINGS CHANGE FROM THE PARENT, and they are the same idea applied twice:
+#   1. Six slots instead of four. cor_plain and ax_plain were never used by any run.
+#   2. Each finding pools only ITS views (SLOT_MAP), instead of all of them.
+#
+# WHY. In the parent, every finding averages over all 4 views, so the ACL logit is diluted
+# by coronal and axial windows that physically cannot show the ACL, and the OA logits are
+# diluted by sagittal windows that barely show joint-space narrowing. Giving each finding
+# its own views removes that dilution without adding a single parameter to the backbone.
+#
+# COST. 36 windows per study instead of 24, i.e. 1.5x the parent's forward passes. That is
+# the entire cost; the per-finding heads are 12 x (LayerNorm(1024) + Linear(1024, 1)),
+# about 37k parameters against the backbone's 88M.
+#
+# BUILT ON FEATURES, NOT SCORES. The first version of this was built on the instance-level
+# (scores) arm. At step 2200 that arm was at 0.8605 against the baseline's 0.8934 at the
+# same step - two full epochs behind - and was cut, while the embedding-level (features)
+# arm was at 0.8905, within noise. So this is rebuilt on features.
+#
+# MISSING VIEWS ARE SAFE. cor_plain exists for 77.3% of studies and ax_plain for only 19.4%.
+# fallback_same_plane fills a missing slot from the same PLANE, so an absent ax_plain becomes
+# another axial window rather than a wrong-plane one, and the finding just reads a view it
+# was already reading. A finding never silently gains a plane it did not ask for.
+#
+# Beat: convnext_base_25d_18slices, val 0.9010, and whatever the 4-slot features arm finishes at.
+
+experiment:
+  name: "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip"
+
+paths:
+  # Byte-identical split MEMBERSHIP to convnext_base_25d_group3 and convnext_base_336px.
+  train_csv: "08_train_full.csv"     # train + val + audit, every study
+  val_csv:   "05_val_qwen24t-med.csv"
+  # audit_csv stays 05_audit58.csv - the panel labels never change, so it is the one
+  # honest cross-label-set comparison.
+
+model:
+  name: "convnext_base.fb_in22k_ft_in1k"   # timm id: ConvNeXt-Base pretrained on ImageNet-22k
+  pretrained: true
+  pool: "mean"                      # how the 24 image features collapse per study: mean | max | attn
+  drop_rate: 0.1                    # dropout in the head, mild regularization
+
+input:
+  laterality_flip: "left"   # mirror every LEFT knee; axis chosen per plane
+  # All six views. The two the project has never used are cor_plain (present for 77.3% of
+  # studies) and ax_plain (19.4%); both fall back within their own plane when absent.
+  slots: ["sag_plain", "sag_fluid", "cor_plain", "cor_fluid", "ax_plain", "ax_fluid"]
+
+  # 336 x 0.40 = 134 mm of frame, unchanged. mm_per_px stays 0.40, the value every run in
+  # this project has used: it is the knob that controls interpolation, and at 0.40 exactly
+  # 24.4% of series are upsampled (median 1.17x).
+  size: 336
+
+  # PER-SLOT SLICE COUNTS. Coronal samples 24 real slices, everything else 18.
+  #
+  # WHY CORONAL AND NOTHING ELSE. Coronal slices cut the knee front-to-back, and they are
+  # where the MCL is read: the Medial Collateral Ligament is a flat band on the INNER edge
+  # of the knee whose whole length lies in very few coronal planes. A coronal series carries
+  # 27 usable planes at the median, so sampling 18 skips ONE PLANE IN THREE - and skipping
+  # the plane the MCL sits on means the finding is simply not in the input. MCL is our
+  # weakest column (0.8384 here), has resisted five specialist runs, and both of today's
+  # signals point at it. Medial and Lateral OA are read on coronal too, and joint-space
+  # narrowing is a fine measurement that rewards denser sampling.
+  #
+  # WHY SAGITTAL STAYS AT 18. ACL is already 0.9133, and the menisci need WIDTH of coverage
+  # rather than density, which 18 of 27 planes already provides.
+  #
+  # WHY AXIAL STAYS AT 18. More axial slices is the wrong fix. PF OA is cartilage behind the
+  # kneecap, so it exists only in the kneecap band - roughly the middle third of the axial
+  # stack - and sampling evenly from one end of the stack to the other lands most slices
+  # nowhere near it. That calls for NON-UNIFORM sampling, a separate change, not a bigger
+  # count.
+  #
+  # Cost: 40 windows per study instead of 36, +11%.
+  n_slices:
+    sag_plain: 18
+    sag_fluid: 18
+    cor_plain: 24
+    cor_fluid: 24
+    ax_plain:  18
+    ax_fluid:  18
+
+  # Images per slot, following n_slices so every slot still yields exactly 3 channels per
+  # image: 18/6 = 3 and 24/8 = 3. Three is the number that matters - it keeps the pretrained
+  # ConvNeXt stem exactly as shipped, with no filter widening, which is what cost the
+  # ch1/ch2/ramp runs 0.025 to 0.038. The engine refuses any mapping where the slots
+  # disagree on channels per image.
+  slices_as_channels:
+    sag_plain: 6
+    sag_fluid: 6
+    cor_plain: 8
+    cor_fluid: 8
+    ax_plain:  6
+    ax_fluid:  6
+
+training:
+  # FIXED at the donor's peak epoch (6): nothing is held out, so the epoch
+  # count is the only guard against overfitting.
+  epochs: 6
+  grad_clip: 3.0                    # 3.0, NEVER 1.0. 1.0 clips every step and silently
+                                    # throttles the effective learning rate.
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-5                      # BACKBONE lr, identical to convnext_base_25d_group3 so
+                                    # the slice count is the only variable
+    backbone_lr_mult: 0.5           # head = lr / 0.5 = 1.0e-4, twice the trunk
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05
+    min_lr_mult: 0.01               # floor: ends at 1% of the base learning rate
+  loss:
+    name: "bce"                     # bce = binary cross-entropy | focal = focuses on hard cases
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  early_stopping:
+    enable: false
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 12                     # VALIDATIONS without improvement, not epochs.
+
+# CPU-side loading; decoding shards is the bottleneck and stays one here, though 18 slices
+# is a quarter less to decode per study than 24.
+dataloader:
+  batch_size: 8                     # 8 studies x 40 images = 320 images @336, in ONE
+                                    # pass rather than two accumulated halves.
+                                    # MEASURED BASIS: this run peaked at 45.13 GB on 160
+                                    # images. Subtracting ~2 GB of weights and AdamW
+                                    # state leaves ~0.269 GB per image, so 320 images is
+                                    # ~88 GB - over an 80 GB card, which is why this run
+                                    # and only this run sits on the 141 GB H200 (63%% of
+                                    # the card).
+  accum_steps: 1                    # still 8 studies per optimizer step, so the step
+                                    # count and lr schedule are unchanged. The engine
+                                    # divides the loss by accum before stepping, and the
+                                    # loss is a mean over studies, so 8x1 and 4x2 produce
+                                    # IDENTICAL gradients - this is a speed change, not a
+                                    # training change, and it resumes cleanly mid-run.
+  val_batch_size: 8                 # 8 x 40 = 320 images, but no backward pass
+                                    # means no stored activations.
+
+  num_workers: 26                   # the GPU does a quarter of convnext_base_336px's work
+                                    # per study, so the loader is the binding constraint
+  val_num_workers: null             # null = same as num_workers
+
+  prefetch_factor: 6                # batches queued per worker
+  pin_memory: true                  # page-locked memory, faster CPU -> GPU copies
+  persistent_workers: true          # don't respawn workers every epoch
+  drop_last: false                  # keep the ragged final batch
+
+modal:
+  gpu: "H200"                     # the ONE run here that needs more than 80 GB: 320
+                                    # images is ~88 GB. H200 is $4.54/h against H100's
+                                    # $3.95, the same GH100 compute die with 4.8 TB/s of
+                                    # bandwidth instead of 3.35, so it is worth roughly
+                                    # what it costs. Our own logs have it at 656-669
+                                    # img/s on ConvNeXt-Base @336, against the
+                                    # A100-80GB's 286.5, i.e. +26%% images per dollar.
+  cpu: 16.0                         # raised with the GPU: at 2.2x the compute
+                                    # speed the loader has to feed 2.2x as fast
+                                    # or the card idles. A reservation, not a
+                                    # cap. Watch data_wait_pct: over ~10%% means
+                                    # raise it again.
+  memory_gb: 64                     # 26 workers x prefetch 6 x ~32 MB per queued batch
+
+# inherits resume: "last" from shared_config - the preemption-safe setting.
+
+evaluation:
+  # OFF: every val and audit study is in the training set now.
+  enable: false
