@@ -1,0 +1,303 @@
+remote results: knee-runs volume labelling/medgemma15_audit58/20260923_194438
+GPU NVIDIA L40S, 48 GB; 58 studies x modes ['rep', 'ax', 'ax_rep', 'all_rep'] x 12 findings
+loaded google/medgemma-1.5-4b-it in 12s: decoder 34 layers, hidden 2560, heads 8 / kv 4, sliding window 1024; 256 tokens per image; GPU mem 8.6 GB
+yes tokens [(4443, 'yes'), (8438, ' Yes'), (10784, 'Yes'), (11262, ' yes')] no tokens [(951, ' no'), (1904, 'no'), (2301, ' No'), (3771, 'No')]
+  [rep] first study: 0 images, 258 prefix tokens + 50 question tokens; question part: ' there a tear of the anterior cruciate ligament (ACL), partial or complete in this knee? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [rep] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.3750 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0000 (should be < 0.02)
+  [ax] first study: 32 images, 8471 prefix tokens + 51 question tokens; question part: ' there a tear of the anterior cruciate ligament (ACL), partial or complete in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [ax] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.2188 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0000 (should be < 0.02)
+  [ax_rep] first study: 32 images, 8724 prefix tokens + 51 question tokens; question part: ' there a tear of the anterior cruciate ligament (ACL), partial or complete in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [ax_rep] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.2188 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0000 (should be < 0.02)
+  [all_rep] first study: 85 images, 22782 prefix tokens + 51 question tokens; question part: ' there a tear of the anterior cruciate ligament (ACL), partial or complete in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [all_rep] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.2188 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0026 (should be < 0.02)
+1/58 94649149 right  83s elapsed, ETA 79.1 min  peak GPU 41.6 GB
+    rep        0 img    297 tok   2.0s  yes/no mass min 0.95  P(yes): 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00
+    ax        32 img   8511 tok  17.3s  yes/no mass min 0.95  P(yes): 0.20 0.16 0.35 0.37 0.97 0.97 0.94 0.89 0.38 0.94 0.16 0.01
+    ax_rep    32 img   8764 tok  17.2s  yes/no mass min 0.95  P(yes): 0.01 0.03 0.07 0.18 0.01 0.00 0.01 0.98 0.56 0.03 0.06 0.00
+    all_rep   85 img  22822 tok  46.5s  yes/no mass min 0.95  P(yes): 0.02 0.05 0.20 0.44 0.03 0.02 0.03 0.99 0.50 0.11 0.17 0.00
+2/58 39028269 right  206s elapsed, ETA 96.3 min  peak GPU 41.6 GB
+    rep        0 img    354 tok   1.4s  yes/no mass min 0.26  P(yes): 0.00 0.00 0.00 0.60 0.00 0.04 0.36 0.07 0.51 0.00 0.00 0.00
+    ax        80 img  21200 tok  40.0s  yes/no mass min 0.94  P(yes): 0.52 0.52 0.75 0.70 0.98 0.97 0.95 0.93 0.74 0.87 0.63 0.02
+    ax_rep    80 img  21510 tok  37.8s  yes/no mass min 0.79  P(yes): 0.92 0.71 0.91 1.00 0.89 0.98 0.99 1.00 1.00 0.95 0.95 0.60
+    all_rep   84 img  22632 tok  42.3s  yes/no mass min 0.74  P(yes): 0.95 0.82 0.96 1.00 0.95 0.98 0.99 1.00 1.00 0.97 0.97 0.78
+3/58 36752052 right  288s elapsed, ETA 88.0 min  peak GPU 41.6 GB
+    rep        0 img    664 tok   1.0s  yes/no mass min 0.25  P(yes): 0.00 0.00 1.00 0.47 1.00 0.94 1.00 0.32 0.24 0.00 0.00 0.00
+    ax        40 img  10623 tok  18.8s  yes/no mass min 0.92  P(yes): 0.31 0.37 0.49 0.52 0.98 0.98 0.97 0.74 0.54 0.74 0.17 0.01
+    ax_rep    40 img  11243 tok  18.9s  yes/no mass min 0.74  P(yes): 0.85 0.67 0.98 0.85 0.98 0.82 0.96 1.00 0.96 0.29 0.27 0.02
+    all_rep   85 img  23189 tok  41.0s  yes/no mass min 0.77  P(yes): 0.87 0.65 0.99 0.85 0.99 0.82 0.97 1.00 0.96 0.37 0.32 0.03
+4/58 02017580 left  356s elapsed, ETA 80.0 min  peak GPU 41.6 GB
+    rep        0 img    369 tok   1.1s  yes/no mass min 0.57  P(yes): 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.05 0.96 0.00 0.00 0.00
+    ax        30 img   7983 tok  13.6s  yes/no mass min 0.95  P(yes): 0.49 0.40 0.59 0.52 0.99 0.98 0.98 0.92 0.67 0.84 0.26 0.01
+    ax_rep    30 img   8308 tok  13.8s  yes/no mass min 0.84  P(yes): 0.80 0.62 0.53 0.17 0.71 0.53 0.56 1.00 1.00 0.47 0.71 0.05
+    all_rep   80 img  21558 tok  37.6s  yes/no mass min 0.86  P(yes): 0.80 0.53 0.50 0.20 0.71 0.53 0.59 0.99 0.99 0.41 0.73 0.05
+5/58 02209238 left  454s elapsed, ETA 80.2 min  peak GPU 41.6 GB
+    rep        0 img    251 tok   1.1s  yes/no mass min 0.12  P(yes): 0.17 0.00 0.57 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00
+    ax        60 img  15920 tok  28.1s  yes/no mass min 0.95  P(yes): 0.07 0.09 0.20 0.20 0.95 0.94 0.90 0.39 0.13 0.45 0.07 0.00
+    ax_rep    60 img  16127 tok  27.7s  yes/no mass min 0.95  P(yes): 1.00 0.41 1.00 0.12 0.70 0.18 0.30 0.80 0.56 0.78 0.53 0.01
+    all_rep   84 img  22529 tok  39.7s  yes/no mass min 0.94  P(yes): 1.00 0.50 1.00 0.22 0.78 0.22 0.38 0.85 0.65 0.82 0.59 0.01
+6/58 82701935 right  576s elapsed, ETA 83.2 min  peak GPU 41.6 GB
+    rep        0 img    408 tok   1.1s  yes/no mass min 0.18  P(yes): 0.12 0.17 0.00 0.21 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00
+    ax        80 img  21200 tok  39.2s  yes/no mass min 0.93  P(yes): 0.82 0.79 0.92 0.93 0.99 0.99 0.98 0.96 0.96 0.95 0.89 0.13
+    ax_rep    80 img  21564 tok  39.3s  yes/no mass min 0.92  P(yes): 1.00 0.85 0.96 1.00 0.50 0.59 0.32 1.00 0.99 0.93 0.93 0.03
+    all_rep   84 img  22686 tok  40.4s  yes/no mass min 0.92  P(yes): 1.00 0.85 0.96 1.00 0.60 0.68 0.35 1.00 0.99 0.93 0.91 0.01
+7/58 98335840 right  651s elapsed, ETA 79.1 min  peak GPU 41.6 GB
+    rep        0 img    369 tok   1.2s  yes/no mass min 0.07  P(yes): 0.71 0.00 0.00 0.10 0.00 0.00 0.00 0.00 0.00 0.00 0.01 0.00
+    ax        34 img   9039 tok  15.9s  yes/no mass min 0.94  P(yes): 0.16 0.16 0.20 0.22 0.98 0.97 0.95 0.86 0.22 0.83 0.08 0.00
+    ax_rep    34 img   9364 tok  15.7s  yes/no mass min 0.94  P(yes): 1.00 0.08 0.65 0.98 0.04 0.11 0.02 1.00 0.65 0.04 0.92 0.00
+    all_rep   85 img  22894 tok  41.1s  yes/no mass min 0.94  P(yes): 1.00 0.17 0.78 0.98 0.12 0.27 0.09 1.00 0.87 0.09 0.96 0.01
+8/58 83976756 right  717s elapsed, ETA 74.7 min  peak GPU 41.6 GB
+    rep        0 img    329 tok   1.1s  yes/no mass min 0.20  P(yes): 0.00 0.93 0.00 0.00 0.00 0.00 0.00 0.00 0.17 0.00 0.82 0.00
+    ax        24 img   6399 tok  12.5s  yes/no mass min 0.93  P(yes): 0.09 0.13 0.16 0.15 0.97 0.96 0.93 0.45 0.24 0.58 0.06 0.00
+    ax_rep    24 img   6684 tok  11.8s  yes/no mass min 0.93  P(yes): 0.91 1.00 0.04 0.02 0.65 0.38 0.35 0.99 1.00 0.47 1.00 0.03
+    all_rep   84 img  22574 tok  39.1s  yes/no mass min 0.91  P(yes): 0.93 1.00 0.12 0.08 0.71 0.53 0.56 0.99 1.00 0.56 1.00 0.09
+9/58 74810604 right  793s elapsed, ETA 71.9 min  peak GPU 41.6 GB
+    rep        0 img    720 tok   1.1s  yes/no mass min 0.45  P(yes): 0.00 0.00 0.99 0.99 0.62 0.18 0.09 0.00 0.01 0.98 0.01 0.99
+    ax        40 img  10623 tok  17.4s  yes/no mass min 0.94  P(yes): 0.74 0.74 0.79 0.79 0.99 0.98 0.98 0.96 0.92 0.92 0.55 0.02
+    ax_rep    40 img  11299 tok  17.7s  yes/no mass min 0.87  P(yes): 0.84 0.56 0.99 0.95 0.89 0.73 0.88 0.99 0.96 0.96 0.88 0.96
+    all_rep   85 img  23245 tok  38.2s  yes/no mass min 0.92  P(yes): 0.88 0.62 0.99 0.94 0.91 0.76 0.88 0.99 0.96 0.96 0.85 0.97
+10/58 07169581 right  868s elapsed, ETA 69.5 min  peak GPU 41.6 GB
+    rep        0 img    620 tok   1.1s  yes/no mass min 0.15  P(yes): 0.00 0.96 0.30 0.92 0.01 0.00 0.05 0.00 0.97 0.93 0.00 0.00
+    ax        40 img  10623 tok  17.7s  yes/no mass min 0.94  P(yes): 0.34 0.37 0.64 0.67 0.99 0.98 0.98 0.96 0.82 0.96 0.31 0.01
+    ax_rep    40 img  11199 tok  17.5s  yes/no mass min 0.88  P(yes): 0.03 0.99 0.98 1.00 0.98 0.98 0.99 0.98 1.00 1.00 0.25 0.00
+    all_rep   84 img  22865 tok  38.3s  yes/no mass min 0.89  P(yes): 0.06 0.99 0.99 1.00 0.99 0.98 0.99 0.99 1.00 1.00 0.41 0.00
+11/58 36556945 right  930s elapsed, ETA 66.2 min  peak GPU 41.6 GB
+    rep        0 img    110 tok   1.0s  yes/no mass min 0.99  P(yes): 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00
+    ax        22 img   5871 tok   9.5s  yes/no mass min 0.95  P(yes): 0.10 0.09 0.27 0.22 0.98 0.98 0.97 0.86 0.41 0.58 0.08 0.00
+    ax_rep    22 img   5937 tok   9.4s  yes/no mass min 0.95  P(yes): 0.00 0.01 0.01 0.01 0.15 0.13 0.25 0.47 0.41 0.22 0.02 0.00
+    all_rep   85 img  22635 tok  40.2s  yes/no mass min 0.91  P(yes): 0.02 0.08 0.06 0.10 0.44 0.47 0.53 0.73 0.62 0.41 0.17 0.02
+12/58 88770819 left  994s elapsed, ETA 63.5 min  peak GPU 41.6 GB
+    rep        0 img    115 tok   1.1s  yes/no mass min 0.40  P(yes): 0.13 0.30 0.02 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.23 0.00
+    ax        24 img   6399 tok  11.0s  yes/no mass min 0.94  P(yes): 0.58 0.43 0.70 0.65 0.99 0.99 0.98 1.00 0.96 0.97 0.40 0.01
+    ax_rep    24 img   6470 tok  11.1s  yes/no mass min 0.98  P(yes): 1.00 0.99 1.00 0.98 0.38 0.12 0.03 1.00 0.98 0.87 0.99 0.01
+    all_rep   85 img  22640 tok  39.7s  yes/no mass min 0.97  P(yes): 1.00 0.97 0.99 0.97 0.68 0.47 0.16 0.99 0.97 0.84 0.99 0.02
+13/58 88111973 left  1115s elapsed, ETA 64.3 min  peak GPU 41.6 GB
+    rep        0 img    286 tok   1.0s  yes/no mass min 0.08  P(yes): 0.33 0.33 0.00 0.01 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00
+    ax        80 img  21200 tok  39.1s  yes/no mass min 0.95  P(yes): 0.09 0.15 0.37 0.32 0.97 0.95 0.92 0.74 0.22 0.72 0.20 0.00
+    ax_rep    80 img  21442 tok  37.6s  yes/no mass min 0.95  P(yes): 1.00 0.99 0.99 0.99 0.50 0.41 0.27 0.92 0.70 0.82 0.65 0.01
+    all_rep   84 img  22564 tok  40.2s  yes/no mass min 0.95  P(yes): 1.00 0.99 0.99 0.99 0.76 0.56 0.41 0.92 0.73 0.87 0.68 0.01
+14/58 32197492 left  1179s elapsed, ETA 61.7 min  peak GPU 41.6 GB
+    rep        0 img    304 tok   1.0s  yes/no mass min 0.11  P(yes): 0.00 0.00 0.60 0.00 0.78 0.00 0.00 0.00 0.00 0.51 0.00 0.00
+    ax        20 img   5343 tok  10.5s  yes/no mass min 0.94  P(yes): 0.67 0.53 0.83 0.86 1.00 0.99 0.99 0.99 0.97 0.99 0.64 0.02
+    ax_rep    20 img   5603 tok  10.9s  yes/no mass min 0.86  P(yes): 0.05 0.41 1.00 0.04 1.00 0.50 0.32 1.00 0.99 1.00 0.88 0.95
+    all_rep   84 img  22565 tok  40.3s  yes/no mass min 0.90  P(yes): 0.18 0.47 1.00 0.17 1.00 0.73 0.59 1.00 0.98 1.00 0.85 0.93
+15/58 29174803 right  1260s elapsed, ETA 60.2 min  peak GPU 41.6 GB
+    rep        0 img    214 tok   1.2s  yes/no mass min 0.10  P(yes): 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.30 0.28
+    ax        40 img  10623 tok  19.0s  yes/no mass min 0.95  P(yes): 0.17 0.20 0.29 0.27 0.97 0.96 0.95 0.55 0.22 0.67 0.12 0.01
+    ax_rep    40 img  10793 tok  18.8s  yes/no mass min 0.96  P(yes): 0.05 0.17 0.03 0.02 0.04 0.03 0.03 0.59 0.27 0.07 1.00 1.00
+    all_rep   85 img  22739 tok  40.8s  yes/no mass min 0.95  P(yes): 0.04 0.15 0.05 0.04 0.05 0.05 0.03 0.65 0.27 0.09 1.00 1.00
+16/58 22874891 left  1317s elapsed, ETA 57.6 min  peak GPU 41.6 GB
+    rep        0 img    266 tok   1.1s  yes/no mass min 0.35  P(yes): 0.11 0.00 0.00 0.68 0.00 0.00 0.00 0.00 0.00 0.00 0.96 0.96
+    ax        20 img   5343 tok   9.2s  yes/no mass min 0.93  P(yes): 0.13 0.20 0.34 0.24 0.97 0.97 0.96 0.52 0.42 0.50 0.32 0.01
+    ax_rep    20 img   5565 tok   9.3s  yes/no mass min 0.84  P(yes): 0.99 0.62 0.62 0.97 0.89 0.92 0.80 1.00 0.96 0.59 0.99 0.99
+    all_rep   79 img  21191 tok  36.3s  yes/no mass min 0.89  P(yes): 0.99 0.62 0.56 0.97 0.91 0.92 0.82 1.00 0.93 0.56 0.99 0.99
+17/58 29200903 right  1398s elapsed, ETA 56.2 min  peak GPU 41.6 GB
+    rep        0 img    305 tok   1.1s  yes/no mass min 0.11  P(yes): 0.00 0.00 0.00 0.00 0.02 0.40 0.00 0.00 0.28 0.09 0.00 0.00
+    ax        38 img  10095 tok  19.4s  yes/no mass min 0.96  P(yes): 0.91 0.88 0.94 0.93 1.00 1.00 1.00 0.98 0.98 0.97 0.89 0.07
+    ax_rep    38 img  10356 tok  18.1s  yes/no mass min 0.87  P(yes): 0.97 0.65 0.84 0.97 0.98 1.00 0.98 0.99 1.00 1.00 0.68 0.14
+    all_rep   85 img  22830 tok  40.8s  yes/no mass min 0.88  P(yes): 0.96 0.56 0.84 0.97 0.98 1.00 0.97 0.99 1.00 1.00 0.71 0.13
+18/58 20253309 left  1473s elapsed, ETA 54.5 min  peak GPU 41.6 GB
+    rep        0 img    384 tok   1.0s  yes/no mass min 0.12  P(yes): 0.00 0.00 0.73 0.51 0.00 0.00 0.00 0.00 0.15 0.00 0.00 0.00
+    ax        33 img   8775 tok  14.7s  yes/no mass min 0.94  P(yes): 0.63 0.55 0.77 0.75 0.99 0.99 0.99 0.98 0.91 0.95 0.64 0.01
+    ax_rep    33 img   9115 tok  15.0s  yes/no mass min 0.92  P(yes): 0.95 0.30 1.00 1.00 0.78 0.32 0.80 0.98 0.99 0.02 0.35 0.00
+    all_rep   85 img  22909 tok  42.1s  yes/no mass min 0.90  P(yes): 0.96 0.35 1.00 1.00 0.87 0.53 0.87 0.97 0.99 0.02 0.41 0.00
+19/58 21482192 right  1583s elapsed, ETA 54.2 min  peak GPU 41.6 GB
+    rep        0 img    144 tok   1.1s  yes/no mass min 0.38  P(yes): 0.00 0.00 0.25 0.03 0.00 0.00 0.00 0.01 0.00 0.32 0.00 0.00
+    ax        70 img  18560 tok  31.6s  yes/no mass min 0.93  P(yes): 0.69 0.63 0.92 0.90 1.00 1.00 0.99 0.99 0.93 0.99 0.80 0.06
+    ax_rep    70 img  18660 tok  33.4s  yes/no mass min 0.94  P(yes): 0.25 0.53 1.00 0.99 0.99 0.95 0.82 1.00 0.98 1.00 0.97 0.94
+    all_rep   84 img  22422 tok  42.2s  yes/no mass min 0.93  P(yes): 0.35 0.62 1.00 0.99 0.99 0.95 0.87 1.00 0.98 1.00 0.99 0.96
+20/58 91102711 right  1662s elapsed, ETA 52.6 min  peak GPU 41.6 GB
+    rep        0 img    228 tok   1.1s  yes/no mass min 0.29  P(yes): 0.10 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.23 0.01
+    ax        30 img   7983 tok  15.7s  yes/no mass min 0.94  P(yes): 0.72 0.55 0.70 0.75 0.99 0.99 0.99 0.99 0.86 0.95 0.49 0.01
+    ax_rep    30 img   8167 tok  15.3s  yes/no mass min 0.89  P(yes): 1.00 0.06 0.01 0.32 0.12 0.50 0.08 1.00 0.99 0.96 1.00 0.98
+    all_rep   85 img  22753 tok  43.6s  yes/no mass min 0.92  P(yes): 1.00 0.13 0.06 0.82 0.41 0.80 0.32 1.00 0.99 0.98 1.00 0.98
+21/58 36573378 left  1728s elapsed, ETA 50.7 min  peak GPU 41.6 GB
+    rep        0 img    354 tok   1.1s  yes/no mass min 0.07  P(yes): 0.45 0.10 0.00 0.00 0.00 0.00 0.00 0.00 0.02 0.00 0.34 0.05
+    ax        30 img   7983 tok  12.9s  yes/no mass min 0.93  P(yes): 0.31 0.42 0.55 0.49 0.98 0.98 0.98 0.84 0.69 0.87 0.36 0.01
+    ax_rep    30 img   8293 tok  13.1s  yes/no mass min 0.92  P(yes): 0.99 0.97 0.94 0.50 0.30 0.27 0.06 0.99 0.99 0.17 0.99 0.99
+    all_rep   85 img  22879 tok  37.8s  yes/no mass min 0.93  P(yes): 0.99 0.97 0.94 0.62 0.38 0.30 0.10 1.00 0.99 0.23 0.99 0.99
+22/58 36903404 left  1821s elapsed, ETA 49.7 min  peak GPU 41.6 GB
+    rep        0 img    759 tok   3.5s  yes/no mass min 0.36  P(yes): 0.00 0.00 0.20 0.99 0.00 0.00 0.00 0.01 0.03 1.00 0.00 0.00
+    ax        40 img  10623 tok  25.7s  yes/no mass min 0.93  P(yes): 0.36 0.42 0.67 0.69 0.98 0.98 0.97 0.86 0.71 0.96 0.26 0.01
+    ax_rep    40 img  11338 tok  18.8s  yes/no mass min 0.80  P(yes): 0.68 0.44 0.91 0.98 0.89 0.95 0.94 1.00 0.96 1.00 0.47 0.01
+    all_rep   85 img  23284 tok  38.6s  yes/no mass min 0.85  P(yes): 0.78 0.56 0.94 0.98 0.92 0.97 0.95 0.99 0.97 1.00 0.47 0.01
+23/58 70466645 right  1874s elapsed, ETA 47.5 min  peak GPU 41.6 GB
+    rep        0 img    456 tok   1.2s  yes/no mass min 0.47  P(yes): 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.65 0.47 0.00 0.00
+    ax        19 img   5079 tok   8.4s  yes/no mass min 0.95  P(yes): 0.67 0.61 0.89 0.89 0.99 0.99 0.99 0.99 0.97 0.98 0.75 0.02
+    ax_rep    19 img   5491 tok   8.9s  yes/no mass min 0.95  P(yes): 0.32 0.65 0.53 0.38 0.87 0.53 0.78 0.95 0.98 0.92 0.82 0.13
+    all_rep   75 img  20325 tok  33.9s  yes/no mass min 0.95  P(yes): 0.32 0.62 0.56 0.47 0.84 0.56 0.78 0.91 0.96 0.89 0.78 0.17
+24/58 48882465 right  1942s elapsed, ETA 45.9 min  peak GPU 41.6 GB
+    rep        0 img    169 tok   1.1s  yes/no mass min 0.28  P(yes): 0.15 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.44 0.00
+    ax        30 img   7983 tok  13.3s  yes/no mass min 0.94  P(yes): 0.18 0.15 0.29 0.32 0.97 0.97 0.94 0.94 0.30 0.81 0.18 0.01
+    ax_rep    30 img   8108 tok  13.6s  yes/no mass min 0.96  P(yes): 1.00 0.03 0.00 0.03 0.07 0.25 0.05 0.96 0.94 0.62 0.99 0.01
+    all_rep   84 img  22414 tok  38.5s  yes/no mass min 0.95  P(yes): 1.00 0.11 0.02 0.11 0.17 0.32 0.13 0.98 0.94 0.71 0.99 0.04
+25/58 00134924 right  2033s elapsed, ETA 44.7 min  peak GPU 41.6 GB
+    rep        0 img     98 tok   1.1s  yes/no mass min 0.46  P(yes): 0.00 0.00 0.30 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00
+    ax        54 img  14336 tok  24.6s  yes/no mass min 0.95  P(yes): 0.07 0.10 0.26 0.26 0.97 0.95 0.92 0.52 0.16 0.63 0.18 0.01
+    ax_rep    54 img  14390 tok  24.4s  yes/no mass min 0.96  P(yes): 0.06 0.09 1.00 0.02 0.70 0.18 0.41 0.06 0.40 0.59 0.22 0.00
+    all_rep   84 img  22376 tok  39.0s  yes/no mass min 0.96  P(yes): 0.06 0.10 1.00 0.02 0.78 0.22 0.47 0.08 0.61 0.71 0.35 0.01
+26/58 08452608 right  2100s elapsed, ETA 43.1 min  peak GPU 41.6 GB
+    rep        0 img    220 tok   1.2s  yes/no mass min 0.16  P(yes): 0.00 0.10 0.21 0.00 0.00 0.00 0.00 0.00 0.00 0.28 0.01 0.00
+    ax        30 img   7983 tok  13.1s  yes/no mass min 0.94  P(yes): 0.34 0.34 0.64 0.56 0.99 0.99 0.98 0.95 0.72 0.95 0.49 0.02
+    ax_rep    30 img   8159 tok  13.0s  yes/no mass min 0.93  P(yes): 0.44 0.99 1.00 0.05 0.99 0.85 0.89 1.00 0.99 1.00 0.99 0.11
+    all_rep   85 img  22745 tok  37.8s  yes/no mass min 0.92  P(yes): 0.41 0.99 0.99 0.41 0.98 0.89 0.90 0.99 0.99 1.00 0.99 0.19
+27/58 53419550 left  2169s elapsed, ETA 41.5 min  peak GPU 41.6 GB
+    rep        0 img    154 tok   1.1s  yes/no mass min 0.38  P(yes): 0.01 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.41 0.00
+    ax        30 img   7983 tok  13.7s  yes/no mass min 0.95  P(yes): 0.09 0.08 0.16 0.13 0.95 0.94 0.88 0.37 0.11 0.37 0.07 0.00
+    ax_rep    30 img   8093 tok  13.7s  yes/no mass min 0.96  P(yes): 1.00 0.11 0.01 0.13 0.08 0.18 0.06 0.15 0.22 0.22 0.99 0.03
+    all_rep   84 img  22399 tok  38.2s  yes/no mass min 0.94  P(yes): 1.00 0.25 0.04 0.32 0.18 0.32 0.12 0.44 0.44 0.32 0.99 0.06
+28/58 83079911 right  2243s elapsed, ETA 40.1 min  peak GPU 41.6 GB
+    rep        0 img    277 tok   1.0s  yes/no mass min 0.19  P(yes): 0.00 0.00 0.14 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.11 0.00
+    ax        32 img   8511 tok  17.3s  yes/no mass min 0.93  P(yes): 0.77 0.52 0.83 0.77 0.99 0.99 0.99 0.99 0.93 0.94 0.61 0.02
+    ax_rep    32 img   8744 tok  14.6s  yes/no mass min 0.90  P(yes): 0.71 0.88 1.00 0.95 0.78 0.76 0.50 1.00 0.99 0.82 0.99 0.02
+    all_rep   85 img  22802 tok  39.2s  yes/no mass min 0.90  P(yes): 0.82 0.85 1.00 0.96 0.76 0.76 0.59 1.00 0.99 0.78 0.99 0.05
+29/58 55725945 right  2306s elapsed, ETA 38.4 min  peak GPU 41.6 GB
+    rep        0 img    279 tok   1.1s  yes/no mass min 0.13  P(yes): 0.03 0.27 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.71 0.00
+    ax        25 img   6663 tok  11.0s  yes/no mass min 0.94  P(yes): 0.46 0.52 0.73 0.68 0.99 0.99 0.99 0.96 0.94 0.97 0.53 0.01
+    ax_rep    25 img   6898 tok  11.1s  yes/no mass min 0.81  P(yes): 1.00 0.99 0.94 0.03 0.99 0.41 0.98 1.00 1.00 0.71 1.00 0.92
+    all_rep   85 img  22804 tok  38.4s  yes/no mass min 0.84  P(yes): 1.00 0.99 0.92 0.12 0.99 0.59 0.97 1.00 0.99 0.71 1.00 0.92
+30/58 67212742 right  2366s elapsed, ETA 36.8 min  peak GPU 41.6 GB
+    rep        0 img    584 tok   1.2s  yes/no mass min 0.32  P(yes): 0.95 0.97 0.94 0.86 0.00 0.00 0.00 0.00 0.82 0.00 0.95 0.73
+    ax        22 img   5871 tok   9.9s  yes/no mass min 0.94  P(yes): 0.79 0.61 0.92 0.90 0.99 0.99 0.99 0.99 0.94 0.96 0.77 0.02
+    ax_rep    22 img   6411 tok   9.8s  yes/no mass min 0.59  P(yes): 1.00 1.00 1.00 0.98 0.82 0.44 0.65 1.00 1.00 0.84 1.00 0.78
+    all_rep   83 img  22565 tok  38.5s  yes/no mass min 0.65  P(yes): 1.00 0.99 1.00 0.97 0.78 0.50 0.59 1.00 1.00 0.82 1.00 0.76
+31/58 13143683 left  2439s elapsed, ETA 35.4 min  peak GPU 41.6 GB
+    rep        0 img    476 tok   1.1s  yes/no mass min 0.09  P(yes): 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.76 0.13 0.45
+    ax        36 img   9567 tok  15.5s  yes/no mass min 0.95  P(yes): 0.14 0.20 0.32 0.32 0.97 0.96 0.96 0.55 0.25 0.58 0.40 0.01
+    ax_rep    36 img   9999 tok  15.6s  yes/no mass min 0.66  P(yes): 0.27 0.09 0.00 0.00 0.17 0.10 0.44 0.96 0.92 1.00 0.97 0.94
+    all_rep   85 img  23001 tok  38.6s  yes/no mass min 0.71  P(yes): 0.18 0.09 0.01 0.01 0.38 0.20 0.63 0.95 0.78 1.00 0.98 0.95
+32/58 18305500 right  2509s elapsed, ETA 34.0 min  peak GPU 41.6 GB
+    rep        0 img    347 tok   1.1s  yes/no mass min 0.12  P(yes): 0.00 0.00 0.00 0.23 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00
+    ax        30 img   7983 tok  14.0s  yes/no mass min 0.94  P(yes): 0.34 0.32 0.59 0.55 0.99 0.98 0.98 0.98 0.79 0.96 0.37 0.01
+    ax_rep    30 img   8286 tok  14.8s  yes/no mass min 0.85  P(yes): 0.08 0.03 0.02 0.99 0.15 0.93 0.85 0.99 0.92 0.56 0.53 0.50
+    all_rep   85 img  22872 tok  39.3s  yes/no mass min 0.83  P(yes): 0.12 0.05 0.12 0.98 0.50 0.95 0.89 0.98 0.91 0.50 0.71 0.65
+33/58 14837125 right  2629s elapsed, ETA 33.2 min  peak GPU 41.6 GB
+    rep        0 img    452 tok   1.1s  yes/no mass min 0.16  P(yes): 0.87 0.76 0.78 0.28 0.00 0.00 0.00 0.00 0.00 0.00 0.57 0.00
+    ax        80 img  21200 tok  38.8s  yes/no mass min 0.95  P(yes): 0.31 0.31 0.65 0.59 0.98 0.98 0.97 0.84 0.67 0.81 0.43 0.01
+    ax_rep    80 img  21608 tok  38.1s  yes/no mass min 0.82  P(yes): 1.00 1.00 1.00 1.00 0.87 0.68 0.35 0.99 0.97 0.93 1.00 0.32
+    all_rep   84 img  22730 tok  40.0s  yes/no mass min 0.80  P(yes): 1.00 1.00 1.00 1.00 0.87 0.73 0.44 0.99 0.97 0.92 1.00 0.57
+34/58 68677187 left  2700s elapsed, ETA 31.8 min  peak GPU 41.6 GB
+    rep        0 img    269 tok   1.1s  yes/no mass min 0.09  P(yes): 0.00 0.01 0.36 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00
+    ax        34 img   9039 tok  15.3s  yes/no mass min 0.88  P(yes): 0.39 0.45 0.64 0.49 0.99 0.99 0.99 0.95 0.68 0.82 0.43 0.01
+    ax_rep    34 img   9264 tok  15.4s  yes/no mass min 0.91  P(yes): 0.65 0.97 1.00 0.03 0.97 0.32 0.20 1.00 0.99 0.84 0.99 0.97
+    all_rep   85 img  22794 tok  38.6s  yes/no mass min 0.91  P(yes): 0.73 0.97 1.00 0.08 0.97 0.38 0.38 1.00 0.99 0.82 0.98 0.97
+35/58 48424274 left  2773s elapsed, ETA 30.4 min  peak GPU 41.6 GB
+    rep        0 img    295 tok   1.0s  yes/no mass min 0.10  P(yes): 0.00 0.71 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.25 0.00 0.00
+    ax        37 img   9831 tok  15.8s  yes/no mass min 0.94  P(yes): 0.26 0.24 0.46 0.43 0.99 0.98 0.98 0.70 0.35 0.81 0.22 0.01
+    ax_rep    37 img  10082 tok  16.1s  yes/no mass min 0.95  P(yes): 0.01 1.00 0.50 0.00 0.03 0.01 0.01 0.98 0.92 1.00 0.17 0.00
+    all_rep   85 img  22820 tok  38.5s  yes/no mass min 0.93  P(yes): 0.03 1.00 0.47 0.01 0.11 0.04 0.04 0.98 0.87 1.00 0.47 0.00
+36/58 34101132 left  2844s elapsed, ETA 29.0 min  peak GPU 41.6 GB
+    rep        0 img    432 tok   1.4s  yes/no mass min 0.60  P(yes): 0.99 0.97 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.02 0.00
+    ax        30 img   7983 tok  13.8s  yes/no mass min 0.94  P(yes): 0.64 0.67 0.67 0.73 0.99 0.98 0.97 0.89 0.82 0.86 0.31 0.01
+    ax_rep    30 img   8371 tok  14.1s  yes/no mass min 0.96  P(yes): 1.00 0.95 0.20 0.08 0.27 0.15 0.38 0.99 0.98 0.62 0.95 0.07
+    all_rep   84 img  22676 tok  39.9s  yes/no mass min 0.96  P(yes): 1.00 0.94 0.22 0.12 0.32 0.18 0.41 0.99 0.97 0.68 0.92 0.13
+37/58 70080450 left  2914s elapsed, ETA 27.6 min  peak GPU 41.6 GB
+    rep        0 img    303 tok   1.2s  yes/no mass min 0.14  P(yes): 0.00 0.00 0.00 0.25 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00
+    ax        30 img   7983 tok  14.0s  yes/no mass min 0.93  P(yes): 0.14 0.22 0.34 0.34 0.98 0.97 0.96 0.64 0.30 0.70 0.13 0.01
+    ax_rep    30 img   8242 tok  14.4s  yes/no mass min 0.96  P(yes): 0.05 0.03 0.47 1.00 0.25 0.53 0.65 0.91 0.91 0.10 0.05 0.00
+    all_rep   85 img  22828 tok  39.0s  yes/no mass min 0.96  P(yes): 0.13 0.08 0.62 1.00 0.50 0.73 0.73 0.91 0.88 0.15 0.20 0.00
+38/58 35447363 right  3005s elapsed, ETA 26.4 min  peak GPU 41.6 GB
+    rep        0 img    106 tok   1.3s  yes/no mass min 0.71  P(yes): 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.13 0.00 0.00 0.00
+    ax        56 img  14864 tok  25.5s  yes/no mass min 0.92  P(yes): 0.58 0.55 0.90 0.86 0.99 0.99 0.99 0.99 0.87 0.98 0.76 0.02
+    ax_rep    56 img  14926 tok  25.2s  yes/no mass min 0.96  P(yes): 0.10 0.11 0.91 0.05 1.00 0.08 0.68 0.99 0.99 0.82 0.44 0.01
+    all_rep   84 img  22384 tok  37.8s  yes/no mass min 0.95  P(yes): 0.12 0.10 0.89 0.05 1.00 0.09 0.71 0.99 0.99 0.82 0.50 0.01
+39/58 66826710 right  3095s elapsed, ETA 25.1 min  peak GPU 41.6 GB
+    rep        0 img    242 tok   1.1s  yes/no mass min 0.11  P(yes): 0.02 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.11 0.28
+    ax        42 img  11151 tok  19.7s  yes/no mass min 0.94  P(yes): 0.84 0.72 0.81 0.79 0.99 0.99 0.99 0.99 0.97 0.96 0.60 0.03
+    ax_rep    42 img  11349 tok  19.7s  yes/no mass min 0.92  P(yes): 1.00 0.06 0.02 0.08 0.25 0.60 0.32 1.00 0.97 0.47 0.99 1.00
+    all_rep   85 img  22767 tok  41.0s  yes/no mass min 0.90  P(yes): 1.00 0.09 0.05 0.25 0.35 0.76 0.44 1.00 0.96 0.50 1.00 1.00
+40/58 16559395 right  3167s elapsed, ETA 23.7 min  peak GPU 41.6 GB
+    rep        0 img    368 tok   1.1s  yes/no mass min 0.18  P(yes): 0.47 0.80 0.78 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.76 0.38
+    ax        36 img   9567 tok  15.6s  yes/no mass min 0.96  P(yes): 0.84 0.84 0.90 0.93 0.99 0.99 0.99 0.99 0.97 0.97 0.82 0.03
+    ax_rep    36 img   9891 tok  15.7s  yes/no mass min 0.96  P(yes): 1.00 0.99 0.99 0.05 0.44 0.35 0.27 0.99 0.97 0.80 0.99 0.95
+    all_rep   84 img  22612 tok  38.0s  yes/no mass min 0.96  P(yes): 1.00 0.99 0.99 0.11 0.50 0.47 0.44 0.99 0.97 0.71 0.99 0.95
+41/58 68367236 right  3246s elapsed, ETA 22.4 min  peak GPU 41.6 GB
+    rep        0 img    312 tok   1.0s  yes/no mass min 0.06  P(yes): 0.78 0.33 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.46 0.09
+    ax        38 img  10095 tok  18.0s  yes/no mass min 0.92  P(yes): 0.48 0.37 0.59 0.56 0.99 0.99 0.98 0.98 0.67 0.90 0.55 0.02
+    ax_rep    38 img  10363 tok  17.8s  yes/no mass min 0.87  P(yes): 1.00 0.92 0.13 0.18 0.25 0.32 0.22 1.00 0.93 0.32 0.99 0.98
+    all_rep   85 img  22837 tok  41.2s  yes/no mass min 0.86  P(yes): 1.00 0.95 0.27 0.35 0.35 0.47 0.35 0.99 0.94 0.38 0.98 0.99
+42/58 83272910 right  3316s elapsed, ETA 21.1 min  peak GPU 41.6 GB
+    rep        0 img    354 tok   1.1s  yes/no mass min 0.11  P(yes): 0.00 0.00 0.07 0.00 0.00 0.00 0.00 0.00 0.00 0.39 0.00 0.00
+    ax        30 img   7983 tok  13.7s  yes/no mass min 0.95  P(yes): 0.84 0.77 0.88 0.89 0.99 0.99 0.99 0.98 0.94 0.98 0.78 0.02
+    ax_rep    30 img   8293 tok  13.7s  yes/no mass min 0.84  P(yes): 0.60 0.53 0.98 0.44 0.99 0.73 0.88 0.99 0.90 1.00 0.94 0.01
+    all_rep   85 img  22879 tok  39.8s  yes/no mass min 0.88  P(yes): 0.47 0.38 0.99 0.44 0.99 0.82 0.90 0.99 0.82 1.00 0.96 0.04
+43/58 72465039 right  3395s elapsed, ETA 19.7 min  peak GPU 41.6 GB
+    rep        0 img    822 tok   1.1s  yes/no mass min 0.07  P(yes): 0.91 0.98 0.97 0.92 0.00 0.00 0.00 0.83 0.00 0.00 0.48 0.96
+    ax        38 img  10095 tok  17.5s  yes/no mass min 0.94  P(yes): 0.61 0.55 0.65 0.62 0.99 0.99 0.99 0.99 0.91 0.95 0.69 0.03
+    ax_rep    38 img  10873 tok  17.9s  yes/no mass min 0.68  P(yes): 1.00 1.00 1.00 1.00 0.04 0.02 0.01 1.00 0.97 0.23 0.99 0.99
+    all_rep   84 img  23067 tok  40.8s  yes/no mass min 0.73  P(yes): 1.00 1.00 1.00 1.00 0.27 0.11 0.03 1.00 0.96 0.23 0.99 1.00
+44/58 63784327 left  3515s elapsed, ETA 18.6 min  peak GPU 41.6 GB
+    rep        0 img    513 tok   1.3s  yes/no mass min 0.16  P(yes): 0.00 0.00 0.93 0.09 0.83 0.02 0.70 0.00 0.54 0.90 0.00 0.00
+    ax        80 img  21200 tok  38.5s  yes/no mass min 0.92  P(yes): 0.43 0.52 0.77 0.75 0.98 0.98 0.97 0.92 0.78 0.96 0.57 0.02
+    ax_rep    80 img  21669 tok  38.3s  yes/no mass min 0.83  P(yes): 0.57 0.87 1.00 0.98 1.00 0.98 1.00 1.00 1.00 1.00 0.89 0.01
+    all_rep   84 img  22791 tok  40.2s  yes/no mass min 0.84  P(yes): 0.60 0.91 1.00 0.99 1.00 0.99 1.00 1.00 1.00 1.00 0.94 0.02
+45/58 53941774 right  3584s elapsed, ETA 17.3 min  peak GPU 41.6 GB
+    rep        0 img    179 tok   1.2s  yes/no mass min 0.18  P(yes): 0.00 0.00 0.38 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00
+    ax        30 img   7983 tok  13.6s  yes/no mass min 0.93  P(yes): 0.28 0.31 0.49 0.40 0.98 0.97 0.96 0.94 0.67 0.91 0.20 0.01
+    ax_rep    30 img   8118 tok  13.6s  yes/no mass min 0.96  P(yes): 0.98 0.44 1.00 0.80 0.65 0.47 0.22 0.99 0.93 0.84 0.29 0.01
+    all_rep   85 img  22704 tok  38.8s  yes/no mass min 0.97  P(yes): 0.98 0.47 1.00 0.82 0.71 0.56 0.38 0.99 0.92 0.80 0.50 0.03
+46/58 44639002 left  3647s elapsed, ETA 15.9 min  peak GPU 41.6 GB
+    rep        0 img    108 tok   1.2s  yes/no mass min 0.99  P(yes): 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00
+    ax        22 img   5871 tok   9.6s  yes/no mass min 0.94  P(yes): 0.10 0.11 0.25 0.27 0.98 0.97 0.95 0.74 0.41 0.61 0.07 0.00
+    ax_rep    22 img   5935 tok   9.6s  yes/no mass min 0.96  P(yes): 0.01 0.01 0.01 0.02 0.12 0.11 0.27 0.35 0.65 0.20 0.03 0.00
+    all_rep   85 img  22633 tok  40.7s  yes/no mass min 0.93  P(yes): 0.03 0.07 0.08 0.10 0.41 0.38 0.59 0.62 0.70 0.32 0.20 0.02
+47/58 95171921 left  3726s elapsed, ETA 14.5 min  peak GPU 41.6 GB
+    rep        0 img    602 tok   1.2s  yes/no mass min 0.88  P(yes): 0.00 1.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 1.00 0.00
+    ax        44 img  11679 tok  19.7s  yes/no mass min 0.93  P(yes): 0.18 0.24 0.40 0.40 0.97 0.97 0.95 0.37 0.35 0.64 0.20 0.01
+    ax_rep    44 img  12237 tok  19.1s  yes/no mass min 0.90  P(yes): 0.59 0.99 0.30 0.20 0.73 0.59 0.90 0.13 0.71 0.09 0.97 0.38
+    all_rep   85 img  23127 tok  38.3s  yes/no mass min 0.91  P(yes): 0.59 0.99 0.35 0.27 0.78 0.65 0.92 0.15 0.71 0.11 0.98 0.60
+48/58 32662220 right  3795s elapsed, ETA 13.2 min  peak GPU 41.6 GB
+    rep        0 img    507 tok   1.1s  yes/no mass min 0.29  P(yes): 0.92 0.00 0.88 0.00 0.00 0.00 0.00 0.01 0.89 0.00 0.98 0.65
+    ax        32 img   8511 tok  14.5s  yes/no mass min 0.94  P(yes): 0.64 0.61 0.67 0.64 0.99 0.99 0.99 0.97 0.84 0.87 0.79 0.03
+    ax_rep    32 img   8974 tok  14.6s  yes/no mass min 0.69  P(yes): 1.00 0.59 0.99 0.56 0.92 0.88 0.92 1.00 1.00 0.56 1.00 0.89
+    all_rep   80 img  21696 tok  36.9s  yes/no mass min 0.76  P(yes): 1.00 0.71 0.99 0.76 0.94 0.90 0.92 1.00 1.00 0.62 1.00 0.91
+49/58 32839995 right  3916s elapsed, ETA 12.0 min  peak GPU 41.6 GB
+    rep        0 img    216 tok   1.2s  yes/no mass min 0.15  P(yes): 0.00 0.00 0.17 0.00 0.00 0.00 0.00 0.00 0.00 0.15 0.00 0.00
+    ax        74 img  19616 tok  38.7s  yes/no mass min 0.93  P(yes): 0.61 0.66 0.86 0.81 0.99 0.99 0.99 0.96 0.92 0.96 0.88 0.05
+    ax_rep    74 img  19788 tok  36.8s  yes/no mass min 0.95  P(yes): 0.85 0.99 1.00 0.15 0.96 0.62 0.71 0.99 0.99 1.00 0.96 0.09
+    all_rep   84 img  22461 tok  41.6s  yes/no mass min 0.95  P(yes): 0.76 0.99 1.00 0.12 0.92 0.50 0.50 1.00 0.99 1.00 0.92 0.05
+50/58 46125190 right  3992s elapsed, ETA 10.6 min  peak GPU 41.6 GB
+    rep        0 img    477 tok   1.0s  yes/no mass min 0.06  P(yes): 0.57 0.00 0.48 0.00 0.00 0.00 0.00 0.01 0.00 0.84 0.05 0.85
+    ax        36 img   9567 tok  16.4s  yes/no mass min 0.93  P(yes): 0.49 0.49 0.70 0.73 0.99 0.99 0.98 0.97 0.83 0.89 0.69 0.02
+    ax_rep    36 img  10000 tok  17.2s  yes/no mass min 0.88  P(yes): 1.00 0.59 0.99 0.65 0.85 0.30 0.18 1.00 0.98 1.00 0.99 1.00
+    all_rep   85 img  23002 tok  40.0s  yes/no mass min 0.86  P(yes): 1.00 0.59 0.99 0.68 0.87 0.38 0.32 1.00 0.97 1.00 0.99 1.00
+51/58 51855003 right  4084s elapsed, ETA 9.3 min  peak GPU 41.6 GB
+    rep        0 img    156 tok   1.1s  yes/no mass min 0.60  P(yes): 0.00 0.00 0.05 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00
+    ax        56 img  14864 tok  25.1s  yes/no mass min 0.94  P(yes): 0.74 0.82 0.89 0.92 0.98 0.99 0.98 0.98 0.92 0.95 0.63 0.02
+    ax_rep    56 img  14976 tok  26.0s  yes/no mass min 0.95  P(yes): 0.44 0.80 1.00 0.04 0.87 0.27 0.73 0.99 0.96 0.41 0.86 0.01
+    all_rep   84 img  22434 tok  39.1s  yes/no mass min 0.94  P(yes): 0.53 0.80 1.00 0.06 0.87 0.29 0.75 0.99 0.97 0.53 0.92 0.03
+52/58 68676828 right  4156s elapsed, ETA 8.0 min  peak GPU 41.6 GB
+    rep        0 img    338 tok   1.4s  yes/no mass min 0.32  P(yes): 0.00 0.00 0.11 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00
+    ax        36 img   9567 tok  15.4s  yes/no mass min 0.93  P(yes): 0.34 0.43 0.59 0.56 0.99 0.98 0.98 0.84 0.55 0.86 0.37 0.01
+    ax_rep    36 img   9861 tok  15.5s  yes/no mass min 0.92  P(yes): 0.78 0.27 0.98 0.27 0.99 0.99 0.95 0.78 0.83 0.73 0.20 0.01
+    all_rep   85 img  22863 tok  37.6s  yes/no mass min 0.91  P(yes): 0.73 0.30 0.98 0.41 0.99 0.99 0.95 0.89 0.83 0.80 0.47 0.02
+53/58 39890254 right  4275s elapsed, ETA 6.7 min  peak GPU 41.6 GB
+    rep        0 img    557 tok   1.1s  yes/no mass min 0.18  P(yes): 0.65 0.00 0.84 0.66 0.06 0.00 0.00 0.00 0.00 0.00 0.00 0.00
+    ax        80 img  21200 tok  37.6s  yes/no mass min 0.94  P(yes): 0.34 0.37 0.70 0.59 0.99 0.98 0.97 0.90 0.77 0.89 0.32 0.01
+    ax_rep    80 img  21713 tok  38.2s  yes/no mass min 0.88  P(yes): 1.00 0.50 1.00 1.00 1.00 0.97 0.98 0.90 0.73 0.85 0.41 0.00
+    all_rep   84 img  22835 tok  40.1s  yes/no mass min 0.89  P(yes): 1.00 0.68 1.00 1.00 1.00 0.98 0.99 0.93 0.82 0.87 0.65 0.00
+54/58 45464037 right  4319s elapsed, ETA 5.3 min  peak GPU 41.6 GB
+    rep        0 img    290 tok   1.3s  yes/no mass min 0.18  P(yes): 0.89 0.00 0.06 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.04 0.00
+    ax        15 img   4023 tok   7.2s  yes/no mass min 0.95  P(yes): 0.09 0.09 0.20 0.24 0.94 0.93 0.88 0.83 0.22 0.49 0.06 0.00
+    ax_rep    15 img   4269 tok   7.5s  yes/no mass min 0.96  P(yes): 1.00 0.68 0.99 0.65 0.30 0.30 0.12 1.00 0.98 0.25 0.97 0.01
+    all_rep   60 img  16199 tok  27.0s  yes/no mass min 0.96  P(yes): 1.00 0.68 0.98 0.65 0.41 0.38 0.25 1.00 0.96 0.30 0.95 0.03
+55/58 13570435 left  4403s elapsed, ETA 4.0 min  peak GPU 41.6 GB
+    rep        0 img    424 tok   1.0s  yes/no mass min 0.08  P(yes): 0.41 0.06 0.00 0.00 0.09 0.00 0.34 0.01 0.13 0.10 0.00 0.00
+    ax        50 img  13263 tok  21.4s  yes/no mass min 0.93  P(yes): 0.74 0.66 0.81 0.75 0.99 0.99 0.99 0.99 0.88 0.98 0.42 0.02
+    ax_rep    50 img  13643 tok  21.9s  yes/no mass min 0.87  P(yes): 1.00 0.41 0.95 0.44 1.00 0.97 1.00 1.00 0.99 0.99 0.25 0.00
+    all_rep   85 img  22949 tok  38.2s  yes/no mass min 0.87  P(yes): 1.00 0.41 0.92 0.56 1.00 0.98 1.00 1.00 0.99 0.99 0.53 0.01
+56/58 70552767 left  4463s elapsed, ETA 2.7 min  peak GPU 41.6 GB
+    rep        0 img    146 tok   1.1s  yes/no mass min 0.59  P(yes): 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.10 0.00 0.00 0.00
+    ax        20 img   5343 tok   9.3s  yes/no mass min 0.94  P(yes): 0.55 0.52 0.81 0.85 0.99 0.99 0.99 0.99 0.92 0.96 0.52 0.01
+    ax_rep    20 img   5445 tok   9.3s  yes/no mass min 0.92  P(yes): 0.02 0.11 0.85 0.02 0.96 0.78 0.99 0.99 1.00 0.59 0.47 0.00
+    all_rep   85 img  22671 tok  38.9s  yes/no mass min 0.92  P(yes): 0.13 0.35 0.89 0.10 0.98 0.91 0.99 0.99 1.00 0.75 0.78 0.04
+57/58 31739312 left  4532s elapsed, ETA 1.3 min  peak GPU 41.6 GB
+    rep        0 img    124 tok   1.0s  yes/no mass min 1.00  P(yes): 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00
+    ax        30 img   7983 tok  13.6s  yes/no mass min 0.94  P(yes): 0.31 0.34 0.49 0.49 0.99 0.99 0.99 0.90 0.72 0.93 0.21 0.01
+    ax_rep    30 img   8063 tok  13.7s  yes/no mass min 0.96  P(yes): 0.04 0.09 0.02 0.03 0.44 0.44 0.25 0.01 0.08 0.56 0.05 0.01
+    all_rep   84 img  22369 tok  39.4s  yes/no mass min 0.96  P(yes): 0.10 0.15 0.11 0.10 0.56 0.53 0.35 0.03 0.18 0.62 0.20 0.02
+58/58 17521662 right  4664s elapsed, ETA 0.0 min  peak GPU 41.6 GB
+    rep        0 img    221 tok   1.2s  yes/no mass min 0.24  P(yes): 0.00 0.00 0.04 0.00 0.00 0.00 0.00 0.00 0.02 0.17 0.19 0.00
+    ax        76 img  20144 tok  46.7s  yes/no mass min 0.93  P(yes): 0.34 0.43 0.75 0.67 0.99 0.99 0.99 0.95 0.77 0.97 0.69 0.02
+    ax_rep    76 img  20321 tok  41.1s  yes/no mass min 0.94  P(yes): 1.00 0.78 0.99 0.90 0.95 0.87 0.73 1.00 1.00 1.00 1.00 0.25
+    all_rep   84 img  22466 tok  40.5s  yes/no mass min 0.91  P(yes): 0.99 0.75 0.99 0.89 0.92 0.84 0.59 1.00 0.99 1.00 1.00 0.23
+done: 232 study-modes in 4666s
