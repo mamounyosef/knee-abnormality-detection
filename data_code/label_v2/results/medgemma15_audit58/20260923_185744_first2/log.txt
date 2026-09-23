@@ -1,0 +1,23 @@
+remote results: knee-runs volume labelling/medgemma15_audit58/20260923_185744_first2
+GPU NVIDIA L40S, 48 GB; 2 studies x modes ['rep', 'ax', 'ax_rep', 'all_rep'] x 12 findings
+loaded google/medgemma-1.5-4b-it in 49s: decoder 34 layers, hidden 2560, heads 8 / kv 4, sliding window 1024; 256 tokens per image; GPU mem 8.6 GB
+yes tokens [(4443, 'yes'), (8438, ' Yes'), (10784, 'Yes'), (11262, ' yes')] no tokens [(951, ' no'), (1904, 'no'), (2301, ' No'), (3771, 'No')]
+  [rep] first study: 0 images, 258 prefix tokens + 50 question tokens; question part: ' there a tear of the anterior cruciate ligament (ACL), partial or complete in this knee? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [rep] CACHE CHECK: max |logit diff| full pass vs shared prefix = 0.3750 (bf16 noise is ~0.1; far larger means a bug)
+  [ax] first study: 32 images, 8471 prefix tokens + 51 question tokens; question part: ' there a tear of the anterior cruciate ligament (ACL), partial or complete in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [ax] CACHE CHECK: max |logit diff| full pass vs shared prefix = 0.2188 (bf16 noise is ~0.1; far larger means a bug)
+  [ax_rep] first study: 32 images, 8724 prefix tokens + 51 question tokens; question part: ' there a tear of the anterior cruciate ligament (ACL), partial or complete in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [ax_rep] CACHE CHECK: max |logit diff| full pass vs shared prefix = 0.2188 (bf16 noise is ~0.1; far larger means a bug)
+  [all_rep] first study: 85 images, 22782 prefix tokens + 51 question tokens; question part: ' there a tear of the anterior cruciate ligament (ACL), partial or complete in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [all_rep] CACHE CHECK: max |logit diff| full pass vs shared prefix = 0.2188 (bf16 noise is ~0.1; far larger means a bug)
+1/2 94649149 right  86s elapsed, ETA 1.4 min  peak GPU 41.6 GB
+    rep        0 img    297 tok   1.4s  yes/no mass min 0.95  P(yes): 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00
+    ax        32 img   8511 tok  16.5s  yes/no mass min 0.95  P(yes): 0.20 0.16 0.35 0.37 0.97 0.97 0.94 0.89 0.38 0.94 0.16 0.01
+    ax_rep    32 img   8764 tok  17.5s  yes/no mass min 0.95  P(yes): 0.01 0.03 0.07 0.18 0.01 0.00 0.01 0.98 0.56 0.03 0.06 0.00
+    all_rep   85 img  22822 tok  50.2s  yes/no mass min 0.95  P(yes): 0.02 0.05 0.20 0.44 0.03 0.02 0.03 0.99 0.50 0.11 0.17 0.00
+2/2 39028269 right  213s elapsed, ETA 0.0 min  peak GPU 41.6 GB
+    rep        0 img    354 tok   0.7s  yes/no mass min 0.26  P(yes): 0.00 0.00 0.00 0.60 0.00 0.04 0.36 0.07 0.51 0.00 0.00 0.00
+    ax        80 img  21200 tok  42.5s  yes/no mass min 0.94  P(yes): 0.52 0.52 0.75 0.70 0.98 0.97 0.95 0.93 0.74 0.87 0.63 0.02
+    ax_rep    80 img  21510 tok  39.8s  yes/no mass min 0.79  P(yes): 0.92 0.71 0.91 1.00 0.89 0.98 0.99 1.00 1.00 0.95 0.95 0.60
+    all_rep   84 img  22632 tok  42.3s  yes/no mass min 0.74  P(yes): 0.95 0.82 0.96 1.00 0.95 0.98 0.99 1.00 1.00 0.97 0.97 0.78
+done: 8 study-modes in 215s

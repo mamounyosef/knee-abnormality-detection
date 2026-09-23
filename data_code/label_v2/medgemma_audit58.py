@@ -240,7 +240,9 @@ def yes_prob_shared(model, inp_list, yes_ids, no_ids, check=False):
         if check:
             fkw = {k: v for k, v in inp_list[0].items()}
             full = model(**fkw).logits[0, -1].float()
-            diff = float((full - last[0]).abs().max())
+            p_full = float(torch.sigmoid(torch.logsumexp(full[yes_ids], 0)
+                                         - torch.logsumexp(full[no_ids], 0)))
+            diff = (float((full - last[0]).abs().max()), abs(p_full - probs[0]))
     return probs, mass, L, diff
 
 
@@ -331,12 +333,16 @@ def score(jobs, modes, tag):
                     log(f"  [{m}] first study: {len(imgs)} images, {L} prefix tokens + "
                           f"{inps[0]['input_ids'].shape[1] - L} question tokens; question part: "
                           f"{txt!r}", flush=True)
-                    log(f"  [{m}] CACHE CHECK: max |logit diff| full pass vs shared prefix = "
-                          f"{diff:.4f} (bf16 noise is ~0.1; far larger means a bug)", flush=True)
+                    # bf16 logits of magnitude 32-64 are stored in steps of 0.25, so a max
+                    # difference of 0.25-0.4 over 262k vocab entries is one rounding step
+                    log(f"  [{m}] CACHE CHECK full pass vs shared prefix: max |logit diff| "
+                        f"{diff[0]:.4f} (one bf16 step at this size is 0.25), "
+                        f"|P(yes) diff| {diff[1]:.4f} (should be < 0.02)", flush=True)
                 row.update({"n_img": len(imgs),
                             "slots": "+".join(f"{s}:{len(sl)}" for s, sl in groups),
                             "prefix_tok": L, "total_tok": int(inps[-1]["input_ids"].shape[1]),
-                            "cache_diff": diff, "yn_mass_min": min(mass),
+                            "cache_diff": diff[0] if diff else None,
+                            "cache_pdiff": diff[1] if diff else None, "yn_mass_min": min(mass),
                             "yn_mass_mean": float(np.mean(mass)), "sec": time.time() - t1})
                 row.update(dict(zip(TASKS, probs)))
             except Exception as e:                             # noqa: BLE001
@@ -450,14 +456,21 @@ def main(modes: str = ",".join(MODES), limit: int = 0):
 
 def scoreboard(df, ms):
     """Every mode, and Qwen + each mode averaged, against the panel on the same studies."""
+    import warnings
+
     import numpy as np
     import pandas as pd
     from sklearn.metrics import roc_auc_score
+    warnings.filterwarnings("ignore", category=RuntimeWarning)
     aud = pd.read_csv(ROOT / "data/05_audit58.csv").set_index("StudyInstanceUID")
     qwen = pd.read_csv(ROOT / "data/03_report_labels_qwen24t-med.csv").set_index("StudyInstanceUID")
     ok = df[df.get("error", pd.Series(index=df.index, dtype=object)).isna()] \
         if "error" in df else df
     uids = sorted(set.intersection(*[set(ok[ok["mode"] == m].uid) for m in ms]))
+    if len(uids) < 20:
+        # AUROC needs positives AND negatives per finding; a smoke test has neither
+        print(f"\nSCOREBOARD skipped: {len(uids)} studies is too few to score (needs >= 20).")
+        return
     Y = aud.loc[uids, ["official_" + t for t in TASKS]].values
     preds = {"qwen24t-med": qwen.loc[uids, TASKS].values.astype(float)}
     for m in ms:

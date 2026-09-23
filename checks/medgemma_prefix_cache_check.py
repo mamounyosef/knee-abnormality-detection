@@ -74,7 +74,7 @@ for n_img in (0, 1, 3):
 _, mass, _, diff = mg.yes_prob_shared(model, inps, yes_ids, no_ids, check=True)
 assert all(0 < v <= 1 for v in mass), mass
 assert model.config.image_token_id == IMG_TOK, "config.image_token_id is what the audit asserts on"
-print(f"  built-in check: max |logit diff| = {diff:.2e}  {'OK' if diff < 1e-4 else 'FAIL'}")
-fails += diff >= 1e-4
+print(f"  built-in check: max |logit diff| = {diff[0]:.2e}, |P diff| = {diff[1]:.2e}  {'OK' if diff[0] < 1e-4 else 'FAIL'}")
+fails += diff[0] >= 1e-4
 print("ALL OK" if not fails else f"{fails} FAILED")
 sys.exit(1 if fails else 0)
