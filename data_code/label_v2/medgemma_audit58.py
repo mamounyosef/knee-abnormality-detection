@@ -15,11 +15,13 @@ same-plane fallback, so no series is ever fed twice). The 85 images are split ev
 the slots present. Left knees are mirrored with the engine's own _mirror_slot, exactly as
 the laterality_flip members train (sagittal reverses slice order, coronal/axial reverse width).
 
-Modes (all ask the same 12 questions; the panel labels are only used to SCORE, never input):
-  rep       report text only, no images        (is MedGemma a worse report reader than Qwen?)
-  ax        axial slots only, no report        (what the images alone give, in distribution)
-  ax_rep    axial slots + report               (the labeller we would actually use)
-  all_rep   every real slot + report           (side and front views: out of distribution)
+Modes are MODE_DEF: which slots, and whether the report is in the prompt. All ask the same 12
+questions; the panel labels are only used to SCORE, never input. Run 1 (23 Sep) used
+rep / ax / ax_rep / all_rep; images alone won on the fluid findings, so the plan continues
+images-only, a batch at a time (pass --modes):
+  A  ax, fluid, all              do views beyond axial help at all?
+  B  sag_fluid, cor_fluid        which single fluid view carries each fluid finding?
+  C  sag, cor                    side / front views for menisci+ACL / OA+MCL
 
 The score is P(yes) from the next-token logits after a pre-filled "Final Answer:", so every
 cell gets a continuous probability (AUROC needs ranks). The images and report come first
@@ -44,7 +46,6 @@ import modal
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 MODEL = "google/medgemma-1.5-4b-it"
-MODES = ["rep", "ax", "ax_rep", "all_rep"]
 MAX_SLICES = 85
 TASKS = ["ACL", "MCL", "Medial Meniscus", "Lateral Meniscus", "Medial OA", "Lateral OA",
          "PF OA", "Effusion", "Synovitis", "Baker's", "Contusion", "Fracture"]
@@ -67,6 +68,23 @@ TAIL = (' You may write out your argument before stating your final answer "Fina
         'or "Final Answer: no"')
 SLOTS_ALL = ["sag_plain", "sag_fluid", "cor_plain", "cor_fluid", "ax_plain", "ax_fluid"]
 SLOTS_AX = ["ax_plain", "ax_fluid"]
+SLOTS_FLUID = ["sag_fluid", "cor_fluid", "ax_fluid"]
+# mode -> (slots it may use, whether the report is in the prompt). Only the slots a study
+# really has are fed, 85 images split evenly over them, always in SLOTS_ALL order.
+MODE_DEF = {
+    "rep":       ([], True),                               # report text only
+    "ax":        (SLOTS_AX, False),                        # batch A: axial images
+    "ax_rep":    (SLOTS_AX, True),
+    "all_rep":   (SLOTS_ALL, True),
+    "fluid":     (SLOTS_FLUID, False),                     # batch A: every fluid view
+    "all":       (SLOTS_ALL, False),                       # batch A: every view
+    "sag_fluid": (["sag_fluid"], False),                   # batch B
+    "cor_fluid": (["cor_fluid"], False),                   # batch B
+    "sag":       (["sag_plain", "sag_fluid"], False),      # batch C1: menisci, ACL
+    "cor":       (["cor_plain", "cor_fluid"], False),      # batch C2: OA, MCL
+}
+MODES = list(MODE_DEF)
+FLUID_TASKS = ["Effusion", "Synovitis", "Baker's"]
 SLOT_NAME = {
     "sag_plain": "sagittal (side view), non-fat-suppressed",
     "sag_fluid": "sagittal (side view), fluid-sensitive fat-suppressed",
@@ -130,9 +148,9 @@ def pick(n, k):
 
 def volume_slices(z, job, mode):
     """[(slot, [uint8 HxW slices])] for this mode; [] for report-only. Left knees mirrored."""
-    if mode == "rep":
+    want = MODE_DEF[mode][0]
+    if not want:
         return []
-    want = SLOTS_AX if mode.startswith("ax") else SLOTS_ALL
     have = [s for s in want if job["slots"].get(s) in z.files]
     per = MAX_SLICES // max(len(have), 1)
     mirror = job.get("side") == FLIP_SIDE
@@ -148,10 +166,11 @@ def volume_slices(z, job, mode):
 
 def prompt_text(job, mode, task):
     q = f"Is there {LABEL[task]} in the MRI volume?"
-    if mode == "rep":
+    slots, with_report = MODE_DEF[mode]
+    if not slots:
         return (f'After reading this knee MRI report "{job["report"]}", is there {LABEL[task]} '
                 f'in this knee?' + TAIL)
-    if mode == "ax":
+    if not with_report:
         return q + TAIL
     return f'After looking at the patient history "{job["report"]}", {q}' + TAIL
 
@@ -505,7 +524,7 @@ def main(modes: str = ",".join(MODES), limit: int = 0, workers: int = 4):
     out = LOCAL_DIR / tag
     out.mkdir(parents=True, exist_ok=True)
     meta = {"model": MODEL, "modes": ms, "studies": len(jobs), "max_slices": MAX_SLICES,
-            "slots_all": SLOTS_ALL, "slots_ax": SLOTS_AX, "flip_side": FLIP_SIDE,
+            "mode_def": {m: MODE_DEF[m] for m in ms}, "flip_side": FLIP_SIDE,
             "labels": LABEL, "remote_dir": f"knee-runs/labelling/medgemma15_audit58/{tag}",
             "jobs": [{k: v for k, v in j.items() if k != "report"} for j in jobs]}
     (out / "meta.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
@@ -566,6 +585,11 @@ def scoreboard(df, ms):
         preds[m] = ok[ok["mode"] == m].set_index("uid").loc[uids, TASKS].values.astype(float)
     for m in ms:
         preds[f"qwen+{m} mean"] = 0.5 * preds["qwen24t-med"] + 0.5 * preds[m]
+    fj = [TASKS.index(t) for t in FLUID_TASKS]
+    for m in ms:
+        p = preds["qwen24t-med"].copy()
+        p[:, fj] = 0.5 * p[:, fj] + 0.5 * preds[m][:, fj]
+        preds[f"qwen+{m} fluid3"] = p        # Qwen, blended ONLY on Effusion/Synovitis/Baker's
 
     def macro(P, i=None):
         i = np.arange(len(Y)) if i is None else i

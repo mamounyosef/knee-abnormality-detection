@@ -64,11 +64,12 @@ for j in jobs:
     j["report"] = "Moderate joint effusion. Intact cruciate ligaments."
 import os  # noqa: E402
 os.environ.setdefault("HF_TOKEN", "local-test")
+MODES = ["ax", "fluid", "all"]              # batch A, the next real run
 raw = mg.score.get_raw_f()
-rows, log_text = raw(jobs, mg.MODES, "localtest", part=0)
+rows, log_text = raw(jobs, MODES, "localtest", part=0)
 
 fails = 0
-exp = len(jobs) * len(mg.MODES)
+exp = len(jobs) * len(MODES)
 bad = [r for r in rows if "error" in r]
 print(f"\nrows {len(rows)} (expected {exp}); errors {len(bad)}")
 for r in bad:
@@ -78,7 +79,7 @@ ok = [r for r in rows if "error" not in r]
 fails += not all(all(0 <= r[t] <= 1 for t in mg.TASKS) for r in ok)
 checks = [r["cache_diff"] for r in ok if r.get("cache_diff") is not None]
 print("cache checks (max |logit diff|, bf16 tiny model):", [round(c, 4) for c in checks])
-fails += len(checks) != len(mg.MODES)
+fails += len(checks) != len(MODES)
 part = tmp / "localtest/part0"
 saved = [json.loads(x) for x in (part / "rows.jsonl").read_text().splitlines()]
 print("saved rows.jsonl", len(saved), "log.txt lines", len((part / "log.txt").read_text().splitlines()))
