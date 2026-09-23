@@ -50,17 +50,15 @@ TASKS = ["ACL", "MCL", "Medial Meniscus", "Lateral Meniscus", "Medial OA", "Late
          "PF OA", "Effusion", "Synovitis", "Baker's", "Contusion", "Fracture"]
 # panel conventions from 03_label_reports.py, phrased as the condition MedGemma is asked about
 LABEL = {
-    "ACL": "a tear of the anterior cruciate ligament (ACL), partial or complete",
-    "MCL": "an injury of the medial collateral ligament (MCL), including a sprain or tear",
-    "Medial Meniscus": "a tear of the medial meniscus",
-    "Lateral Meniscus": "a tear of the lateral meniscus",
-    "Medial OA": "osteoarthritis of the medial tibiofemoral compartment with substantial "
-                 "cartilage loss",
-    "Lateral OA": "osteoarthritis of the lateral tibiofemoral compartment with substantial "
-                  "cartilage loss",
-    "PF OA": "osteoarthritis of the patellofemoral compartment with substantial cartilage loss",
+    "ACL": "a partial or complete anterior cruciate ligament (ACL) tear",
+    "MCL": "a medial collateral ligament (MCL) sprain or tear",
+    "Medial Meniscus": "a medial meniscus tear",
+    "Lateral Meniscus": "a lateral meniscus tear",
+    "Medial OA": "medial tibiofemoral osteoarthritis with high-grade cartilage loss",
+    "Lateral OA": "lateral tibiofemoral osteoarthritis with high-grade cartilage loss",
+    "PF OA": "patellofemoral osteoarthritis with high-grade cartilage loss",
     "Effusion": "a moderate or large knee joint effusion",
-    "Synovitis": "synovitis (synovial thickening or inflammation)",
+    "Synovitis": "synovitis (synovial thickening)",
     "Baker's": "a Baker's (popliteal) cyst",
     "Contusion": "a traumatic bone contusion (bone bruise)",
     "Fracture": "a fracture",
@@ -88,6 +86,7 @@ shards = modal.Volume.from_name("knee-shards")
 hf_cache = modal.Volume.from_name("hf-cache", create_if_missing=True)
 runs_vol = modal.Volume.from_name("knee-runs")
 REMOTE_DIR = "/runs_vol/labelling/medgemma15_audit58"      # knee-runs volume
+SHARDS_DIR = "/shards"                                     # knee-shards volume
 LOCAL_DIR = ROOT / "data_code/label_v2/results/medgemma15_audit58"
 
 
@@ -124,6 +123,8 @@ def pick(n, k):
     """k indices spread evenly over n, as the technical report samples a stacked volume."""
     if n <= k:
         return list(range(n))
+    if k == 1:
+        return [n // 2]
     return [int(round(i / (k - 1) * (n - 1))) for i in range(k)]
 
 
@@ -190,67 +191,91 @@ def common_prefix_len(seqs):
     return n
 
 
-def yes_prob_shared(model, inp_list, yes_ids, no_ids, check=False):
-    """P(yes) for each of several prompts that share a prefix: encode the prefix (with all
-    its images) once, then run each prompt's remaining tokens on a copy of its cache.
+def encode_prompts(proc, texts, imgs):
+    """Token ids for every prompt + ONE pixel tensor for the shared images.
 
-    inp_list: processor outputs, one per question, identical up to the question. check=True
-    also runs one prompt in full and returns the largest logit difference.
+    The processor would resize every slice to 896 px and rebuild pixel_values once PER
+    QUESTION (12x the CPU work and 12 host-to-GPU copies of ~0.8 GB). The images are the same
+    for all 12, so they are processed once here, and each prompt's text is expanded exactly
+    the way Gemma3Processor does it: every <start_of_image> becomes full_image_sequence
+    (blank lines, <start_of_image>, 256 image tokens, <end_of_image>, blank lines).
+    checks/medgemma_processor_check.py proves this equals the processor byte for byte.
+    """
+    tok = proc.tokenizer
+    pv = None
+    if imgs:
+        pv = proc.image_processor(images=imgs, do_pan_and_scan=False,
+                                  return_tensors="pt")["pixel_values"]
+    ids = [tok(t.replace(proc.boi_token, proc.full_image_sequence),
+               add_special_tokens=False)["input_ids"] for t in texts]
+    return ids, pv
 
-    Architecturally, the prefix pass is everything: the SigLIP vision tower encodes every
+
+def yes_prob_shared(model, ids_list, pixel_values, image_token_id, yes_ids, no_ids,
+                    pad_id=0, check=False):
+    """P(yes) for prompts that share a prefix: the prefix (all the images) is encoded ONCE,
+    then every prompt's remaining tokens run as ONE right-padded batch on that cache.
+
+    Architecturally the prefix pass is everything: the SigLIP vision tower encodes every
     slice, the projector pools each to 256 tokens and splices them into the text embeddings,
     and the decoder runs over the whole prefix, leaving each layer's keys and values in the
     cache (image tokens attend bidirectionally within their own image, via token_type_ids,
-    which only matters in this prefill). Each question then only pushes its own few tokens
-    through the decoder, attending to that cache.
+    which only matters in this prefill). The cache is then repeated once per question and the
+    questions go through the decoder together, each read at its own last real token.
 
-    Returns (P(yes) per prompt, P(yes)+P(no) mass per prompt, prefix length, check diff).
+    Returns (P(yes) per prompt, P(yes)+P(no) mass per prompt, prefix length, check) where
+    check is (max |logit diff|, |P(yes) diff|) of prompt 0 against a full pass, or None.
     """
     import torch
-    ids = [x["input_ids"][0].tolist() for x in inp_list]
-    L = common_prefix_len(ids) - 1        # keep >= 1 token of suffix for every prompt
-    first = inp_list[0]
-    kw = {"input_ids": first["input_ids"][:, :L], "use_cache": True}
-    if "attention_mask" in first:
-        kw["attention_mask"] = first["attention_mask"][:, :L]
-    if "token_type_ids" in first:
-        kw["token_type_ids"] = first["token_type_ids"][:, :L]
-    if "pixel_values" in first:
-        kw["pixel_values"] = first["pixel_values"]
+    dev = next(model.parameters()).device
+    L = common_prefix_len(ids_list) - 1           # keep >= 1 own token per prompt
+    pre_ids = torch.tensor([ids_list[0][:L]], device=dev)
+    kw = {"input_ids": pre_ids, "attention_mask": torch.ones_like(pre_ids),
+          "token_type_ids": (pre_ids == image_token_id).long(), "use_cache": True}
+    if pixel_values is not None:
+        kw["pixel_values"] = pixel_values.to(dev, torch.bfloat16)
+
+    def p_yes(lg):
+        return torch.sigmoid(torch.logsumexp(lg[..., yes_ids], -1)
+                             - torch.logsumexp(lg[..., no_ids], -1))
+
     with torch.inference_mode():
-        pre = model(**kw)
-        cache = pre.past_key_values
-        probs, mass, last = [], [], []
-        for x in inp_list:
-            suf = x["input_ids"][:, L:]
-            n = suf.shape[1]
-            skw = {"input_ids": suf, "past_key_values": copy.deepcopy(cache), "use_cache": True,
-                   "cache_position": torch.arange(L, L + n, device=suf.device)}
-            if "attention_mask" in x:
-                skw["attention_mask"] = x["attention_mask"]
-            if "token_type_ids" in x:
-                skw["token_type_ids"] = x["token_type_ids"][:, L:]
-            lg = model(**skw).logits[0, -1].float()
-            last.append(lg)
-            probs.append(float(torch.sigmoid(torch.logsumexp(lg[yes_ids], 0)
-                                             - torch.logsumexp(lg[no_ids], 0))))
-            sm = torch.softmax(lg, 0)
-            mass.append(float(sm[yes_ids].sum() + sm[no_ids].sum()))
-        diff = None
+        cache = model(**kw).past_key_values
+        B = len(ids_list)
+        suf = [x[L:] for x in ids_list]
+        n = max(len(x) for x in suf)
+        lens = torch.tensor([len(x) for x in suf], device=dev)
+        s_ids = torch.full((B, n), pad_id, dtype=torch.long, device=dev)
+        s_mask = torch.zeros((B, L + n), dtype=torch.long, device=dev)
+        s_mask[:, :L] = 1
+        for i, x in enumerate(suf):
+            s_ids[i, :len(x)] = torch.tensor(x, device=dev)
+            s_mask[i, L:L + len(x)] = 1
+        cache.batch_repeat_interleave(B)
+        out = model(input_ids=s_ids, attention_mask=s_mask, past_key_values=cache,
+                    token_type_ids=torch.zeros_like(s_ids), use_cache=True,
+                    cache_position=torch.arange(L, L + n, device=dev)).logits
+        lg = out[torch.arange(B, device=dev), lens - 1].float()        # (B, vocab)
+        probs = p_yes(lg)
+        sm = torch.softmax(lg, -1)
+        mass = sm[:, yes_ids].sum(-1) + sm[:, no_ids].sum(-1)
+        chk = None
         if check:
-            fkw = {k: v for k, v in inp_list[0].items()}
+            f_ids = torch.tensor([ids_list[0]], device=dev)
+            fkw = {"input_ids": f_ids, "attention_mask": torch.ones_like(f_ids),
+                   "token_type_ids": (f_ids == image_token_id).long()}
+            if pixel_values is not None:
+                fkw["pixel_values"] = kw["pixel_values"]
             full = model(**fkw).logits[0, -1].float()
-            p_full = float(torch.sigmoid(torch.logsumexp(full[yes_ids], 0)
-                                         - torch.logsumexp(full[no_ids], 0)))
-            diff = (float((full - last[0]).abs().max()), abs(p_full - probs[0]))
-    return probs, mass, L, diff
+            chk = (float((full - lg[0]).abs().max()), float((p_yes(full) - probs[0]).abs()))
+    return probs.tolist(), mass.tolist(), L, chk
 
 
 @app.function(gpu="L40S", image=image, timeout=3 * 3600,
               volumes={"/shards": shards, "/root/.cache/huggingface": hf_cache,
                        "/runs_vol": runs_vol},
               secrets=[modal.Secret.from_name("huggingface")])
-def score(jobs, modes, tag):
+def score(jobs, modes, tag, part=0):
     """Returns (rows, log text). Also writes log.txt and rows.jsonl to the knee-runs volume
     after EVERY study, so a crash or a stop keeps everything done so far."""
     import os
@@ -262,7 +287,7 @@ def score(jobs, modes, tag):
     from transformers import AutoModelForImageTextToText, AutoProcessor
 
     assert os.environ.get("HF_TOKEN"), "Modal secret `huggingface` has no HF_TOKEN"
-    out_dir = f"{REMOTE_DIR}/{tag}"
+    out_dir = f"{REMOTE_DIR}/{tag}/part{part}"
     os.makedirs(out_dir, exist_ok=True)
     logf = open(f"{out_dir}/log.txt", "a", encoding="utf-8")
     rowf = open(f"{out_dir}/rows.jsonl", "a", encoding="utf-8")
@@ -270,7 +295,7 @@ def score(jobs, modes, tag):
 
     def log(*a, **_):
         m = " ".join(str(x) for x in a)
-        print(m, flush=True)
+        print(f"[w{part}] {m}", flush=True)
         lines.append(m)
         logf.write(m + "\n")
         logf.flush()
@@ -297,42 +322,92 @@ def score(jobs, modes, tag):
     log("yes tokens", [(i, tok.decode([i])) for i in yes_ids],
           "no tokens", [(i, tok.decode([i])) for i in no_ids], flush=True)
 
+    def prepare(job):
+        """CPU side of one study, every mode: slices, PIL images, prompt texts, token ids and
+        the pixel tensor. Runs in a worker thread one study AHEAD of the GPU."""
+        t = time.time()
+        res = {}
+        per_mode = {}
+        try:
+            with np.load(f"{SHARDS_DIR}/{job['uid']}.npz") as z:
+                for m in modes:
+                    try:
+                        per_mode[m] = volume_slices(z, job, m)
+                    except Exception as e:                     # noqa: BLE001
+                        per_mode[m] = e
+        except Exception as e:                                 # noqa: BLE001 (unreadable shard)
+            per_mode = {m: e for m in modes}
+        for m in modes:
+            try:
+                t1 = time.time()
+                if isinstance(per_mode[m], Exception):
+                    raise per_mode[m]
+                groups = per_mode[m]
+                imgs = [Image.fromarray(np.ascontiguousarray(x)).convert("RGB")
+                        for _, sl in groups for x in sl]
+                texts = [proc.apply_chat_template(
+                    messages([(g, len(sl)) for g, sl in groups], prompt_text(job, m, q)),
+                    continue_final_message=True, tokenize=False) for q in TASKS]
+                ids_list, pv = encode_prompts(proc, texts, imgs)
+                if pv is not None:
+                    pv = pv.to(torch.bfloat16).pin_memory()
+                res[m] = {"groups": groups, "imgs": imgs, "texts": texts, "ids": ids_list,
+                          "pv": pv, "prep_s": time.time() - t1}
+            except Exception as e:                             # noqa: BLE001
+                res[m] = {"error": f"{type(e).__name__}: {e}"}
+        res["_load_s"] = time.time() - t
+        return res
+
+    from concurrent.futures import ThreadPoolExecutor
+    pool = ThreadPoolExecutor(max_workers=1)
+    nxt = pool.submit(prepare, jobs[0]) if jobs else None
     out, shown = [], set()
     t0 = time.time()
     for k, job in enumerate(jobs):
-        with np.load(f"/shards/{job['uid']}.npz") as z:
-            per_mode = {m: volume_slices(z, job, m) for m in modes}
+        t_wait = time.time()
+        prepared = nxt.result()
+        t_wait = time.time() - t_wait                      # > 0 only if the CPU fell behind
+        nxt = pool.submit(prepare, jobs[k + 1]) if k + 1 < len(jobs) else None
         for m in modes:
             row = {"uid": job["uid"], "mode": m, "side": job.get("side")}
             try:
+                pm = prepared[m]
+                if "error" in pm:
+                    raise RuntimeError("prepare failed: " + pm["error"])
                 t1 = time.time()
-                groups = per_mode[m]
-                imgs = [Image.fromarray(np.ascontiguousarray(s)).convert("RGB")
-                        for _, sl in groups for s in sl]
-                inps = []
-                for t in TASKS:
-                    msg = messages([(s, len(sl)) for s, sl in groups], prompt_text(job, m, t))
-                    text = proc.apply_chat_template(msg, continue_final_message=True,
-                                                    tokenize=False)
-                    # the template already starts with <bos>; do not let the tokenizer add one
-                    x = proc(text=text, images=imgs or None, add_special_tokens=False,
-                             return_tensors="pt").to("cuda")
-                    ids0 = x["input_ids"][0]
+                groups, imgs, texts, ids_list, pv = (pm["groups"], pm["imgs"], pm["texts"],
+                                                     pm["ids"], pm["pv"])
+                first = m not in shown
+                if first:
+                    # the fast path must equal the processor itself, token for token and pixel
+                    # for pixel; checked on the real processor once per mode
+                    ref = proc(text=texts[0], images=imgs or None, add_special_tokens=False,
+                               return_tensors="pt")
+                    assert ref["input_ids"][0].tolist() == ids_list[0], "ids differ from processor"
+                    if imgs:
+                        assert torch.equal(ref["pixel_values"].to(torch.bfloat16), pv), \
+                            "pixels differ from processor"
+                        assert ref["token_type_ids"][0].tolist() == [
+                            int(v == model.config.image_token_id) for v in ids_list[0]]
+                for ids0 in ids_list:
                     assert ids0[0] == tok.bos_token_id and ids0[1] != tok.bos_token_id, "BOS"
                     if imgs:
-                        n_it = int((ids0 == model.config.image_token_id).sum())
+                        n_it = sum(v == model.config.image_token_id for v in ids0)
                         assert n_it == len(imgs) * model.config.mm_tokens_per_image, n_it
-                        assert "token_type_ids" in x, "no token_type_ids: image attention causal"
-                        x["pixel_values"] = x["pixel_values"].to(torch.bfloat16)
-                    inps.append(x)
-                first = m not in shown
-                probs, mass, L, diff = yes_prob_shared(model, inps, yes_ids, no_ids, check=first)
+                t_prep = pm["prep_s"]
+                torch.cuda.synchronize()
+                t2 = time.time()
+                probs, mass, L, diff = yes_prob_shared(
+                    model, ids_list, pv, model.config.image_token_id, yes_ids, no_ids,
+                    pad_id=tok.pad_token_id or 0, check=first)
+                torch.cuda.synchronize()
+                t_gpu = time.time() - t2
                 if first:
                     shown.add(m)
-                    txt = tok.decode(inps[0]["input_ids"][0][L:])
+                    txt = tok.decode(ids_list[0][L:])
                     log(f"  [{m}] first study: {len(imgs)} images, {L} prefix tokens + "
-                          f"{inps[0]['input_ids'].shape[1] - L} question tokens; question part: "
-                          f"{txt!r}", flush=True)
+                        f"{len(ids_list[0]) - L} question tokens; fast path == processor: OK; "
+                        f"question part: {txt!r}", flush=True)
                     # bf16 logits of magnitude 32-64 are stored in steps of 0.25, so a max
                     # difference of 0.25-0.4 over 262k vocab entries is one rounding step
                     log(f"  [{m}] CACHE CHECK full pass vs shared prefix: max |logit diff| "
@@ -340,10 +415,12 @@ def score(jobs, modes, tag):
                         f"|P(yes) diff| {diff[1]:.4f} (should be < 0.02)", flush=True)
                 row.update({"n_img": len(imgs),
                             "slots": "+".join(f"{s}:{len(sl)}" for s, sl in groups),
-                            "prefix_tok": L, "total_tok": int(inps[-1]["input_ids"].shape[1]),
+                            "prefix_tok": L, "total_tok": len(ids_list[-1]),
+                            "prep_s": t_prep, "gpu_s": t_gpu, "wait_s": t_wait,
                             "cache_diff": diff[0] if diff else None,
                             "cache_pdiff": diff[1] if diff else None, "yn_mass_min": min(mass),
-                            "yn_mass_mean": float(np.mean(mass)), "sec": time.time() - t1})
+                            "yn_mass_mean": float(np.mean(mass)),
+                            "sec": time.time() - t1})
                 row.update(dict(zip(TASKS, probs)))
             except Exception as e:                             # noqa: BLE001
                 log(f"  ERROR {job['uid']} {m}: {type(e).__name__}: {e}", flush=True)
@@ -355,16 +432,19 @@ def score(jobs, modes, tag):
         eta = el / (k + 1) * (len(jobs) - k - 1)
         rs = out[-len(modes):]
         log(f"{k + 1}/{len(jobs)} {job['uid'][-8:]} {job.get('side')}  {el:.0f}s elapsed, "
-              f"ETA {eta / 60:.1f} min  peak GPU {torch.cuda.max_memory_allocated() / 1e9:.1f} GB",
+              f"ETA {eta / 60:.1f} min  peak GPU {torch.cuda.max_memory_allocated() / 1e9:.1f} GB  "
+              f"waited for CPU {t_wait:.1f}s (CPU prep overlapped: {prepared['_load_s']:.1f}s)",
               flush=True)
         for r in rs:
             if "error" in r:
                 continue
             p = " ".join(f"{r[t]:.2f}" for t in TASKS)
             log(f"    {r['mode']:8s} {r['n_img']:3d} img {r['total_tok']:6d} tok "
-                  f"{r['sec']:5.1f}s  yes/no mass min {r['yn_mass_min']:.2f}  P(yes): {p}",
+                f"gpu {r['gpu_s']:5.1f}s (cpu prep {r['prep_s']:.1f}s, overlapped)  "
+                f"yes/no mass min {r['yn_mass_min']:.2f}  P(yes): {p}",
                   flush=True)
         runs_vol.commit()                               # persist after every study
+    pool.shutdown()
     log(f"done: {len(out)} study-modes in {time.time() - t0:.0f}s")
     logf.close()
     rowf.close()
@@ -411,7 +491,7 @@ def dry_run():
 
 
 @app.local_entrypoint()
-def main(modes: str = ",".join(MODES), limit: int = 0):
+def main(modes: str = ",".join(MODES), limit: int = 0, workers: int = 4):
     import contextlib
     import datetime
     import io as _io
@@ -431,7 +511,16 @@ def main(modes: str = ",".join(MODES), limit: int = 0):
     (out / "meta.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
     print("local results folder:", out)
 
-    rows, log_text = score.remote(jobs, ms, tag)
+    # N containers at once: the GPU-hours (the cost) are the same, the wall time is ~1/N.
+    # Each loads the model from the hf-cache volume (~50 s) and writes its own part<i>.
+    workers = max(1, min(workers, len(jobs)))
+    chunks = [jobs[i::workers] for i in range(workers)]
+    print(f"{len(jobs)} studies over {workers} container(s): {[len(c) for c in chunks]}")
+    rows, logs = [], []
+    for r, lg in score.starmap([(c, ms, tag, i) for i, c in enumerate(chunks)]):
+        rows += r
+        logs.append(lg)
+    log_text = "\n\n".join(logs)
     (out / "log.txt").write_text(log_text + "\n", encoding="utf-8")
     df = pd.DataFrame(rows)
     df.to_csv(out / "raw.csv", index=False)

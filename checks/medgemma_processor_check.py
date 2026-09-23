@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import torch
 import pandas as pd
 from PIL import Image
 from transformers import AutoProcessor
@@ -54,6 +55,12 @@ for mode, groups in (("rep", []), ("ax", [("ax_plain", 2), ("ax_fluid", 3)]),
         x = proc(text=text, images=imgs or None, add_special_tokens=False, return_tensors="pt")
         ids = x["input_ids"][0]
         ids_all.append(ids.tolist())
+        # the audit's fast path (images processed once, text expanded by hand) must equal it
+        f_ids, f_pv = mg.encode_prompts(proc, [text], imgs)
+        same = f_ids[0] == ids.tolist() and (
+            f_pv is None if not imgs else torch.equal(f_pv, x["pixel_values"]))
+        if t == mg.TASKS[0] or not same:
+            check(same, f"fast path == processor (ids and pixels) [{t}]")
     print(f"\n[{mode}] {len(imgs)} images; rendered prompt (Effusion), image tokens collapsed:")
     shown = proc.apply_chat_template(mg.messages(groups, mg.prompt_text(job, mode, "Effusion")),
                                      continue_final_message=True, tokenize=False)
