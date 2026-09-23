@@ -86,6 +86,9 @@ image = (modal.Image.debian_slim(python_version="3.12")
          .add_local_file(ROOT / "runs/shared_code.py", "/root/shared_code.py"))
 shards = modal.Volume.from_name("knee-shards")
 hf_cache = modal.Volume.from_name("hf-cache", create_if_missing=True)
+runs_vol = modal.Volume.from_name("knee-runs")
+REMOTE_DIR = "/runs_vol/labelling/medgemma15_audit58"      # knee-runs volume
+LOCAL_DIR = ROOT / "data_code/label_v2/results/medgemma15_audit58"
 
 
 def _sc():
@@ -242,8 +245,11 @@ def yes_prob_shared(model, inp_list, yes_ids, no_ids, check=False):
 
 
 @app.function(gpu="L40S", image=image, timeout=3 * 3600,
-              volumes={"/shards": shards, "/root/.cache/huggingface": hf_cache})
-def score(jobs, modes, hf_token):
+              volumes={"/shards": shards, "/root/.cache/huggingface": hf_cache,
+                       "/runs_vol": runs_vol})
+def score(jobs, modes, hf_token, tag):
+    """Returns (rows, log text). Also writes log.txt and rows.jsonl to the knee-runs volume
+    after EVERY study, so a crash or a stop keeps everything done so far."""
     import os
     import time
 
@@ -253,8 +259,22 @@ def score(jobs, modes, hf_token):
     from transformers import AutoModelForImageTextToText, AutoProcessor
 
     os.environ["HF_TOKEN"] = hf_token
+    out_dir = f"{REMOTE_DIR}/{tag}"
+    os.makedirs(out_dir, exist_ok=True)
+    logf = open(f"{out_dir}/log.txt", "a", encoding="utf-8")
+    rowf = open(f"{out_dir}/rows.jsonl", "a", encoding="utf-8")
+    lines = []
+
+    def log(*a, **_):
+        m = " ".join(str(x) for x in a)
+        print(m, flush=True)
+        lines.append(m)
+        logf.write(m + "\n")
+        logf.flush()
+
+    log(f"remote results: knee-runs volume {out_dir.replace('/runs_vol/', '')}")
     t_load = time.time()
-    print(f"GPU {torch.cuda.get_device_name(0)}, "
+    log(f"GPU {torch.cuda.get_device_name(0)}, "
           f"{torch.cuda.get_device_properties(0).total_memory / 1e9:.0f} GB; "
           f"{len(jobs)} studies x modes {modes} x {len(TASKS)} findings", flush=True)
     proc = AutoProcessor.from_pretrained(MODEL, use_fast=True)
@@ -262,7 +282,7 @@ def score(jobs, modes, hf_token):
         MODEL, dtype=torch.bfloat16, device_map="cuda", attn_implementation="sdpa").eval()
     hf_cache.commit()
     tc = model.config.text_config
-    print(f"loaded {MODEL} in {time.time() - t_load:.0f}s: decoder {tc.num_hidden_layers} layers, "
+    log(f"loaded {MODEL} in {time.time() - t_load:.0f}s: decoder {tc.num_hidden_layers} layers, "
           f"hidden {tc.hidden_size}, heads {tc.num_attention_heads} / kv {tc.num_key_value_heads}, "
           f"sliding window {tc.sliding_window}; {model.config.mm_tokens_per_image} tokens per image; "
           f"GPU mem {torch.cuda.memory_allocated() / 1e9:.1f} GB", flush=True)
@@ -271,7 +291,7 @@ def score(jobs, modes, hf_token):
                       for w in (" yes", "yes", " Yes", "Yes")})
     no_ids = sorted({tok.encode(w, add_special_tokens=False)[0]
                      for w in (" no", "no", " No", "No")})
-    print("yes tokens", [(i, tok.decode([i])) for i in yes_ids],
+    log("yes tokens", [(i, tok.decode([i])) for i in yes_ids],
           "no tokens", [(i, tok.decode([i])) for i in no_ids], flush=True)
 
     out, shown = [], set()
@@ -307,10 +327,10 @@ def score(jobs, modes, hf_token):
                 if first:
                     shown.add(m)
                     txt = tok.decode(inps[0]["input_ids"][0][L:])
-                    print(f"  [{m}] first study: {len(imgs)} images, {L} prefix tokens + "
+                    log(f"  [{m}] first study: {len(imgs)} images, {L} prefix tokens + "
                           f"{inps[0]['input_ids'].shape[1] - L} question tokens; question part: "
                           f"{txt!r}", flush=True)
-                    print(f"  [{m}] CACHE CHECK: max |logit diff| full pass vs shared prefix = "
+                    log(f"  [{m}] CACHE CHECK: max |logit diff| full pass vs shared prefix = "
                           f"{diff:.4f} (bf16 noise is ~0.1; far larger means a bug)", flush=True)
                 row.update({"n_img": len(imgs),
                             "slots": "+".join(f"{s}:{len(sl)}" for s, sl in groups),
@@ -319,23 +339,30 @@ def score(jobs, modes, hf_token):
                             "yn_mass_mean": float(np.mean(mass)), "sec": time.time() - t1})
                 row.update(dict(zip(TASKS, probs)))
             except Exception as e:                             # noqa: BLE001
-                print(f"  ERROR {job['uid']} {m}: {type(e).__name__}: {e}", flush=True)
+                log(f"  ERROR {job['uid']} {m}: {type(e).__name__}: {e}", flush=True)
                 row.update({"error": f"{type(e).__name__}: {e}"})
             out.append(row)
+            rowf.write(json.dumps(row) + "\n")
+        rowf.flush()
         el = time.time() - t0
         eta = el / (k + 1) * (len(jobs) - k - 1)
         rs = out[-len(modes):]
-        print(f"{k + 1}/{len(jobs)} {job['uid'][-8:]} {job.get('side')}  {el:.0f}s elapsed, "
+        log(f"{k + 1}/{len(jobs)} {job['uid'][-8:]} {job.get('side')}  {el:.0f}s elapsed, "
               f"ETA {eta / 60:.1f} min  peak GPU {torch.cuda.max_memory_allocated() / 1e9:.1f} GB",
               flush=True)
         for r in rs:
             if "error" in r:
                 continue
             p = " ".join(f"{r[t]:.2f}" for t in TASKS)
-            print(f"    {r['mode']:8s} {r['n_img']:3d} img {r['total_tok']:6d} tok "
+            log(f"    {r['mode']:8s} {r['n_img']:3d} img {r['total_tok']:6d} tok "
                   f"{r['sec']:5.1f}s  yes/no mass min {r['yn_mass_min']:.2f}  P(yes): {p}",
                   flush=True)
-    return out
+        runs_vol.commit()                               # persist after every study
+    log(f"done: {len(out)} study-modes in {time.time() - t0:.0f}s")
+    logf.close()
+    rowf.close()
+    runs_vol.commit()
+    return out, "\n".join(lines)
 
 
 def dry_run():
@@ -378,29 +405,47 @@ def dry_run():
 
 @app.local_entrypoint()
 def main(modes: str = ",".join(MODES), limit: int = 0):
+    import contextlib
+    import datetime
+    import io as _io
+
     import pandas as pd
     hf_token = (Path.home() / ".cache/huggingface/token").read_text().strip()
     jobs = build_jobs()
     if limit:
         jobs = jobs[:limit]
     ms = [m for m in modes.split(",") if m]
-    rows = score.remote(jobs, ms, hf_token)
+    tag = datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + (f"_first{limit}" if limit else "")
+    out = LOCAL_DIR / tag
+    out.mkdir(parents=True, exist_ok=True)
+    meta = {"model": MODEL, "modes": ms, "studies": len(jobs), "max_slices": MAX_SLICES,
+            "slots_all": SLOTS_ALL, "slots_ax": SLOTS_AX, "flip_side": FLIP_SIDE,
+            "labels": LABEL, "remote_dir": f"knee-runs/labelling/medgemma15_audit58/{tag}",
+            "jobs": [{k: v for k, v in j.items() if k != "report"} for j in jobs]}
+    (out / "meta.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
+    print("local results folder:", out)
+
+    rows, log_text = score.remote(jobs, ms, hf_token, tag)
+    (out / "log.txt").write_text(log_text + "\n", encoding="utf-8")
     df = pd.DataFrame(rows)
-    tag = f"_first{limit}" if limit else ""
-    raw = ROOT / f"data/15_medgemma15_audit58_raw{tag}.csv"
-    df.to_csv(raw, index=False)
-    print("wrote", raw.name)
+    df.to_csv(out / "raw.csv", index=False)
     if "error" in df:
         print("ERRORS:", int(df["error"].notna().sum()), "study-modes failed")
-    if limit:
-        return                          # a smoke test never overwrites the scored CSVs
     for m in ms:
         d = df[df["mode"] == m].rename(columns={"uid": "StudyInstanceUID"})
         d.insert(1, "unusable", False)
-        f = ROOT / f"data/03_report_labels_medgemma15-{m.replace('_', '-')}_validate58.csv"
-        d[["StudyInstanceUID", "unusable"] + TASKS].to_csv(f, index=False)
-        print("wrote", f.name, len(d))
-    scoreboard(df, ms)
+        d = d[["StudyInstanceUID", "unusable"] + TASKS]
+        d.to_csv(out / f"labels_{m}.csv", index=False)
+        if not limit:                   # compare_labelers.py reads these; a smoke test never
+            f = ROOT / f"data/03_report_labels_medgemma15-{m.replace('_', '-')}_validate58.csv"
+            d.to_csv(f, index=False)    # overwrites them
+            print("wrote", f.relative_to(ROOT))
+    buf = _io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        scoreboard(df, ms)
+    print(buf.getvalue())
+    (out / "scoreboard.txt").write_text(buf.getvalue(), encoding="utf-8")
+    print("saved:", ", ".join(sorted(p.name for p in out.iterdir())), "in", out)
 
 
 def scoreboard(df, ms):
