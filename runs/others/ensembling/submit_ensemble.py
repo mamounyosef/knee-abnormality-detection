@@ -66,27 +66,29 @@ from pathlib import Path
 # 6.9-8.3 h of the 9 h cap against 5.5-6.6 h for these six, and +0.0004 val is well inside
 # the 0.0055 noise. A timeout forfeits the run, so the cap decides. See runtime_budget.py.
 MEMBERS = [
-    # THE 0.935 NINE WITH THREE MEMBERS SWAPPED FOR THEIR FULL-DATA RETRAINS. Full data plus
-    # mirroring left knees is the change that took convnext_base_relabel from 0.918 to 0.934,
-    # so it is applied here to three more members at once. None of the three can be scored
-    # offline: each trained on train+val+audit, so any val or audit number would be scoring
-    # its own training data. Epochs were fixed at each donor's peak epoch, since nothing was
-    # held out to early-stop on.
+    # THE 0.937 NINE, WITH TWO MORE MEMBERS SWAPPED FOR THEIR FULL-DATA RETRAINS, PLUS THE
+    # 480 PER-SLICE MEDIMAGEINSIGHT AS A TENTH. Full data (train+val+audit) has paid every
+    # time it has been tried on the leaderboard: 0.918 -> 0.934 for relabel, then 0.935 ->
+    # 0.937 for three members at once. After this, six of the nine original members are
+    # full-data retrains. None of them can be scored offline - each trained on every val and
+    # audit study.
     ("convnext_base_full_all_knees_same_orientation", "best"),
     ("mricore_vitb_cross_attention", "best"),
-    # SWAP 1 of 3: replaces mricore_vitb_mae_cross_attention. Full data AND the mirror; the
-    # ViT, the one architecture family that had had neither. Final step 6050 = 11 x 550.
     ("mricore_vitb_mae_cross_attention_fulldata_flip", "best"),
     ("dinov3_convnext_base", "best"),
-    ("convnext_base_25d_all_knees_same_orientation", "best"),
+    # NEW SWAP: replaces convnext_base_25d_all_knees_same_orientation. Full data only (it was
+    # already mirrored). Final step 6600 = 12 x 550.
+    ("convnext_base_25d_all_knees_same_orientation_fulldata", "best"),
     ("swinv2_base_in22k", "best"),
-    # SWAP 2 of 3: replaces convnext_base_25d_poolattn. Full data AND the mirror. Weakest
-    # member solo, historically the strongest ensemble contributor. Final step 3850 = 7 x 550.
     ("convnext_base_25d_poolattn_fulldata_flip", "best"),
-    ("convnext_base_25d_perfinding_slots_and_pooling", "best"),
-    # SWAP 3 of 3: replaces medimageinsight_davit_huge_336. Full data only - it was already
-    # mirrored. Our best single model on the leaderboard (0.929). Final step 4400 = 8 x 550.
+    # NEW SWAP: replaces convnext_base_25d_perfinding_slots_and_pooling. Full data AND the
+    # mirror. Final step 3300 = 6 x 550.
+    ("convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip", "best"),
     ("medimageinsight_davit_huge_336_fulldata", "best"),
+    # THE TENTH. Added to the 0.935 nine it scored 0.935 exactly, so it was neutral on the
+    # public split; kept because it was the one consistent contributor offline (val +0.0007,
+    # selected in half of the per-finding cross-fits) and the private split decides.
+    ("medimageinsight_davit_huge_perslice_480_warm", "best"),
 ]
 # RadImageNet is deliberately ABSENT: its licence is "personal, non-commercial (e.g.,
 # academic) research purposes only... any commercial use, sale, or other monetization is
@@ -117,35 +119,34 @@ PUBLISH      = True
 # completes. It is also the safe order for an unpriced member: a kernel that breaches the
 # 9 h cap fails on Kaggle and is never submitted, so it costs a run and not an attempt.
 WAIT_FOR_RUN = True
-SUBMIT       = False             # FREE RUN FIRST: three new checkpoints, none scorable offline
+SUBMIT       = False             # FREE RUN FIRST: two new checkpoints and a fifth decode group
                               # real time, gate passed. 31.624 s/study serial over
                               # 6 decode groups; the tenth member costs 4.307.
 KAGGLE_USER  = "mamounhussam"
-SLUG         = "knee-nine-fulldata-swap"
+SLUG         = "knee-ten-fulldata-swap"
 # KEEP THIS IN STEP WITH MEMBERS. Submission 56234763 shipped the 18-slice member while
 # this text still named the 24-slice one, because the swap changed MEMBERS and SLUG and
 # missed NOTE. Kaggle descriptions cannot be edited after submitting, so that record is
 # permanently wrong. Re-read this string whenever MEMBERS changes.
-NOTE         = ("THE 0.935 NINE WITH THREE MEMBERS SWAPPED FOR THEIR FULL-DATA "
-                "RETRAINS. Training on train+val+audit rather than train alone, and "
-                "mirroring left knees so every study faces the same way, is the change that "
-                "took convnext_base_relabel from 0.918 to 0.934; this applies it to three more "
-                "members at once. (1) mricore_vitb_mae_cross_attention -> "
-                "mricore_vitb_mae_cross_attention_fulldata_flip: full data and the mirror, the "
-                "ViT and the one architecture family that had had neither change. (2) "
-                "convnext_base_25d_poolattn -> convnext_base_25d_poolattn_fulldata_flip: full "
-                "data and the mirror. (3) medimageinsight_davit_huge_336 -> "
-                "medimageinsight_davit_huge_336_fulldata: full data only, it was already "
-                "mirrored. Each ran a fixed epoch count equal to its donor's peak epoch, since "
-                "nothing was held out to early-stop on, and each shipped checkpoint is its "
-                "exact final step (6050, 3850, 4400). None can be scored offline because each "
-                "trained on every val and audit study. Members: "
+NOTE         = ("THE 0.937 NINE WITH TWO MORE FULL-DATA SWAPS, PLUS A TENTH MEMBER. Full "
+                "data (train+val+audit) has paid every time it has been tried: 0.918 -> 0.934 "
+                "for relabel, then 0.935 -> 0.937 for three members at once. Here (1) "
+                "convnext_base_25d_all_knees_same_orientation -> "
+                "convnext_base_25d_all_knees_same_orientation_fulldata, full data only since "
+                "it was already mirrored, final step 6600; (2) "
+                "convnext_base_25d_perfinding_slots_and_pooling -> "
+                "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip, full data and "
+                "the laterality mirror, final step 3300. Six of the nine original members are "
+                "now full-data retrains. (3) medimageinsight_davit_huge_perslice_480_warm is "
+                "added as a tenth: added to the 0.935 nine it scored exactly 0.935, neutral on "
+                "the public split, but it was the one consistent offline contributor. Members: "
                 "convnext_base_full_all_knees_same_orientation, mricore_vitb_cross_attention, "
                 "mricore_vitb_mae_cross_attention_fulldata_flip, dinov3_convnext_base, "
-                "convnext_base_25d_all_knees_same_orientation, swinv2_base_in22k, "
+                "convnext_base_25d_all_knees_same_orientation_fulldata, swinv2_base_in22k, "
                 "convnext_base_25d_poolattn_fulldata_flip, "
-                "convnext_base_25d_perfinding_slots_and_pooling, "
-                "medimageinsight_davit_huge_336_fulldata. | Built with DINOv3")
+                "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip, "
+                "medimageinsight_davit_huge_336_fulldata, "
+                "medimageinsight_davit_huge_perslice_480_warm. | Built with DINOv3")
 
 # ===========================================================================
 
