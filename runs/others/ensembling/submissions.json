@@ -236,13 +236,13 @@
     "medimageinsight_davit_huge_336",
     "medimageinsight_davit_huge_perslice_480_warm"
    ],
-   "public_score": null,
+   "public_score": 0.935,
    "submitted": "2026-09-22",
-   "notes": "0.935 nine + the warm 480 per-slice MedImageInsight (added, not swapped). Pending at time of recording.",
+   "notes": "0.935 nine + medimageinsight_davit_huge_perslice_480_warm, ADDED. Scored 0.935, exactly the nine: val's +0.0007 bought 0.000.",
    "private_score": null
   },
   {
-   "submission_ref": null,
+   "submission_ref": 56472575,
    "kernel": "mamounhussam/knee-nine-fulldata-swap-submit",
    "members": [
     "convnext_base_full_all_knees_same_orientation",
@@ -255,9 +255,9 @@
     "convnext_base_25d_perfinding_slots_and_pooling",
     "medimageinsight_davit_huge_336_fulldata"
    ],
-   "public_score": null,
+   "public_score": 0.937,
    "submitted": "2026-09-22",
-   "notes": "0.935 nine with three members swapped for full-data (+mirror) retrains, final steps 6050/3850/4400. 4 decode passes. Pending at time of recording.",
+   "notes": "NEW BEST, 0.937 (+0.002). The 0.935 nine with mricore_vitb_mae_cross_attention, convnext_base_25d_poolattn and medimageinsight_davit_huge_336 swapped for their full-data (+mirror) retrains, final steps 6050/3850/4400. Full data has now paid every time it has been tried.",
    "private_score": null
   }
  ]
