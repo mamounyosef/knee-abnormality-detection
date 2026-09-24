@@ -175,6 +175,26 @@ def _coerce_sci(node):
 def load_config(experiment_dir, config_name: str = "config.yaml", verbose: bool = True) -> dict:
     """shared_config.yaml + the run's config.yaml, run wins."""
     exp_dir = Path(experiment_dir)
+    # A run's own script must load ITS OWN folder. Every run starts as a copy of another, and
+    # each script hardcodes EXP_NAME; a copy that keeps its parent's name silently trains the
+    # PARENT (its labels, its results folder) with nothing failing. That cost a day twice
+    # (15 Sep: five CV folds; 24 Sep: both MedGemma-label twins). Refuse to start instead.
+    import inspect
+    try:
+        caller = Path(inspect.stack()[1].filename).resolve()
+        if (caller.name in ("train.py", "evaluate.py", "submit.py", "plot_results.py")
+                and (caller.parent / "config.yaml").exists()
+                and caller.parent.parent.name == exp_dir.resolve().parent.name
+                and caller.parent.name != exp_dir.name):
+            raise RuntimeError(
+                f"runs/{caller.parent.name}/{caller.name} loads the config of "
+                f"'{exp_dir.name}', not its own folder. Set EXP_NAME = "
+                f"\"{caller.parent.name}\" in that script (python checks/run_name_check.py "
+                f"finds every one).")
+    except RuntimeError:
+        raise
+    except Exception:                                   # inspection itself must never block
+        pass
     shared = yaml.safe_load((exp_dir.parent / "shared_config.yaml").read_text(encoding="utf-8"))
     own = yaml.safe_load((exp_dir / config_name).read_text(encoding="utf-8")) or {}
     cfg = _deep_merge(shared, own)
