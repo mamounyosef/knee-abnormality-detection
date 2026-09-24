@@ -141,7 +141,7 @@ FLIP_SIDE = "left"                     # same side every laterality_flip member 
 
 app = modal.App("medgemma-audit58")
 image = (modal.Image.debian_slim(python_version="3.12")
-         .pip_install("torch==2.8.0", "transformers==4.57.3", "accelerate", "pillow",
+         .pip_install("torch==2.8.0", "torchvision==0.23.0", "transformers==4.57.3", "accelerate", "pillow",
                       "numpy", "pandas", "pyyaml")
          .add_local_file(ROOT / "runs/shared_code.py", "/root/shared_code.py"))
 shards = modal.Volume.from_name("knee-shards")
