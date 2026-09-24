@@ -4730,6 +4730,16 @@ def make_plots(cfg: dict, results_dir, out_subdir: str = "plots",
         floor = lo - span * 0.18                 # droplines stop below every marker
         ax.set_ylim(floor, hi + span * 0.30)     # headroom for the rotated value labels
 
+        # a resumed run re-scores steps an earlier segment already scored, with slightly
+        # different values; printing every one stacks the labels into an unreadable blot.
+        # Each step's number is printed once, from the LAST segment that scored it.
+        owner = {}
+        for r in runs:
+            v = _run_slice(va, r)
+            if v is not None:
+                for st, yv in zip(v["step"].values, v[col].values.astype(float)):
+                    if yv == yv:
+                        owner[int(st)] = r
         for r in runs:
             v = _run_slice(va, r)
             if v is None:
@@ -4741,7 +4751,7 @@ def make_plots(cfg: dict, results_dir, out_subdir: str = "plots",
             ax.plot(x, y, color=c, marker="o", ms=5, lw=1.8, label=_lbl(r), zorder=3)
             best = int(np.nanargmax(y)) if mode == "max" else int(np.nanargmin(y))
             for i, (xi, yi) in enumerate(zip(x, y)):
-                if yi != yi:
+                if yi != yi or owner.get(int(v["step"].values[i])) != r:
                     continue
                 ax.annotate("%.4f" % yi, (xi, yi), textcoords="offset points",
                             xytext=(0, 8), ha="center", va="bottom",
@@ -5014,6 +5024,8 @@ def make_plots(cfg: dict, results_dir, out_subdir: str = "plots",
           "macro_auroc.png", "max", "audit_macro_auroc")
     _safe("plot:macro_auroc_detailed", _plot_macro_detailed, "val_macro_auroc",
           "validation macro AUROC", "macro_auroc_detailed.png", "max")
+    _safe("plot:audit_macro_auroc_detailed", _plot_macro_detailed, "audit_macro_auroc",
+          "audit-58 macro AUROC (panel labels)", "audit_macro_auroc_detailed.png", "max")
     _safe("plot:macro_auprc", _plot_macro, "val_macro_auprc", "validation macro AUPRC",
           "macro_auprc.png", "max")
     _safe("plot:per_task_auroc", _plot_per_task, "auroc", "per-finding AUROC",
