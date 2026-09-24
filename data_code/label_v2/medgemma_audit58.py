@@ -502,7 +502,7 @@ def reason_prob_shared(model, ids_list, pixel_values, image_token_id, yes_ids, n
               volumes={"/shards": shards, "/root/.cache/huggingface": hf_cache,
                        "/runs_vol": runs_vol},
               secrets=[modal.Secret.from_name("huggingface")])
-def score(jobs, modes, tag, part=0):
+def score(jobs, modes, tag, part=0, attn="sdpa"):
     """Returns (rows, log text). Also writes log.txt and rows.jsonl to the knee-runs volume
     after EVERY study, so a crash or a stop keeps everything done so far."""
     import os
@@ -529,12 +529,13 @@ def score(jobs, modes, tag, part=0):
 
     log(f"remote results: knee-runs volume {out_dir.replace('/runs_vol/', '')}")
     t_load = time.time()
+    log(f"attention: {attn}")
     log(f"GPU {torch.cuda.get_device_name(0)}, "
           f"{torch.cuda.get_device_properties(0).total_memory / 1e9:.0f} GB; "
           f"{len(jobs)} studies x modes {modes} x {len(TASKS)} findings", flush=True)
     proc = AutoProcessor.from_pretrained(MODEL, use_fast=True)
     model = AutoModelForImageTextToText.from_pretrained(
-        MODEL, dtype=torch.bfloat16, device_map="cuda", attn_implementation="sdpa").eval()
+        MODEL, dtype=torch.bfloat16, device_map="cuda", attn_implementation=attn).eval()
     hf_cache.commit()
     tc = model.config.text_config
     log(f"loaded {MODEL} in {time.time() - t_load:.0f}s: decoder {tc.num_hidden_layers} layers, "
@@ -763,7 +764,8 @@ def dry_run():
 
 
 @app.local_entrypoint()
-def main(modes: str = ",".join(MODES), limit: int = 0, workers: int = 4):
+def main(modes: str = ",".join(MODES), limit: int = 0, workers: int = 4, gpu: str = "L40S",
+         attn: str = "sdpa"):
     import contextlib
     import datetime
     import io as _io
@@ -774,6 +776,8 @@ def main(modes: str = ",".join(MODES), limit: int = 0, workers: int = 4):
         jobs = jobs[:limit]
     ms = [m for m in modes.split(",") if m]
     tag = datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + (f"_first{limit}" if limit else "")
+    if gpu != "L40S" or attn != "sdpa":           # a speed benchmark: name the folder by setup
+        tag += f"_{gpu.replace(':', '')}_{attn}"
     out = LOCAL_DIR / tag
     out.mkdir(parents=True, exist_ok=True)
     meta = {"model": MODEL, "modes": ms, "studies": len(jobs), "max_slices": MAX_SLICES,
@@ -789,7 +793,10 @@ def main(modes: str = ",".join(MODES), limit: int = 0, workers: int = 4):
     chunks = [jobs[i::workers] for i in range(workers)]
     print(f"{len(jobs)} studies over {workers} container(s): {[len(c) for c in chunks]}")
     rows, logs = [], []
-    for r, lg in score.starmap([(c, ms, tag, i) for i, c in enumerate(chunks)]):
+    # --gpu and --attn change SPEED only: attn=flex_attention is checked equal to sdpa by
+    # checks/medgemma_attn_backend_check.py, and the GPU type never changes the model
+    fn = score.with_options(gpu=gpu) if gpu != "L40S" else score
+    for r, lg in fn.starmap([(c, ms, tag, i, attn) for i, c in enumerate(chunks)]):
         rows += r
         logs.append(lg)
     log_text = "\n\n".join(logs)
