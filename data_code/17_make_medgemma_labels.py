@@ -27,6 +27,9 @@ Writes, keeping every row, column and order of the Qwen files they replace:
     data/17_train_full_qwen-mg.csv <- 08_train_full.csv (train + val + audit)
 
     python data_code/17_make_medgemma_labels.py
+    python data_code/17_make_medgemma_labels.py --raw   # NO rescale: same logit average on
+                                                        # MedGemma's own scale -> *_qwen-mg-raw.csv
+The --raw twin exists to test the rescale itself on the leaderboard (both trained in parallel).
 """
 import sys
 from pathlib import Path
@@ -42,9 +45,11 @@ TASKS = ["ACL", "MCL", "Medial Meniscus", "Lateral Meniscus", "Medial OA", "Late
 BLEND = ["Effusion", "Synovitis", "Baker's", "Lateral Meniscus", "Lateral OA"]
 W = 0.5
 EPS = 1e-4
-OUT = {"05_train_qwen24t-med.csv": "17_train_qwen-mg.csv",
-       "05_val_qwen24t-med.csv": "17_val_qwen-mg.csv",
-       "08_train_full.csv": "17_train_full_qwen-mg.csv"}
+RAW = "--raw" in sys.argv
+SUFFIX = "qwen-mg-raw" if RAW else "qwen-mg"
+OUT = {"05_train_qwen24t-med.csv": f"17_train_{SUFFIX}.csv",
+       "05_val_qwen24t-med.csv": f"17_val_{SUFFIX}.csv",
+       "08_train_full.csv": f"17_train_full_{SUFFIX}.csv"}
 
 
 def logit(p):
@@ -75,7 +80,8 @@ def main():
     Lq = logit(qwen.loc[ids, BLEND].values)
     Lm = logit(mg.loc[ids, BLEND].values)
     mq, sq, mm, sm = Lq.mean(0), Lq.std(0), Lm.mean(0), Lm.std(0)
-    Lm_q = (Lm - mm) / sm * sq + mq
+    Lm_q = Lm if RAW else (Lm - mm) / sm * sq + mq      # --raw: MedGemma's own scale
+    print("VARIANT:", "RAW (no rescale)" if RAW else "rescaled to Qwen")
     new = qwen.copy()
     new.loc[ids, BLEND] = sigmoid((1 - W) * Lq + W * Lm_q)
     print("\nscale per finding (logit mean / sd):")
