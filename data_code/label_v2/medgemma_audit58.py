@@ -465,8 +465,15 @@ def reason_prob_shared(model, ids_list, pixel_values, image_token_id, yes_ids, n
                     break
                 gen.append(t)
                 lg, pos = step(c, torch.tensor([[t]], device=dev), pos)
-                if tok.decode(gen[-8:]).rstrip().endswith(REASON_MARK):
+                tail = tok.decode(gen[-12:])
+                # its OWN answer line only: batch E (24 Sep) showed MedGemma often goes on to
+                # write the NEXT question itself, quoting '"Final Answer: yes"', and the old
+                # endswith() test stopped inside that quote (94 of 696 answers)
+                if tail.rstrip().endswith(REASON_MARK) and (
+                        "\n" + REASON_MARK in "\n" + tok.decode(gen).split("\n")[-1]):
                     done = True
+                    break
+                if "\nIs there" in tok.decode(gen):   # started a new question: answer now
                     break
             if not done:                       # no answer reached: ask for it explicitly
                 gen += mark_ids
