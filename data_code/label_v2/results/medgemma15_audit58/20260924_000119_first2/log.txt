@@ -1,0 +1,19 @@
+remote results: knee-runs volume labelling/medgemma15_audit58/20260924_000119_first2/part0
+GPU NVIDIA L40S, 48 GB; 2 studies x modes ['ax', 'fluid', 'all'] x 12 findings
+loaded google/medgemma-1.5-4b-it in 16s: decoder 34 layers, hidden 2560, heads 8 / kv 4, sliding window 1024; 256 tokens per image; GPU mem 8.6 GB
+yes tokens [(4443, 'yes'), (8438, ' Yes'), (10784, 'Yes'), (11262, ' yes')] no tokens [(951, ' no'), (1904, 'no'), (2301, ' No'), (3771, 'No')]
+  [ax] first study: 32 images, 8471 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [ax] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.2188 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0019 (should be < 0.02)
+  [fluid] first study: 84 images, 22233 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [fluid] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.2500 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0000 (should be < 0.02)
+  [all] first study: 85 images, 22529 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [all] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.2188 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0014 (should be < 0.02)
+1/2 94649149 right  52s elapsed, ETA 0.9 min  peak GPU 28.5 GB  waited for CPU 8.5s (CPU prep overlapped: 8.5s)
+    ax        32 img   8511 tok gpu   5.4s (cpu prep 1.4s, overlapped)  yes/no mass min 0.95  P(yes): 0.32 0.07 0.18 0.15 0.49 0.46 0.26 0.89 0.50 0.94 0.18 0.01
+    fluid     84 img  22273 tok gpu  15.0s (cpu prep 3.5s, overlapped)  yes/no mass min 0.93  P(yes): 0.43 0.20 0.43 0.32 0.75 0.69 0.52 0.96 0.71 0.97 0.37 0.01
+    all       85 img  22569 tok gpu  15.6s (cpu prep 3.4s, overlapped)  yes/no mass min 0.94  P(yes): 0.27 0.16 0.35 0.27 0.55 0.55 0.40 0.96 0.54 0.97 0.24 0.01
+2/2 39028269 right  77s elapsed, ETA 0.0 min  peak GPU 28.5 GB  waited for CPU 0.0s (CPU prep overlapped: 12.6s)
+    ax        80 img  21200 tok gpu   7.0s (cpu prep 3.5s, overlapped)  yes/no mass min 0.94  P(yes): 0.61 0.26 0.46 0.37 0.74 0.69 0.61 0.93 0.79 0.86 0.61 0.02
+    fluid     84 img  22273 tok gpu   7.6s (cpu prep 3.9s, overlapped)  yes/no mass min 0.93  P(yes): 0.70 0.45 0.65 0.49 0.90 0.86 0.81 0.96 0.89 0.93 0.79 0.03
+    all       84 img  22322 tok gpu   7.6s (cpu prep 4.3s, overlapped)  yes/no mass min 0.94  P(yes): 0.77 0.40 0.70 0.59 0.89 0.84 0.81 0.98 0.90 0.94 0.77 0.02
+done: 6 study-modes in 79s

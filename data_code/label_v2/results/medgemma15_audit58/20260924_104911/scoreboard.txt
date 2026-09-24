@@ -1,0 +1,27 @@
+
+SCOREBOARD vs the panel, 58 studies (macro AUROC; delta vs Qwen with 95% bootstrap CI)
+  qwen24t-med            0.9114 (+0.0000)  CI [+0.0000, +0.0000]  P(better)   0%  Brier 0.1149
+  ax                     0.6974 (-0.2140)  CI [-0.2595, -0.1704]  P(better)   0%  Brier 0.3005
+  fluid                  0.7262 (-0.1852)  CI [-0.2293, -0.1420]  P(better)   0%  Brier 0.3540
+  all                    0.7238 (-0.1876)  CI [-0.2330, -0.1433]  P(better)   0%  Brier 0.3398
+  qwen+ax mean           0.9205 (+0.0091)  CI [-0.0059, +0.0253]  P(better)  88%  Brier 0.1510
+  qwen+fluid mean        0.9177 (+0.0063)  CI [-0.0068, +0.0192]  P(better)  85%  Brier 0.1700
+  qwen+all mean          0.9203 (+0.0089)  CI [-0.0049, +0.0241]  P(better)  89%  Brier 0.1658
+  qwen+ax fluid3         0.9258 (+0.0144)  CI [+0.0062, +0.0239]  P(better) 100%  Brier 0.1252
+  qwen+fluid fluid3      0.9232 (+0.0118)  CI [+0.0053, +0.0192]  P(better) 100%  Brier 0.1324
+  qwen+all fluid3        0.9237 (+0.0123)  CI [+0.0057, +0.0197]  P(better) 100%  Brier 0.1312
+
+per finding AUROC:
+   qwen24t-med           ax        fluid          all qwen+ax mean qwen+fluid m qwen+all mea qwen+ax flui qwen+fluid f qwen+all flu   finding
+         0.979        0.571        0.586        0.560        0.955        0.950        0.944        0.979        0.979        0.979   ACL (24 pos)
+         0.983        0.406        0.510        0.526        0.932        0.943        0.950        0.983        0.983        0.983   MCL (9 pos)
+         0.957        0.709        0.696        0.617        0.925        0.942        0.911        0.957        0.957        0.957   Medial Meniscus (26 pos)
+         0.895        0.629        0.698        0.694        0.916        0.929        0.928        0.895        0.895        0.895   Lateral Meniscus (23 pos)
+         0.945        0.789        0.828        0.812        0.941        0.947        0.943        0.945        0.945        0.945   Medial OA (15 pos)
+         0.839        0.698        0.737        0.799        0.880        0.863        0.899        0.839        0.839        0.839   Lateral OA (11 pos)
+         0.912        0.659        0.719        0.700        0.905        0.905        0.907        0.912        0.912        0.912   PF OA (21 pos)
+         0.865        0.917        0.928        0.943        0.935        0.919        0.930        0.935        0.919        0.930   Effusion (35 pos)
+         0.842        0.853        0.848        0.874        0.910        0.900        0.903        0.910        0.900        0.903   Synovitis (27 pos)
+         0.909        0.835        0.837        0.799        0.942        0.938        0.929        0.942        0.938        0.929   Baker's (12 pos)
+         0.897        0.657        0.657        0.655        0.906        0.891        0.891        0.897        0.897        0.897   Contusion (19 pos)
+         0.914        0.646        0.669        0.707        0.899        0.885        0.908        0.914        0.914        0.914   Fracture (18 pos)
