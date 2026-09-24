@@ -132,7 +132,18 @@ MODE_DEF = {
     "corax_fluid":  (["cor_fluid", "ax_fluid"], False),     # MCL sprain, contusion
     "sagcor_fluid": (["sag_fluid", "cor_fluid"], False),    # contusion, meniscus
     "plain":        (["sag_plain", "cor_plain", "ax_plain"], False),  # fracture lines
+    # batch J: PF OA asked in the words radiologists write (axial / axial + side views)
+    "ax_pf1": (SLOTS_AX, False), "ax_pf2": (SLOTS_AX, False), "ax_pf3": (SLOTS_AX, False),
+    "axsag_pf1": (["sag_plain", "sag_fluid", "ax_plain", "ax_fluid"], False),
+    "axsag_pf2": (["sag_plain", "sag_fluid", "ax_plain", "ax_fluid"], False),
+    "axsag_pf3": (["sag_plain", "sag_fluid", "ax_plain", "ax_fluid"], False),
+    # batch K, test-time variants of the recipe: other slices of the same knee, or unmirrored
+    "all_shift":  (SLOTS_ALL, False),
+    "all_noflip": (SLOTS_ALL, False),
 }
+PF_ALT = {"pf1": "chondromalacia patellae",
+          "pf2": "high-grade cartilage loss of the patella or trochlea",
+          "pf3": "patellofemoral cartilage damage"}
 # each finding's medically appropriate view sets, FIXED BEFORE the batch H/I results: the
 # per-finding choice only ever picks among these, so 58 studies cannot shop across all modes
 MED_MAP = {
@@ -154,7 +165,8 @@ MED_MAP = {
 MODE_OPT = {"all_def": {"labels": "def"}, "all_num": {"answer": "number"},
             "all_reason": {"answer": "reason"},
             # the outer 5% of each series is mostly empty edge (the engine's slice_margin)
-            "all_margin": {"margin": 0.05}}
+            "all_margin": {"margin": 0.05},
+            "all_shift": {"shift": True}, "all_noflip": {"noflip": True}}
 REASON_MAX_NEW = 320          # tokens of argument before "Final Answer:" is forced
 REASON_MARK = "Final Answer:"
 NUM_PREFILL = "Probability:"
@@ -236,14 +248,20 @@ def volume_slices(z, job, mode):
         return []
     have = [s for s in want if job["slots"].get(s) in z.files]
     per = MAX_SLICES // max(len(have), 1)
-    mirror = job.get("side") == FLIP_SIDE
+    mirror = job.get("side") == FLIP_SIDE and not MODE_OPT.get(mode, {}).get("noflip")
+    shift = MODE_OPT.get(mode, {}).get("shift")
     out = []
     for s in have:
         vol = z[job["slots"][s]]
         mg_ = MODE_OPT.get(mode, {}).get("margin", 0.0)
         lo = int(vol.shape[0] * mg_)
         hi = vol.shape[0] - lo
-        vol = vol[lo:hi][pick(hi - lo, per)]
+        n_ = hi - lo
+        if shift and n_ > per:          # bin centres: half a step off the default grid
+            ids_ = [min(n_ - 1, int((i + 0.5) * n_ / per)) for i in range(per)]
+        else:
+            ids_ = pick(n_, per)
+        vol = vol[lo:hi][ids_]
         if mirror:
             vol = _sc()._mirror_slot(vol, s)
         out.append((s, list(vol)))
@@ -253,6 +271,8 @@ def volume_slices(z, job, mode):
 def prompt_text(job, mode, task):
     opt = MODE_OPT.get(mode, {})
     lab = (LABEL_DEF if opt.get("labels") == "def" else LABEL)[task]
+    if task == "PF OA" and mode.split("_")[-1] in PF_ALT:        # batch J wording only
+        lab = PF_ALT[mode.split("_")[-1]]
     slots, with_report = MODE_DEF[mode]
     if opt.get("answer") == "number":
         return (f"What is the probability that there is {lab} in the MRI volume? Answer with a "
