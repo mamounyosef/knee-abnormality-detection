@@ -53,7 +53,7 @@ transformers.AutoModelForImageTextToText.from_pretrained = \
     staticmethod(lambda *a, **k: tiny.to(k.get("device_map", "cuda")))
 transformers.AutoProcessor.from_pretrained = staticmethod(lambda *a, **k: proc)
 tmp = Path(tempfile.mkdtemp(prefix="mg_local_"))
-mg.REMOTE_DIR = str(tmp)
+mg.REMOTE_ROOT = str(tmp)
 mg.SHARDS_DIR = str(ROOT / "data/shards")
 mg.runs_vol = _Vol()
 mg.hf_cache = _Vol()
@@ -66,7 +66,7 @@ for j in jobs:
     j["report"] = "Moderate joint effusion. Intact cruciate ligaments."
 import os  # noqa: E402
 os.environ.setdefault("HF_TOKEN", "local-test")
-MODES = ["all", "all_num", "all_reason"]     # batch E, the next real run
+MODES = ["all", "all_num", "all_reason"]     # every answer path
 raw = mg.score.get_raw_f()
 rows, log_text = raw(jobs, MODES, "localtest", part=0)
 
@@ -88,9 +88,14 @@ fails += len(checks) != len([m for m in MODES if mg.MODE_OPT.get(m, {}).get("ans
 rc = [r["reason_check"] for r in ok if "reason_check" in r]
 print("reasoning checks (|P(yes)| shared decode vs one full pass):", rc)
 fails += len(rc) != 1 or not rc[0] < 1e-3
-part = tmp / "localtest/part0"
+part = tmp / "medgemma15_audit58/localtest/part0"
 saved = [json.loads(x) for x in (part / "rows.jsonl").read_text().splitlines()]
 print("saved rows.jsonl", len(saved), "log.txt lines", len((part / "log.txt").read_text().splitlines()))
 fails += len(saved) != exp
+# RESUME: the same tag again must redo nothing and return every row it saved before
+rows2, _ = raw(jobs, MODES, "localtest", part=0)
+n_again = len((part / "rows.jsonl").read_text().splitlines())
+print(f"resume: second run returned {len(rows2)} rows, rows.jsonl still {n_again} lines")
+fails += len(rows2) != exp or n_again != exp
 print("ALL OK" if not fails else f"{fails} FAILED")
 sys.exit(1 if fails else 0)

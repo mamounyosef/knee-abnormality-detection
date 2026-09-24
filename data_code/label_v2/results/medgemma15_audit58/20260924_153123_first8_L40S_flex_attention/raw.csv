@@ -1,0 +1,33 @@
+uid,mode,side,error
+1.2.826.0.1.3680043.8.498.10095687747295410396510538520594649149,all,right,"InductorError: RuntimeError: No valid triton configs. OutOfMemoryError: out of resource: triton_tem_fused_0 Required: 153600 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+
+Set TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS=""+dynamo""
+"
+1.2.826.0.1.3680043.8.498.10170898615867673028696505248839028269,all,right,"InductorError: RuntimeError: No valid triton configs. OutOfMemoryError: out of resource: triton_tem_fused_0 Required: 153600 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+
+Set TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS=""+dynamo""
+"
+1.2.826.0.1.3680043.8.498.10306159113324811538703788080836752052,all,right,"InductorError: RuntimeError: No valid triton configs. OutOfMemoryError: out of resource: triton_tem_fused_0 Required: 153600 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+
+Set TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS=""+dynamo""
+"
+1.2.826.0.1.3680043.8.498.11287937729196958426538087439102017580,all,left,"InductorError: RuntimeError: No valid triton configs. OutOfMemoryError: out of resource: triton_tem_fused_0 Required: 153600 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+
+Set TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS=""+dynamo""
+"
+1.2.826.0.1.3680043.8.498.11382021393803389951964005983002209238,all,left,"InductorError: RuntimeError: No valid triton configs. OutOfMemoryError: out of resource: triton_tem_fused_0 Required: 153600 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+
+Set TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS=""+dynamo""
+"
+1.2.826.0.1.3680043.8.498.11548045715264151632153040089882701935,all,right,"InductorError: RuntimeError: No valid triton configs. OutOfMemoryError: out of resource: triton_tem_fused_0 Required: 153600 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+
+Set TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS=""+dynamo""
+"
+1.2.826.0.1.3680043.8.498.11557620559191469069130827959098335840,all,right,"InductorError: RuntimeError: No valid triton configs. OutOfMemoryError: out of resource: triton_tem_fused_0 Required: 153600 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+
+Set TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS=""+dynamo""
+"
+1.2.826.0.1.3680043.8.498.11771393824519892797114773408583976756,all,right,"InductorError: RuntimeError: No valid triton configs. OutOfMemoryError: out of resource: triton_tem_fused_0 Required: 153600 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+
+Set TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS=""+dynamo""
+"

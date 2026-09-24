@@ -138,6 +138,10 @@ SLOT_NAME = {
     "ax_fluid": "axial (cross-section), fluid-sensitive fat-suppressed",
 }
 FLIP_SIDE = "left"                     # same side every laterality_flip member mirrors
+# GPU type, set BEFORE `modal run` because it is fixed when the function is defined:
+#   $env:MEDGEMMA_GPU = "H100"   (speed only; the model and its answers do not change)
+import os as _os  # noqa: E402
+GPU = _os.environ.get("MEDGEMMA_GPU", "H100")   # benchmark 24 Sep: cheapest per study, 2x L40S speed
 
 app = modal.App("medgemma-audit58")
 image = (modal.Image.debian_slim(python_version="3.12")
@@ -148,8 +152,11 @@ shards = modal.Volume.from_name("knee-shards")
 hf_cache = modal.Volume.from_name("hf-cache", create_if_missing=True)
 runs_vol = modal.Volume.from_name("knee-runs")
 REMOTE_DIR = "/runs_vol/labelling/medgemma15_audit58"      # knee-runs volume
+REMOTE_ROOT = "/runs_vol/labelling"
+SPLIT_DIR = {"audit": "medgemma15_audit58", "corpus": "medgemma15_corpus"}
 SHARDS_DIR = "/shards"                                     # knee-shards volume
 LOCAL_DIR = ROOT / "data_code/label_v2/results/medgemma15_audit58"
+LOCAL_ROOT = ROOT / "data_code/label_v2/results"
 
 
 def _sc():
@@ -498,11 +505,11 @@ def reason_prob_shared(model, ids_list, pixel_values, image_token_id, yes_ids, n
     return probs, mass, texts, ntok, forced, L, chk
 
 
-@app.function(gpu="L40S", image=image, timeout=3 * 3600,
+@app.function(gpu=GPU, image=image, timeout=3 * 3600,
               volumes={"/shards": shards, "/root/.cache/huggingface": hf_cache,
                        "/runs_vol": runs_vol},
               secrets=[modal.Secret.from_name("huggingface")])
-def score(jobs, modes, tag, part=0, attn="sdpa"):
+def score(jobs, modes, tag, part=0, attn="sdpa", sub="medgemma15_audit58"):
     """Returns (rows, log text). Also writes log.txt and rows.jsonl to the knee-runs volume
     after EVERY study, so a crash or a stop keeps everything done so far."""
     import os
@@ -514,7 +521,18 @@ def score(jobs, modes, tag, part=0, attn="sdpa"):
     from transformers import AutoModelForImageTextToText, AutoProcessor
 
     assert os.environ.get("HF_TOKEN"), "Modal secret `huggingface` has no HF_TOKEN"
-    out_dir = f"{REMOTE_DIR}/{tag}/part{part}"
+    out_dir = f"{REMOTE_ROOT}/{sub}/{tag}/part{part}"
+    # RESUME: a rerun with the same --tag gives this part the same studies; whatever it
+    # already saved is kept and skipped, so a stopped or crashed run loses nothing
+    done_rows = []
+    if os.path.exists(f"{out_dir}/rows.jsonl"):
+        for line in open(f"{out_dir}/rows.jsonl", encoding="utf-8"):
+            if line.strip():
+                r = json.loads(line)
+                if "error" not in r:
+                    done_rows.append(r)
+    done = {(r["uid"], r["mode"]) for r in done_rows}
+    jobs = [j for j in jobs if any((j["uid"], m) not in done for m in modes)]
     os.makedirs(out_dir, exist_ok=True)
     logf = open(f"{out_dir}/log.txt", "a", encoding="utf-8")
     rowf = open(f"{out_dir}/rows.jsonl", "a", encoding="utf-8")
@@ -527,7 +545,8 @@ def score(jobs, modes, tag, part=0, attn="sdpa"):
         logf.write(m + "\n")
         logf.flush()
 
-    log(f"remote results: knee-runs volume {out_dir.replace('/runs_vol/', '')}")
+    log(f"remote results: knee-runs volume {out_dir.replace('/runs_vol/', '')}"
+        + (f"; resuming, {len(done_rows)} study-modes already saved" if done_rows else ""))
     t_load = time.time()
     log(f"attention: {attn}")
     log(f"GPU {torch.cuda.get_device_name(0)}, "
@@ -599,7 +618,7 @@ def score(jobs, modes, tag, part=0, attn="sdpa"):
     from concurrent.futures import ThreadPoolExecutor
     pool = ThreadPoolExecutor(max_workers=1)
     nxt = pool.submit(prepare, jobs[0]) if jobs else None
-    out, shown = [], set()
+    out, shown = list(done_rows), set()
     t0 = time.time()
     for k, job in enumerate(jobs):
         t_wait = time.time()
@@ -607,6 +626,8 @@ def score(jobs, modes, tag, part=0, attn="sdpa"):
         t_wait = time.time() - t_wait                      # > 0 only if the CPU fell behind
         nxt = pool.submit(prepare, jobs[k + 1]) if k + 1 < len(jobs) else None
         for m in modes:
+            if (job["uid"], m) in done:
+                continue
             row = {"uid": job["uid"], "mode": m, "side": job.get("side")}
             try:
                 pm = prepared[m]
@@ -703,7 +724,7 @@ def score(jobs, modes, tag, part=0, attn="sdpa"):
         rowf.flush()
         el = time.time() - t0
         eta = el / (k + 1) * (len(jobs) - k - 1)
-        rs = out[-len(modes):]
+        rs = [r for r in out[-len(modes):] if r["uid"] == job["uid"]]
         log(f"{k + 1}/{len(jobs)} {job['uid'][-8:]} {job.get('side')}  {el:.0f}s elapsed, "
               f"ETA {eta / 60:.1f} min  peak GPU {torch.cuda.max_memory_allocated() / 1e9:.1f} GB  "
               f"waited for CPU {t_wait:.1f}s (CPU prep overlapped: {prepared['_load_s']:.1f}s)",
@@ -764,25 +785,38 @@ def dry_run():
 
 
 @app.local_entrypoint()
-def main(modes: str = ",".join(MODES), limit: int = 0, workers: int = 4, gpu: str = "L40S",
-         attn: str = "sdpa"):
+def main(modes: str = ",".join(MODES), limit: int = 0, workers: int = 4, attn: str = "sdpa",
+         split: str = "audit", tag: str = ""):
+    """--split audit (58 panel studies) or corpus (all 4,407, the relabel). --tag reuses a
+    run's folder to RESUME it: finished studies are skipped, keep the same --workers."""
+    gpu = GPU
+    sub = SPLIT_DIR[split]
     import contextlib
     import datetime
     import io as _io
 
     import pandas as pd
-    jobs = build_jobs()
+    ms_ = [m for m in modes.split(",") if m]
+    need_report = any(MODE_DEF[m][1] for m in ms_)
+    if split == "corpus":
+        jobs = build_jobs(list(pd.read_csv(ROOT / "data/02_reports_en.csv").StudyInstanceUID),
+                          reports=need_report)
+    else:
+        jobs = build_jobs(reports=need_report)
     if limit:
         jobs = jobs[:limit]
     ms = [m for m in modes.split(",") if m]
-    tag = datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + (f"_first{limit}" if limit else "")
-    if gpu != "L40S" or attn != "sdpa":           # a speed benchmark: name the folder by setup
-        tag += f"_{gpu.replace(':', '')}_{attn}"
-    out = LOCAL_DIR / tag
+    if not tag:
+        tag = datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + (f"_first{limit}" if limit else "")
+        if split == "audit" and (gpu != "H100" or attn != "sdpa"):   # a speed benchmark
+            tag += f"_{gpu.replace(':', '')}_{attn}"
+    print(f"tag {tag}  (rerun with --tag {tag} to resume)")
+    out = LOCAL_ROOT / sub / tag
     out.mkdir(parents=True, exist_ok=True)
     meta = {"model": MODEL, "modes": ms, "studies": len(jobs), "max_slices": MAX_SLICES,
             "mode_def": {m: MODE_DEF[m] for m in ms}, "flip_side": FLIP_SIDE,
-            "labels": LABEL, "remote_dir": f"knee-runs/labelling/medgemma15_audit58/{tag}",
+            "labels": LABEL, "remote_dir": f"knee-runs/labelling/{sub}/{tag}", "gpu": gpu,
+            "split": split,
             "jobs": [{k: v for k, v in j.items() if k != "report"} for j in jobs]}
     (out / "meta.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
     print("local results folder:", out)
@@ -793,10 +827,9 @@ def main(modes: str = ",".join(MODES), limit: int = 0, workers: int = 4, gpu: st
     chunks = [jobs[i::workers] for i in range(workers)]
     print(f"{len(jobs)} studies over {workers} container(s): {[len(c) for c in chunks]}")
     rows, logs = [], []
-    # --gpu and --attn change SPEED only: attn=flex_attention is checked equal to sdpa by
+    # MEDGEMMA_GPU and --attn change SPEED only: attn=flex_attention is checked equal to sdpa by
     # checks/medgemma_attn_backend_check.py, and the GPU type never changes the model
-    fn = score.with_options(gpu=gpu) if gpu != "L40S" else score
-    for r, lg in fn.starmap([(c, ms, tag, i, attn) for i, c in enumerate(chunks)]):
+    for r, lg in score.starmap([(c, ms, tag, i, attn, sub) for i, c in enumerate(chunks)]):
         rows += r
         logs.append(lg)
     log_text = "\n\n".join(logs)
@@ -810,7 +843,11 @@ def main(modes: str = ",".join(MODES), limit: int = 0, workers: int = 4, gpu: st
         d.insert(1, "unusable", False)
         d = d[["StudyInstanceUID", "unusable"] + TASKS]
         d.to_csv(out / f"labels_{m}.csv", index=False)
-        if not limit:                   # compare_labelers.py reads these; a smoke test never
+        if split == "corpus" and not limit:
+            f = ROOT / f"data/16_medgemma15_corpus_{m}.csv"     # the relabel's raw scores
+            d.to_csv(f, index=False)
+            print("wrote", f.relative_to(ROOT), len(d))
+        elif not limit:                 # compare_labelers.py reads these; a smoke test never
             f = ROOT / f"data/03_report_labels_medgemma15-{m.replace('_', '-')}_validate58.csv"
             d.to_csv(f, index=False)    # overwrites them
             print("wrote", f.relative_to(ROOT))
@@ -834,7 +871,7 @@ def scoreboard(df, ms):
     qwen = pd.read_csv(ROOT / "data/03_report_labels_qwen24t-med.csv").set_index("StudyInstanceUID")
     ok = df[df.get("error", pd.Series(index=df.index, dtype=object)).isna()] \
         if "error" in df else df
-    uids = sorted(set.intersection(*[set(ok[ok["mode"] == m].uid) for m in ms]))
+    uids = sorted(set.intersection(*[set(ok[ok["mode"] == m].uid) for m in ms]) & set(aud.index))
     if len(uids) < 20:
         # AUROC needs positives AND negatives per finding; a smoke test has neither
         print(f"\nSCOREBOARD skipped: {len(uids)} studies is too few to score (needs >= 20).")

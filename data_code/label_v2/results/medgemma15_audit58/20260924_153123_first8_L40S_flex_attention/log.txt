@@ -1,0 +1,46 @@
+remote results: knee-runs volume labelling/medgemma15_audit58/20260924_153123_first8_L40S_flex_attention/part0
+attention: flex_attention
+GPU NVIDIA L40S, 48 GB; 8 studies x modes ['all'] x 12 findings
+loaded google/medgemma-1.5-4b-it in 11s: decoder 34 layers, hidden 2560, heads 8 / kv 4, sliding window 1024; 256 tokens per image; GPU mem 8.6 GB
+yes tokens [(4443, 'yes'), (8438, ' Yes'), (10784, 'Yes'), (11262, ' yes')] no tokens [(951, ' no'), (1904, 'no'), (2301, ' No'), (3771, 'No')]
+  ERROR 1.2.826.0.1.3680043.8.498.10095687747295410396510538520594649149 all: InductorError: RuntimeError: No valid triton configs. OutOfMemoryError: out of resource: triton_tem_fused_0 Required: 153600 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+
+Set TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS="+dynamo"
+
+1/8 94649149 right  70s elapsed, ETA 8.2 min  peak GPU 18.4 GB  waited for CPU 2.3s (CPU prep overlapped: 2.3s)
+  ERROR 1.2.826.0.1.3680043.8.498.10170898615867673028696505248839028269 all: InductorError: RuntimeError: No valid triton configs. OutOfMemoryError: out of resource: triton_tem_fused_0 Required: 153600 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+
+Set TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS="+dynamo"
+
+2/8 39028269 right  106s elapsed, ETA 5.3 min  peak GPU 19.2 GB  waited for CPU 0.0s (CPU prep overlapped: 3.6s)
+  ERROR 1.2.826.0.1.3680043.8.498.10306159113324811538703788080836752052 all: InductorError: RuntimeError: No valid triton configs. OutOfMemoryError: out of resource: triton_tem_fused_0 Required: 153600 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+
+Set TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS="+dynamo"
+
+3/8 36752052 right  117s elapsed, ETA 3.2 min  peak GPU 19.2 GB  waited for CPU 0.0s (CPU prep overlapped: 2.3s)
+  ERROR 1.2.826.0.1.3680043.8.498.11287937729196958426538087439102017580 all: InductorError: RuntimeError: No valid triton configs. OutOfMemoryError: out of resource: triton_tem_fused_0 Required: 153600 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+
+Set TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS="+dynamo"
+
+4/8 02017580 left  129s elapsed, ETA 2.2 min  peak GPU 19.2 GB  waited for CPU 0.0s (CPU prep overlapped: 2.4s)
+  ERROR 1.2.826.0.1.3680043.8.498.11382021393803389951964005983002209238 all: InductorError: RuntimeError: No valid triton configs. OutOfMemoryError: out of resource: triton_tem_fused_0 Required: 153600 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+
+Set TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS="+dynamo"
+
+5/8 02209238 left  138s elapsed, ETA 1.4 min  peak GPU 20.1 GB  waited for CPU 0.0s (CPU prep overlapped: 3.2s)
+  ERROR 1.2.826.0.1.3680043.8.498.11548045715264151632153040089882701935 all: InductorError: RuntimeError: No valid triton configs. OutOfMemoryError: out of resource: triton_tem_fused_0 Required: 153600 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+
+Set TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS="+dynamo"
+
+6/8 82701935 right  146s elapsed, ETA 0.8 min  peak GPU 21.1 GB  waited for CPU 0.0s (CPU prep overlapped: 2.1s)
+  ERROR 1.2.826.0.1.3680043.8.498.11557620559191469069130827959098335840 all: InductorError: RuntimeError: No valid triton configs. OutOfMemoryError: out of resource: triton_tem_fused_0 Required: 153600 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+
+Set TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS="+dynamo"
+
+7/8 98335840 right  156s elapsed, ETA 0.4 min  peak GPU 22.2 GB  waited for CPU 0.0s (CPU prep overlapped: 1.7s)
+  ERROR 1.2.826.0.1.3680043.8.498.11771393824519892797114773408583976756 all: InductorError: RuntimeError: No valid triton configs. OutOfMemoryError: out of resource: triton_tem_fused_0 Required: 153600 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+
+Set TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS="+dynamo"
+
+8/8 83976756 right  166s elapsed, ETA 0.0 min  peak GPU 23.1 GB  waited for CPU 0.0s (CPU prep overlapped: 1.6s)
+done: 8 study-modes in 167s

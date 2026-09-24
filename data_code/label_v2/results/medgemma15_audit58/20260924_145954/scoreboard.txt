@@ -1,0 +1,21 @@
+
+SCOREBOARD vs the panel, 58 studies (macro AUROC; delta vs Qwen with 95% bootstrap CI)
+  qwen24t-med            0.9114 (+0.0000)  CI [+0.0000, +0.0000]  P(better)   0%  Brier 0.1149
+  all                    0.7263 (-0.1851)  CI [-0.2308, -0.1400]  P(better)   0%  Brier 0.3395
+  qwen+all mean          0.9178 (+0.0064)  CI [-0.0083, +0.0216]  P(better)  81%  Brier 0.1657
+  qwen+all fluid3        0.9234 (+0.0119)  CI [+0.0055, +0.0192]  P(better) 100%  Brier 0.1312
+
+per finding AUROC:
+   qwen24t-med          all qwen+all mea qwen+all flu   finding
+         0.979        0.559        0.939        0.979   ACL (24 pos)
+         0.983        0.565        0.948        0.983   MCL (9 pos)
+         0.957        0.627        0.911        0.957   Medial Meniscus (26 pos)
+         0.895        0.692        0.927        0.895   Lateral Meniscus (23 pos)
+         0.945        0.797        0.940        0.945   Medial OA (15 pos)
+         0.839        0.809        0.899        0.839   Lateral OA (11 pos)
+         0.912        0.699        0.897        0.912   PF OA (21 pos)
+         0.865        0.943        0.929        0.929   Effusion (35 pos)
+         0.842        0.866        0.902        0.902   Synovitis (27 pos)
+         0.909        0.784        0.928        0.928   Baker's (12 pos)
+         0.897        0.656        0.893        0.897   Contusion (19 pos)
+         0.914        0.719        0.901        0.914   Fracture (18 pos)
