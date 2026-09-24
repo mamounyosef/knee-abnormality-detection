@@ -1,0 +1,415 @@
+remote results: knee-runs volume labelling/medgemma15_audit58/20260924_185429/part0
+attention: sdpa
+GPU NVIDIA H100 80GB HBM3, 85 GB; 15 studies x modes ['corax', 'sagax_fluid', 'corax_fluid', 'sagcor_fluid', 'plain'] x 12 findings
+loaded google/medgemma-1.5-4b-it in 9s: decoder 34 layers, hidden 2560, heads 8 / kv 4, sliding window 1024; 256 tokens per image; GPU mem 8.6 GB
+yes tokens [(4443, 'yes'), (8438, ' Yes'), (10784, 'Yes'), (11262, ' yes')] no tokens [(951, ' no'), (1904, 'no'), (2301, ' No'), (3771, 'No')]
+  [corax] first study: 84 images, 22232 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [corax] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.2344 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0000 (should be < 0.02)
+  [sagax_fluid] first study: 68 images, 17992 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [sagax_fluid] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.2266 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0319 (should be < 0.02)
+  [corax_fluid] first study: 62 images, 16408 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [corax_fluid] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.1875 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0000 (should be < 0.02)
+  [sagcor_fluid] first study: 66 images, 17463 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [sagcor_fluid] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.2188 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0603 (should be < 0.02)
+  [plain] first study: 66 images, 17461 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [plain] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.2500 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0251 (should be < 0.02)
+this worker 1/15 (0 from before, 1/15 this run) 94649149 right  49s elapsed, ETA 11.4 min  peak GPU 28.3 GB  waited for CPU 11.1s (CPU prep overlapped: 11.1s)
+    corax     84 img  22272 tok gpu   8.0s (cpu prep 2.5s, overlapped)  yes/no mass min 0.94  P(yes): 0.40 0.18 0.43 0.34 0.72 0.70 0.52 0.96 0.65 0.97 0.37 0.01
+    sagax_fluid  68 img  18032 tok gpu   5.2s (cpu prep 2.1s, overlapped)  yes/no mass min 0.94  P(yes): 0.46 0.14 0.40 0.29 0.74 0.72 0.56 0.95 0.65 0.98 0.34 0.01
+    corax_fluid  62 img  16448 tok gpu   4.6s (cpu prep 1.9s, overlapped)  yes/no mass min 0.93  P(yes): 0.46 0.14 0.34 0.27 0.72 0.67 0.52 0.92 0.56 0.96 0.39 0.01
+    sagcor_fluid  66 img  17503 tok gpu   5.0s (cpu prep 2.0s, overlapped)  yes/no mass min 0.94  P(yes): 0.49 0.21 0.37 0.22 0.81 0.72 0.59 0.94 0.78 0.90 0.39 0.01
+    plain     66 img  17501 tok gpu   5.0s (cpu prep 2.1s, overlapped)  yes/no mass min 0.94  P(yes): 0.29 0.14 0.29 0.20 0.83 0.72 0.65 0.77 0.32 0.84 0.18 0.01
+this worker 2/15 (0 from before, 2/15 this run) 02209238 left  63s elapsed, ETA 6.8 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 14.3s)
+    corax     84 img  22289 tok gpu   3.6s (cpu prep 3.3s, overlapped)  yes/no mass min 0.95  P(yes): 0.15 0.09 0.18 0.10 0.46 0.34 0.29 0.64 0.33 0.52 0.09 0.00
+    sagax_fluid  57 img  15128 tok gpu   2.1s (cpu prep 2.1s, overlapped)  yes/no mass min 0.94  P(yes): 0.24 0.08 0.16 0.08 0.42 0.36 0.29 0.51 0.30 0.57 0.08 0.00
+    corax_fluid  60 img  15920 tok gpu   2.4s (cpu prep 2.3s, overlapped)  yes/no mass min 0.93  P(yes): 0.20 0.09 0.16 0.09 0.58 0.40 0.34 0.57 0.30 0.60 0.10 0.01
+    sagcor_fluid  57 img  15127 tok gpu   2.1s (cpu prep 2.3s, overlapped)  yes/no mass min 0.93  P(yes): 0.24 0.13 0.18 0.11 0.46 0.37 0.26 0.55 0.28 0.61 0.12 0.01
+    plain     83 img  22006 tok gpu   3.5s (cpu prep 2.8s, overlapped)  yes/no mass min 0.93  P(yes): 0.18 0.10 0.22 0.15 0.77 0.67 0.59 0.55 0.25 0.55 0.24 0.01
+this worker 3/15 (0 from before, 3/15 this run) 74810604 right  81s elapsed, ETA 5.4 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 11.3s)
+    corax     84 img  22272 tok gpu   3.5s (cpu prep 2.3s, overlapped)  yes/no mass min 0.92  P(yes): 0.79 0.49 0.73 0.59 0.94 0.90 0.90 0.97 0.94 0.95 0.75 0.04
+    sagax_fluid  74 img  19616 tok gpu   3.0s (cpu prep 2.0s, overlapped)  yes/no mass min 0.92  P(yes): 0.73 0.40 0.59 0.40 0.93 0.87 0.90 0.97 0.93 0.94 0.63 0.02
+    corax_fluid  82 img  21728 tok gpu   3.4s (cpu prep 2.3s, overlapped)  yes/no mass min 0.93  P(yes): 0.75 0.40 0.65 0.43 0.90 0.86 0.87 0.95 0.92 0.93 0.69 0.03
+    sagcor_fluid  76 img  20143 tok gpu   3.1s (cpu prep 2.0s, overlapped)  yes/no mass min 0.91  P(yes): 0.67 0.34 0.46 0.34 0.93 0.89 0.92 0.87 0.82 0.86 0.72 0.06
+    plain     76 img  20141 tok gpu   3.1s (cpu prep 2.2s, overlapped)  yes/no mass min 0.91  P(yes): 0.38 0.13 0.32 0.22 0.94 0.89 0.88 0.77 0.53 0.72 0.43 0.02
+this worker 4/15 (0 from before, 4/15 this run) 88111973 left  96s elapsed, ETA 4.4 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 13.8s)
+    corax     84 img  22289 tok gpu   3.6s (cpu prep 2.9s, overlapped)  yes/no mass min 0.95  P(yes): 0.15 0.08 0.25 0.13 0.70 0.55 0.52 0.67 0.39 0.64 0.24 0.01
+    sagax_fluid  69 img  18296 tok gpu   2.7s (cpu prep 2.5s, overlapped)  yes/no mass min 0.95  P(yes): 0.29 0.15 0.32 0.16 0.83 0.67 0.67 0.79 0.51 0.81 0.26 0.01
+    corax_fluid  70 img  18560 tok gpu   2.7s (cpu prep 2.4s, overlapped)  yes/no mass min 0.95  P(yes): 0.27 0.13 0.35 0.16 0.84 0.69 0.69 0.80 0.50 0.79 0.36 0.01
+    sagcor_fluid  59 img  15655 tok gpu   2.2s (cpu prep 2.1s, overlapped)  yes/no mass min 0.93  P(yes): 0.27 0.14 0.22 0.15 0.46 0.45 0.34 0.55 0.32 0.61 0.18 0.01
+    plain     84 img  22270 tok gpu   3.6s (cpu prep 2.9s, overlapped)  yes/no mass min 0.93  P(yes): 0.18 0.13 0.35 0.15 0.77 0.62 0.50 0.56 0.23 0.61 0.15 0.01
+this worker 5/15 (0 from before, 5/15 this run) 29200903 right  111s elapsed, ETA 3.7 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 14.0s)
+    corax     84 img  22272 tok gpu   3.5s (cpu prep 3.0s, overlapped)  yes/no mass min 0.94  P(yes): 0.87 0.69 0.89 0.83 0.96 0.94 0.96 0.98 0.98 0.98 0.91 0.09
+    sagax_fluid  72 img  19088 tok gpu   2.9s (cpu prep 2.7s, overlapped)  yes/no mass min 0.95  P(yes): 0.86 0.61 0.83 0.73 0.96 0.93 0.96 0.98 0.98 0.98 0.87 0.05
+    corax_fluid  68 img  18032 tok gpu   2.6s (cpu prep 2.3s, overlapped)  yes/no mass min 0.94  P(yes): 0.88 0.58 0.81 0.70 0.97 0.93 0.97 0.98 0.97 0.98 0.89 0.06
+    sagcor_fluid  64 img  16975 tok gpu   2.5s (cpu prep 2.5s, overlapped)  yes/no mass min 0.94  P(yes): 0.91 0.58 0.85 0.77 0.96 0.94 0.95 0.97 0.97 0.99 0.81 0.05
+    plain     64 img  16973 tok gpu   2.5s (cpu prep 2.3s, overlapped)  yes/no mass min 0.92  P(yes): 0.75 0.31 0.61 0.46 0.96 0.93 0.95 0.93 0.87 0.92 0.63 0.02
+this worker 6/15 (0 from before, 6/15 this run) 36573378 left  123s elapsed, ETA 3.1 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 9.4s)
+    corax     82 img  21744 tok gpu   3.4s (cpu prep 2.2s, overlapped)  yes/no mass min 0.91  P(yes): 0.58 0.33 0.59 0.40 0.90 0.86 0.84 0.92 0.83 0.92 0.69 0.03
+    sagax_fluid  60 img  15920 tok gpu   2.3s (cpu prep 1.7s, overlapped)  yes/no mass min 0.91  P(yes): 0.75 0.41 0.70 0.46 0.93 0.87 0.91 0.96 0.90 0.95 0.85 0.06
+    corax_fluid  57 img  15128 tok gpu   2.1s (cpu prep 1.6s, overlapped)  yes/no mass min 0.90  P(yes): 0.64 0.30 0.58 0.34 0.89 0.84 0.82 0.90 0.84 0.91 0.75 0.03
+    sagcor_fluid  57 img  15127 tok gpu   2.1s (cpu prep 1.7s, overlapped)  yes/no mass min 0.92  P(yes): 0.77 0.45 0.59 0.43 0.90 0.81 0.83 0.96 0.91 0.92 0.88 0.05
+    plain     57 img  15125 tok gpu   2.1s (cpu prep 1.6s, overlapped)  yes/no mass min 0.91  P(yes): 0.43 0.18 0.37 0.24 0.89 0.79 0.83 0.85 0.65 0.83 0.48 0.01
+this worker 7/15 (0 from before, 7/15 this run) 00134924 right  137s elapsed, ETA 2.6 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 10.9s)
+    corax     84 img  22289 tok gpu   3.6s (cpu prep 2.6s, overlapped)  yes/no mass min 0.95  P(yes): 0.15 0.08 0.27 0.15 0.64 0.49 0.37 0.61 0.31 0.67 0.24 0.01
+    sagax_fluid  53 img  14072 tok gpu   2.0s (cpu prep 1.7s, overlapped)  yes/no mass min 0.93  P(yes): 0.22 0.10 0.27 0.16 0.72 0.52 0.43 0.72 0.41 0.77 0.28 0.01
+    corax_fluid  55 img  14600 tok gpu   2.0s (cpu prep 1.7s, overlapped)  yes/no mass min 0.95  P(yes): 0.20 0.10 0.29 0.16 0.76 0.55 0.46 0.66 0.41 0.81 0.31 0.01
+    sagcor_fluid  54 img  14335 tok gpu   2.0s (cpu prep 1.7s, overlapped)  yes/no mass min 0.92  P(yes): 0.40 0.16 0.35 0.24 0.72 0.67 0.53 0.83 0.60 0.83 0.37 0.01
+    plain     81 img  21478 tok gpu   3.3s (cpu prep 2.5s, overlapped)  yes/no mass min 0.94  P(yes): 0.27 0.13 0.35 0.16 0.83 0.72 0.70 0.79 0.48 0.85 0.32 0.01
+this worker 8/15 (0 from before, 8/15 this run) 55725945 right  147s elapsed, ETA 2.1 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 7.6s)
+    corax     64 img  16992 tok gpu   2.5s (cpu prep 1.9s, overlapped)  yes/no mass min 0.92  P(yes): 0.70 0.34 0.59 0.49 0.95 0.94 0.93 0.97 0.92 0.98 0.79 0.03
+    sagax_fluid  44 img  11696 tok gpu   1.6s (cpu prep 1.3s, overlapped)  yes/no mass min 0.92  P(yes): 0.62 0.28 0.49 0.32 0.96 0.93 0.91 0.96 0.93 0.97 0.86 0.03
+    corax_fluid  44 img  11696 tok gpu   1.6s (cpu prep 1.3s, overlapped)  yes/no mass min 0.92  P(yes): 0.64 0.31 0.46 0.40 0.95 0.93 0.92 0.97 0.92 0.98 0.72 0.02
+    sagcor_fluid  38 img  10111 tok gpu   1.4s (cpu prep 1.2s, overlapped)  yes/no mass min 0.92  P(yes): 0.49 0.26 0.43 0.29 0.89 0.84 0.67 0.87 0.78 0.81 0.85 0.05
+    plain     43 img  11429 tok gpu   1.6s (cpu prep 1.4s, overlapped)  yes/no mass min 0.92  P(yes): 0.46 0.22 0.35 0.22 0.85 0.77 0.68 0.84 0.65 0.83 0.49 0.01
+this worker 9/15 (0 from before, 9/15 this run) 14837125 right  167s elapsed, ETA 1.9 min  peak GPU 28.3 GB  waited for CPU 4.9s (CPU prep overlapped: 13.8s)
+    corax     84 img  22289 tok gpu   3.6s (cpu prep 2.8s, overlapped)  yes/no mass min 0.95  P(yes): 0.35 0.15 0.38 0.22 0.79 0.64 0.65 0.87 0.74 0.81 0.37 0.01
+    sagax_fluid  69 img  18296 tok gpu   2.7s (cpu prep 2.5s, overlapped)  yes/no mass min 0.94  P(yes): 0.53 0.21 0.35 0.22 0.85 0.74 0.75 0.84 0.71 0.81 0.49 0.01
+    corax_fluid  68 img  18032 tok gpu   2.6s (cpu prep 2.3s, overlapped)  yes/no mass min 0.95  P(yes): 0.56 0.18 0.43 0.22 0.87 0.72 0.77 0.86 0.79 0.83 0.52 0.01
+    sagcor_fluid  57 img  15127 tok gpu   2.1s (cpu prep 2.1s, overlapped)  yes/no mass min 0.92  P(yes): 0.56 0.17 0.37 0.24 0.84 0.76 0.70 0.89 0.67 0.90 0.61 0.02
+    plain     84 img  22270 tok gpu   3.5s (cpu prep 2.9s, overlapped)  yes/no mass min 0.93  P(yes): 0.22 0.13 0.32 0.18 0.81 0.67 0.62 0.72 0.36 0.70 0.18 0.01
+this worker 10/15 (0 from before, 10/15 this run) 70080450 left  180s elapsed, ETA 1.5 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 11.7s)
+    corax     84 img  22272 tok gpu   3.5s (cpu prep 2.5s, overlapped)  yes/no mass min 0.92  P(yes): 0.43 0.22 0.59 0.37 0.86 0.81 0.75 0.90 0.65 0.91 0.52 0.01
+    sagax_fluid  65 img  17240 tok gpu   2.5s (cpu prep 2.3s, overlapped)  yes/no mass min 0.93  P(yes): 0.49 0.19 0.53 0.32 0.89 0.81 0.75 0.90 0.62 0.92 0.52 0.02
+    corax_fluid  60 img  15920 tok gpu   2.3s (cpu prep 1.9s, overlapped)  yes/no mass min 0.92  P(yes): 0.43 0.19 0.43 0.26 0.84 0.74 0.69 0.87 0.61 0.89 0.47 0.02
+    sagcor_fluid  65 img  17239 tok gpu   2.5s (cpu prep 2.3s, overlapped)  yes/no mass min 0.92  P(yes): 0.53 0.22 0.47 0.40 0.90 0.90 0.83 0.87 0.75 0.89 0.67 0.04
+    plain     65 img  17237 tok gpu   2.5s (cpu prep 2.0s, overlapped)  yes/no mass min 0.93  P(yes): 0.40 0.14 0.37 0.24 0.86 0.81 0.75 0.83 0.51 0.84 0.31 0.01
+this worker 11/15 (0 from before, 11/15 this run) 68367236 right  195s elapsed, ETA 1.2 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 13.1s)
+    corax     84 img  22272 tok gpu   3.5s (cpu prep 2.8s, overlapped)  yes/no mass min 0.93  P(yes): 0.70 0.34 0.62 0.43 0.86 0.79 0.74 0.99 0.85 0.96 0.86 0.07
+    sagax_fluid  72 img  19088 tok gpu   2.9s (cpu prep 2.5s, overlapped)  yes/no mass min 0.93  P(yes): 0.72 0.28 0.52 0.37 0.87 0.76 0.79 0.99 0.83 0.96 0.79 0.03
+    corax_fluid  68 img  18032 tok gpu   2.7s (cpu prep 2.3s, overlapped)  yes/no mass min 0.94  P(yes): 0.70 0.26 0.52 0.34 0.83 0.74 0.76 0.99 0.81 0.95 0.84 0.05
+    sagcor_fluid  64 img  16975 tok gpu   2.5s (cpu prep 2.2s, overlapped)  yes/no mass min 0.93  P(yes): 0.79 0.51 0.56 0.50 0.86 0.86 0.79 0.96 0.90 0.96 0.81 0.05
+    plain     64 img  16973 tok gpu   2.5s (cpu prep 2.3s, overlapped)  yes/no mass min 0.93  P(yes): 0.32 0.16 0.27 0.22 0.77 0.72 0.62 0.61 0.30 0.81 0.26 0.01
+this worker 12/15 (0 from before, 12/15 this run) 53941774 right  207s elapsed, ETA 0.9 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 9.5s)
+    corax     80 img  21216 tok gpu   3.3s (cpu prep 2.4s, overlapped)  yes/no mass min 0.94  P(yes): 0.52 0.24 0.53 0.32 0.86 0.79 0.72 0.96 0.80 0.95 0.52 0.02
+    sagax_fluid  56 img  14864 tok gpu   2.1s (cpu prep 1.7s, overlapped)  yes/no mass min 0.92  P(yes): 0.61 0.22 0.43 0.24 0.81 0.76 0.64 0.95 0.83 0.95 0.42 0.02
+    corax_fluid  56 img  14864 tok gpu   2.1s (cpu prep 1.7s, overlapped)  yes/no mass min 0.92  P(yes): 0.61 0.21 0.46 0.24 0.84 0.76 0.71 0.96 0.80 0.94 0.45 0.02
+    sagcor_fluid  52 img  13807 tok gpu   1.9s (cpu prep 1.5s, overlapped)  yes/no mass min 0.90  P(yes): 0.40 0.16 0.29 0.20 0.61 0.55 0.31 0.88 0.57 0.66 0.25 0.02
+    plain     52 img  13805 tok gpu   1.9s (cpu prep 1.7s, overlapped)  yes/no mass min 0.92  P(yes): 0.12 0.06 0.12 0.08 0.39 0.40 0.22 0.45 0.18 0.46 0.09 0.01
+this worker 13/15 (0 from before, 13/15 this run) 32839995 right  225s elapsed, ETA 0.6 min  peak GPU 28.3 GB  waited for CPU 1.7s (CPU prep overlapped: 15.7s)
+    corax     84 img  22273 tok gpu   3.5s (cpu prep 3.0s, overlapped)  yes/no mass min 0.92  P(yes): 0.64 0.28 0.67 0.43 0.94 0.89 0.91 0.95 0.89 0.95 0.82 0.05
+    sagax_fluid  85 img  22503 tok gpu   3.6s (cpu prep 3.3s, overlapped)  yes/no mass min 0.93  P(yes): 0.67 0.36 0.75 0.58 0.95 0.92 0.91 0.94 0.91 0.96 0.90 0.07
+    corax_fluid  80 img  21200 tok gpu   3.3s (cpu prep 3.1s, overlapped)  yes/no mass min 0.93  P(yes): 0.77 0.39 0.73 0.56 0.95 0.92 0.93 0.94 0.92 0.96 0.89 0.08
+    sagcor_fluid  38 img  10094 tok gpu   1.3s (cpu prep 1.4s, overlapped)  yes/no mass min 0.94  P(yes): 0.90 0.46 0.68 0.56 0.97 0.96 0.96 0.97 0.96 0.96 0.83 0.05
+    plain     62 img  16446 tok gpu   2.4s (cpu prep 2.2s, overlapped)  yes/no mass min 0.93  P(yes): 0.58 0.23 0.52 0.31 0.92 0.86 0.83 0.93 0.65 0.93 0.45 0.01
+this worker 14/15 (0 from before, 14/15 this run) 39890254 right  241s elapsed, ETA 0.3 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 14.2s)
+    corax     84 img  22289 tok gpu   3.6s (cpu prep 2.8s, overlapped)  yes/no mass min 0.94  P(yes): 0.41 0.20 0.53 0.27 0.92 0.81 0.83 0.94 0.85 0.86 0.32 0.01
+    sagax_fluid  69 img  18296 tok gpu   2.7s (cpu prep 2.5s, overlapped)  yes/no mass min 0.95  P(yes): 0.56 0.18 0.40 0.22 0.91 0.83 0.81 0.90 0.80 0.88 0.34 0.01
+    corax_fluid  70 img  18560 tok gpu   2.7s (cpu prep 2.4s, overlapped)  yes/no mass min 0.94  P(yes): 0.46 0.16 0.44 0.20 0.91 0.81 0.83 0.89 0.82 0.83 0.29 0.01
+    sagcor_fluid  59 img  15655 tok gpu   2.2s (cpu prep 2.3s, overlapped)  yes/no mass min 0.92  P(yes): 0.50 0.17 0.34 0.24 0.87 0.84 0.72 0.90 0.62 0.85 0.39 0.02
+    plain     84 img  22270 tok gpu   3.5s (cpu prep 2.9s, overlapped)  yes/no mass min 0.93  P(yes): 0.35 0.18 0.47 0.24 0.93 0.88 0.77 0.81 0.51 0.88 0.20 0.01
+this worker 15/15 (0 from before, 15/15 this run) 31739312 left  253s elapsed, ETA 0.0 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 9.8s)
+    corax     65 img  17240 tok gpu   2.5s (cpu prep 1.9s, overlapped)  yes/no mass min 0.94  P(yes): 0.64 0.26 0.62 0.40 0.95 0.90 0.88 0.93 0.85 0.97 0.48 0.01
+    sagax_fluid  65 img  17240 tok gpu   2.5s (cpu prep 2.0s, overlapped)  yes/no mass min 0.94  P(yes): 0.61 0.24 0.56 0.35 0.94 0.89 0.81 0.93 0.80 0.97 0.43 0.01
+    corax_fluid  65 img  17240 tok gpu   2.5s (cpu prep 2.0s, overlapped)  yes/no mass min 0.94  P(yes): 0.64 0.26 0.62 0.40 0.95 0.90 0.88 0.93 0.85 0.97 0.48 0.01
+    sagcor_fluid  70 img  18559 tok gpu   2.8s (cpu prep 2.1s, overlapped)  yes/no mass min 0.95  P(yes): 0.24 0.10 0.20 0.15 0.46 0.46 0.32 0.61 0.39 0.67 0.15 0.01
+    plain     35 img   9301 tok gpu   1.2s (cpu prep 1.1s, overlapped)  yes/no mass min 0.95  P(yes): 0.20 0.08 0.16 0.08 0.79 0.67 0.44 0.34 0.28 0.43 0.12 0.01
+done: 75 study-modes in 253s
+
+remote results: knee-runs volume labelling/medgemma15_audit58/20260924_185429/part1
+attention: sdpa
+GPU NVIDIA H100 80GB HBM3, 85 GB; 15 studies x modes ['corax', 'sagax_fluid', 'corax_fluid', 'sagcor_fluid', 'plain'] x 12 findings
+loaded google/medgemma-1.5-4b-it in 8s: decoder 34 layers, hidden 2560, heads 8 / kv 4, sliding window 1024; 256 tokens per image; GPU mem 8.6 GB
+yes tokens [(4443, 'yes'), (8438, ' Yes'), (10784, 'Yes'), (11262, ' yes')] no tokens [(951, ' no'), (1904, 'no'), (2301, ' No'), (3771, 'No')]
+  [corax] first study: 84 images, 22249 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [corax] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.2500 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0000 (should be < 0.02)
+  [sagax_fluid] first study: 69 images, 18256 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [sagax_fluid] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.1875 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0000 (should be < 0.02)
+  [corax_fluid] first study: 70 images, 18520 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [corax_fluid] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.1875 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0261 (should be < 0.02)
+  [sagcor_fluid] first study: 59 images, 15615 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [sagcor_fluid] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.2500 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0604 (should be < 0.02)
+  [plain] first study: 84 images, 22230 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [plain] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.2188 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0000 (should be < 0.02)
+this worker 1/15 (0 from before, 1/15 this run) 39028269 right  57s elapsed, ETA 13.2 min  peak GPU 28.3 GB  waited for CPU 14.4s (CPU prep overlapped: 14.4s)
+    corax     84 img  22289 tok gpu   8.0s (cpu prep 3.0s, overlapped)  yes/no mass min 0.95  P(yes): 0.62 0.34 0.56 0.37 0.81 0.72 0.70 0.96 0.85 0.89 0.67 0.02
+    sagax_fluid  69 img  18296 tok gpu   5.4s (cpu prep 2.5s, overlapped)  yes/no mass min 0.95  P(yes): 0.67 0.33 0.43 0.32 0.84 0.79 0.74 0.94 0.83 0.87 0.60 0.02
+    corax_fluid  70 img  18560 tok gpu   5.5s (cpu prep 2.4s, overlapped)  yes/no mass min 0.94  P(yes): 0.67 0.36 0.53 0.34 0.84 0.78 0.76 0.93 0.84 0.87 0.73 0.04
+    sagcor_fluid  59 img  15655 tok gpu   4.4s (cpu prep 2.2s, overlapped)  yes/no mass min 0.93  P(yes): 0.52 0.18 0.34 0.22 0.74 0.67 0.52 0.84 0.61 0.79 0.38 0.01
+    plain     84 img  22270 tok gpu   7.1s (cpu prep 3.0s, overlapped)  yes/no mass min 0.93  P(yes): 0.20 0.12 0.27 0.15 0.77 0.70 0.59 0.64 0.33 0.70 0.20 0.01
+this worker 2/15 (0 from before, 2/15 this run) 82701935 right  72s elapsed, ETA 7.8 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 15.6s)
+    corax     84 img  22289 tok gpu   3.6s (cpu prep 3.9s, overlapped)  yes/no mass min 0.94  P(yes): 0.73 0.43 0.65 0.53 0.92 0.87 0.88 0.98 0.96 0.93 0.83 0.05
+    sagax_fluid  69 img  18296 tok gpu   2.7s (cpu prep 2.7s, overlapped)  yes/no mass min 0.94  P(yes): 0.77 0.48 0.62 0.52 0.93 0.92 0.94 0.96 0.95 0.90 0.87 0.08
+    corax_fluid  70 img  18560 tok gpu   2.8s (cpu prep 2.5s, overlapped)  yes/no mass min 0.94  P(yes): 0.74 0.42 0.67 0.52 0.94 0.91 0.93 0.95 0.95 0.91 0.86 0.10
+    sagcor_fluid  59 img  15655 tok gpu   2.2s (cpu prep 2.3s, overlapped)  yes/no mass min 0.92  P(yes): 0.55 0.23 0.34 0.22 0.84 0.80 0.77 0.86 0.75 0.72 0.54 0.02
+    plain     84 img  22270 tok gpu   3.6s (cpu prep 2.9s, overlapped)  yes/no mass min 0.93  P(yes): 0.20 0.12 0.32 0.20 0.81 0.67 0.62 0.72 0.31 0.77 0.13 0.01
+this worker 3/15 (0 from before, 3/15 this run) 07169581 right  89s elapsed, ETA 5.9 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 9.8s)
+    corax     79 img  20936 tok gpu   3.4s (cpu prep 2.2s, overlapped)  yes/no mass min 0.93  P(yes): 0.55 0.29 0.56 0.40 0.91 0.86 0.84 0.97 0.88 0.97 0.54 0.02
+    sagax_fluid  71 img  18824 tok gpu   2.8s (cpu prep 2.0s, overlapped)  yes/no mass min 0.93  P(yes): 0.49 0.24 0.55 0.37 0.91 0.87 0.84 0.97 0.87 0.97 0.51 0.02
+    corax_fluid  79 img  20936 tok gpu   3.2s (cpu prep 2.2s, overlapped)  yes/no mass min 0.93  P(yes): 0.55 0.29 0.56 0.40 0.91 0.86 0.84 0.97 0.88 0.97 0.54 0.02
+    sagcor_fluid  70 img  18559 tok gpu   2.8s (cpu prep 2.0s, overlapped)  yes/no mass min 0.94  P(yes): 0.50 0.29 0.27 0.24 0.81 0.77 0.75 0.89 0.68 0.83 0.52 0.02
+    plain     31 img   8245 tok gpu   1.1s (cpu prep 0.9s, overlapped)  yes/no mass min 0.94  P(yes): 0.55 0.22 0.37 0.26 0.96 0.92 0.88 0.77 0.76 0.70 0.29 0.02
+this worker 4/15 (0 from before, 4/15 this run) 32197492 left  97s elapsed, ETA 4.4 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 7.2s)
+    corax     56 img  14880 tok gpu   2.1s (cpu prep 1.7s, overlapped)  yes/no mass min 0.92  P(yes): 0.77 0.39 0.70 0.67 0.94 0.95 0.90 0.98 0.96 0.99 0.87 0.05
+    sagax_fluid  39 img  10376 tok gpu   1.4s (cpu prep 1.1s, overlapped)  yes/no mass min 0.94  P(yes): 0.72 0.24 0.59 0.62 0.94 0.94 0.91 0.99 0.96 0.99 0.64 0.02
+    corax_fluid  40 img  10640 tok gpu   1.4s (cpu prep 1.1s, overlapped)  yes/no mass min 0.93  P(yes): 0.81 0.36 0.70 0.70 0.95 0.96 0.93 0.99 0.96 0.99 0.82 0.04
+    sagcor_fluid  39 img  10375 tok gpu   1.4s (cpu prep 1.1s, overlapped)  yes/no mass min 0.91  P(yes): 0.62 0.21 0.56 0.43 0.96 0.93 0.92 0.96 0.93 0.98 0.52 0.03
+    plain     39 img  10373 tok gpu   1.4s (cpu prep 1.3s, overlapped)  yes/no mass min 0.93  P(yes): 0.44 0.14 0.38 0.32 0.90 0.85 0.83 0.92 0.78 0.97 0.32 0.01
+this worker 5/15 (0 from before, 5/15 this run) 20253309 left  118s elapsed, ETA 3.9 min  peak GPU 28.3 GB  waited for CPU 5.4s (CPU prep overlapped: 13.3s)
+    corax     84 img  22272 tok gpu   3.6s (cpu prep 2.8s, overlapped)  yes/no mass min 0.93  P(yes): 0.77 0.43 0.79 0.62 0.95 0.92 0.91 0.98 0.94 0.98 0.77 0.03
+    sagax_fluid  75 img  19880 tok gpu   3.0s (cpu prep 2.2s, overlapped)  yes/no mass min 0.95  P(yes): 0.77 0.34 0.68 0.41 0.95 0.92 0.90 0.97 0.89 0.97 0.83 0.02
+    corax_fluid  65 img  17240 tok gpu   2.5s (cpu prep 1.9s, overlapped)  yes/no mass min 0.94  P(yes): 0.75 0.34 0.67 0.43 0.96 0.91 0.91 0.98 0.92 0.97 0.72 0.03
+    sagcor_fluid  74 img  19615 tok gpu   3.0s (cpu prep 2.2s, overlapped)  yes/no mass min 0.96  P(yes): 0.53 0.22 0.30 0.24 0.86 0.83 0.80 0.67 0.58 0.73 0.68 0.02
+    plain     74 img  19613 tok gpu   3.0s (cpu prep 2.9s, overlapped)  yes/no mass min 0.95  P(yes): 0.56 0.15 0.32 0.18 0.90 0.86 0.80 0.77 0.49 0.77 0.40 0.01
+this worker 6/15 (0 from before, 6/15 this run) 36903404 left  134s elapsed, ETA 3.4 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 11.0s)
+    corax     84 img  22272 tok gpu   3.5s (cpu prep 2.2s, overlapped)  yes/no mass min 0.92  P(yes): 0.59 0.29 0.65 0.43 0.91 0.86 0.79 0.96 0.84 0.98 0.43 0.01
+    sagax_fluid  74 img  19616 tok gpu   3.0s (cpu prep 2.2s, overlapped)  yes/no mass min 0.92  P(yes): 0.62 0.34 0.62 0.49 0.90 0.87 0.81 0.93 0.82 0.97 0.52 0.02
+    corax_fluid  80 img  21200 tok gpu   3.3s (cpu prep 2.1s, overlapped)  yes/no mass min 0.93  P(yes): 0.58 0.26 0.59 0.46 0.87 0.82 0.74 0.95 0.81 0.98 0.48 0.01
+    sagcor_fluid  74 img  19615 tok gpu   3.0s (cpu prep 2.0s, overlapped)  yes/no mass min 0.93  P(yes): 0.53 0.29 0.32 0.27 0.89 0.86 0.80 0.89 0.63 0.95 0.43 0.02
+    plain     74 img  19613 tok gpu   3.0s (cpu prep 2.0s, overlapped)  yes/no mass min 0.92  P(yes): 0.32 0.15 0.20 0.20 0.91 0.88 0.87 0.70 0.44 0.53 0.52 0.02
+this worker 7/15 (0 from before, 7/15 this run) 08452608 right  147s elapsed, ETA 2.8 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 9.0s)
+    corax     82 img  21744 tok gpu   3.4s (cpu prep 2.2s, overlapped)  yes/no mass min 0.92  P(yes): 0.65 0.26 0.64 0.43 0.93 0.90 0.89 0.97 0.86 0.97 0.72 0.04
+    sagax_fluid  60 img  15920 tok gpu   2.3s (cpu prep 1.6s, overlapped)  yes/no mass min 0.91  P(yes): 0.69 0.28 0.64 0.49 0.95 0.90 0.88 0.97 0.87 0.98 0.73 0.05
+    corax_fluid  57 img  15128 tok gpu   2.1s (cpu prep 1.6s, overlapped)  yes/no mass min 0.92  P(yes): 0.61 0.21 0.55 0.34 0.93 0.89 0.90 0.96 0.87 0.97 0.73 0.04
+    sagcor_fluid  57 img  15127 tok gpu   2.1s (cpu prep 1.6s, overlapped)  yes/no mass min 0.91  P(yes): 0.70 0.31 0.56 0.49 0.90 0.86 0.86 0.95 0.86 0.96 0.71 0.04
+    plain     57 img  15125 tok gpu   2.2s (cpu prep 1.6s, overlapped)  yes/no mass min 0.91  P(yes): 0.44 0.20 0.37 0.24 0.87 0.79 0.81 0.79 0.51 0.75 0.29 0.01
+this worker 8/15 (0 from before, 8/15 this run) 67212742 right  155s elapsed, ETA 2.3 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 6.3s)
+    corax     42 img  11168 tok gpu   1.5s (cpu prep 1.2s, overlapped)  yes/no mass min 0.91  P(yes): 0.79 0.36 0.64 0.49 0.91 0.85 0.83 0.99 0.93 0.96 0.80 0.04
+    sagax_fluid  43 img  11432 tok gpu   1.5s (cpu prep 1.3s, overlapped)  yes/no mass min 0.93  P(yes): 0.83 0.39 0.59 0.55 0.92 0.88 0.84 0.99 0.93 0.96 0.84 0.03
+    corax_fluid  42 img  11168 tok gpu   1.5s (cpu prep 1.2s, overlapped)  yes/no mass min 0.91  P(yes): 0.79 0.36 0.64 0.49 0.91 0.85 0.83 0.99 0.93 0.96 0.80 0.04
+    sagcor_fluid  41 img  10903 tok gpu   1.5s (cpu prep 1.2s, overlapped)  yes/no mass min 0.92  P(yes): 0.59 0.40 0.43 0.37 0.74 0.74 0.61 0.93 0.79 0.81 0.55 0.02
+    plain     21 img   5605 tok gpu   0.8s (cpu prep 0.7s, overlapped)  yes/no mass min 0.94  P(yes): 0.13 0.08 0.15 0.07 0.58 0.46 0.27 0.24 0.37 0.31 0.13 0.01
+this worker 9/15 (0 from before, 9/15 this run) 68677187 left  169s elapsed, ETA 1.9 min  peak GPU 28.3 GB  waited for CPU 2.3s (CPU prep overlapped: 9.3s)
+    corax     84 img  22272 tok gpu   3.6s (cpu prep 2.4s, overlapped)  yes/no mass min 0.90  P(yes): 0.53 0.22 0.59 0.32 0.95 0.89 0.88 0.97 0.77 0.90 0.64 0.03
+    sagax_fluid  56 img  14864 tok gpu   2.1s (cpu prep 1.6s, overlapped)  yes/no mass min 0.89  P(yes): 0.64 0.21 0.52 0.24 0.96 0.91 0.91 0.97 0.80 0.91 0.71 0.03
+    corax_fluid  62 img  16448 tok gpu   2.4s (cpu prep 1.9s, overlapped)  yes/no mass min 0.90  P(yes): 0.64 0.24 0.56 0.27 0.96 0.91 0.90 0.97 0.81 0.88 0.67 0.03
+    sagcor_fluid  50 img  13279 tok gpu   1.9s (cpu prep 1.3s, overlapped)  yes/no mass min 0.90  P(yes): 0.55 0.21 0.37 0.22 0.84 0.77 0.67 0.84 0.65 0.69 0.55 0.03
+    plain     50 img  13277 tok gpu   1.8s (cpu prep 1.6s, overlapped)  yes/no mass min 0.92  P(yes): 0.20 0.10 0.16 0.11 0.75 0.67 0.50 0.46 0.19 0.46 0.14 0.01
+this worker 10/15 (0 from before, 10/15 this run) 35447363 right  182s elapsed, ETA 1.5 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 10.2s)
+    corax     84 img  22289 tok gpu   3.6s (cpu prep 2.5s, overlapped)  yes/no mass min 0.93  P(yes): 0.62 0.34 0.67 0.56 0.94 0.90 0.87 0.99 0.89 0.98 0.72 0.03
+    sagax_fluid  52 img  13808 tok gpu   1.9s (cpu prep 1.5s, overlapped)  yes/no mass min 0.92  P(yes): 0.70 0.31 0.59 0.43 0.91 0.88 0.83 0.99 0.89 0.98 0.72 0.02
+    corax_fluid  52 img  13808 tok gpu   1.9s (cpu prep 1.6s, overlapped)  yes/no mass min 0.92  P(yes): 0.74 0.26 0.64 0.43 0.92 0.87 0.86 0.99 0.89 0.98 0.71 0.02
+    sagcor_fluid  48 img  12751 tok gpu   1.8s (cpu prep 1.4s, overlapped)  yes/no mass min 0.93  P(yes): 0.81 0.40 0.62 0.49 0.87 0.82 0.74 0.97 0.93 0.97 0.69 0.02
+    plain     76 img  20158 tok gpu   3.1s (cpu prep 2.3s, overlapped)  yes/no mass min 0.94  P(yes): 0.44 0.15 0.44 0.27 0.86 0.79 0.73 0.89 0.71 0.94 0.65 0.01
+this worker 11/15 (0 from before, 11/15 this run) 83272910 right  196s elapsed, ETA 1.2 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 10.5s)
+    corax     84 img  22272 tok gpu   3.6s (cpu prep 2.5s, overlapped)  yes/no mass min 0.93  P(yes): 0.83 0.46 0.81 0.67 0.96 0.93 0.92 0.98 0.96 0.99 0.91 0.07
+    sagax_fluid  63 img  16712 tok gpu   2.4s (cpu prep 1.8s, overlapped)  yes/no mass min 0.93  P(yes): 0.87 0.52 0.81 0.70 0.96 0.95 0.93 0.98 0.95 0.99 0.85 0.04
+    corax_fluid  60 img  15920 tok gpu   2.3s (cpu prep 1.8s, overlapped)  yes/no mass min 0.93  P(yes): 0.86 0.51 0.81 0.64 0.96 0.94 0.93 0.98 0.96 0.99 0.92 0.10
+    sagcor_fluid  63 img  16711 tok gpu   2.4s (cpu prep 1.9s, overlapped)  yes/no mass min 0.92  P(yes): 0.75 0.34 0.67 0.58 0.90 0.86 0.81 0.97 0.89 0.99 0.72 0.03
+    plain     63 img  16709 tok gpu   2.4s (cpu prep 2.0s, overlapped)  yes/no mass min 0.94  P(yes): 0.24 0.10 0.22 0.16 0.85 0.77 0.67 0.77 0.39 0.77 0.18 0.01
+this worker 12/15 (0 from before, 12/15 this run) 44639002 left  204s elapsed, ETA 0.9 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 7.2s)
+    corax     58 img  15408 tok gpu   2.2s (cpu prep 1.7s, overlapped)  yes/no mass min 0.94  P(yes): 0.27 0.12 0.22 0.13 0.74 0.55 0.55 0.77 0.50 0.75 0.26 0.01
+    sagax_fluid  44 img  11696 tok gpu   1.6s (cpu prep 1.3s, overlapped)  yes/no mass min 0.94  P(yes): 0.20 0.08 0.18 0.11 0.70 0.55 0.43 0.77 0.42 0.61 0.12 0.01
+    corax_fluid  40 img  10640 tok gpu   1.4s (cpu prep 1.1s, overlapped)  yes/no mass min 0.93  P(yes): 0.24 0.10 0.22 0.12 0.72 0.55 0.49 0.74 0.47 0.61 0.18 0.01
+    sagcor_fluid  40 img  10639 tok gpu   1.4s (cpu prep 1.2s, overlapped)  yes/no mass min 0.95  P(yes): 0.24 0.09 0.13 0.12 0.61 0.55 0.40 0.37 0.25 0.37 0.24 0.01
+    plain     40 img  10637 tok gpu   1.4s (cpu prep 1.4s, overlapped)  yes/no mass min 0.93  P(yes): 0.24 0.12 0.15 0.11 0.77 0.70 0.56 0.46 0.27 0.43 0.13 0.01
+this worker 13/15 (0 from before, 13/15 this run) 46125190 right  221s elapsed, ETA 0.6 min  peak GPU 28.3 GB  waited for CPU 3.2s (CPU prep overlapped: 11.6s)
+    corax     84 img  22272 tok gpu   3.5s (cpu prep 2.7s, overlapped)  yes/no mass min 0.92  P(yes): 0.64 0.29 0.62 0.56 0.90 0.85 0.85 0.98 0.90 0.95 0.86 0.08
+    sagax_fluid  65 img  17240 tok gpu   2.5s (cpu prep 2.1s, overlapped)  yes/no mass min 0.94  P(yes): 0.77 0.31 0.62 0.53 0.93 0.89 0.90 0.98 0.89 0.94 0.79 0.04
+    corax_fluid  66 img  17504 tok gpu   2.6s (cpu prep 2.1s, overlapped)  yes/no mass min 0.94  P(yes): 0.67 0.31 0.56 0.40 0.87 0.84 0.83 0.97 0.88 0.94 0.83 0.07
+    sagcor_fluid  59 img  15655 tok gpu   2.2s (cpu prep 1.9s, overlapped)  yes/no mass min 0.92  P(yes): 0.81 0.42 0.70 0.58 0.92 0.90 0.86 0.96 0.93 0.98 0.81 0.05
+    plain     59 img  15653 tok gpu   2.2s (cpu prep 1.8s, overlapped)  yes/no mass min 0.92  P(yes): 0.35 0.16 0.27 0.20 0.86 0.77 0.70 0.81 0.50 0.81 0.24 0.01
+this worker 14/15 (0 from before, 14/15 this run) 45464037 right  227s elapsed, ETA 0.3 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 4.2s)
+    corax     30 img   8000 tok gpu   1.0s (cpu prep 0.9s, overlapped)  yes/no mass min 0.93  P(yes): 0.27 0.09 0.22 0.18 0.49 0.42 0.26 0.94 0.49 0.79 0.14 0.01
+    sagax_fluid  30 img   8000 tok gpu   1.0s (cpu prep 0.9s, overlapped)  yes/no mass min 0.93  P(yes): 0.27 0.10 0.20 0.18 0.46 0.43 0.29 0.94 0.47 0.77 0.13 0.01
+    corax_fluid  30 img   8000 tok gpu   1.1s (cpu prep 0.9s, overlapped)  yes/no mass min 0.93  P(yes): 0.27 0.09 0.22 0.18 0.49 0.42 0.26 0.94 0.49 0.79 0.14 0.01
+    sagcor_fluid  30 img   7999 tok gpu   1.1s (cpu prep 0.9s, overlapped)  yes/no mass min 0.92  P(yes): 0.46 0.13 0.32 0.24 0.79 0.72 0.70 0.96 0.85 0.85 0.26 0.01
+    plain     15 img   4021 tok gpu   0.6s (cpu prep 0.4s, overlapped)  yes/no mass min 0.95  P(yes): 0.24 0.07 0.17 0.10 0.56 0.44 0.32 0.34 0.48 0.32 0.38 0.01
+this worker 15/15 (0 from before, 15/15 this run) 17521662 right  251s elapsed, ETA 0.0 min  peak GPU 28.3 GB  waited for CPU 9.3s (CPU prep overlapped: 14.3s)
+    corax     84 img  22273 tok gpu   3.6s (cpu prep 2.9s, overlapped)  yes/no mass min 0.91  P(yes): 0.53 0.20 0.59 0.37 0.94 0.90 0.86 0.96 0.85 0.98 0.67 0.03
+    sagax_fluid  85 img  22503 tok gpu   3.6s (cpu prep 2.9s, overlapped)  yes/no mass min 0.94  P(yes): 0.56 0.22 0.59 0.40 0.95 0.89 0.88 0.94 0.82 0.97 0.58 0.02
+    corax_fluid  74 img  19616 tok gpu   3.0s (cpu prep 2.7s, overlapped)  yes/no mass min 0.92  P(yes): 0.67 0.26 0.62 0.34 0.94 0.91 0.90 0.95 0.88 0.96 0.79 0.04
+    sagcor_fluid  32 img   8510 tok gpu   1.1s (cpu prep 1.1s, overlapped)  yes/no mass min 0.94  P(yes): 0.90 0.31 0.64 0.46 0.95 0.93 0.90 0.98 0.96 0.95 0.72 0.03
+    plain     70 img  18558 tok gpu   2.8s (cpu prep 2.0s, overlapped)  yes/no mass min 0.95  P(yes): 0.29 0.11 0.43 0.22 0.93 0.83 0.81 0.86 0.53 0.89 0.36 0.01
+done: 75 study-modes in 251s
+
+remote results: knee-runs volume labelling/medgemma15_audit58/20260924_185429/part2
+attention: sdpa
+GPU NVIDIA H100 80GB HBM3, 85 GB; 14 studies x modes ['corax', 'sagax_fluid', 'corax_fluid', 'sagcor_fluid', 'plain'] x 12 findings
+loaded google/medgemma-1.5-4b-it in 10s: decoder 34 layers, hidden 2560, heads 8 / kv 4, sliding window 1024; 256 tokens per image; GPU mem 8.6 GB
+yes tokens [(4443, 'yes'), (8438, ' Yes'), (10784, 'Yes'), (11262, ' yes')] no tokens [(951, ' no'), (1904, 'no'), (2301, ' No'), (3771, 'No')]
+  [corax] first study: 84 images, 22232 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [corax] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.2500 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0298 (should be < 0.02)
+  [sagax_fluid] first study: 64 images, 16936 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [sagax_fluid] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.2252 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0028 (should be < 0.02)
+  [corax_fluid] first study: 72 images, 19048 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [corax_fluid] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.2500 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0000 (should be < 0.02)
+  [sagcor_fluid] first study: 56 images, 14823 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [sagcor_fluid] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.2656 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0337 (should be < 0.02)
+  [plain] first study: 56 images, 14821 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [plain] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.2109 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0529 (should be < 0.02)
+this worker 1/14 (0 from before, 1/14 this run) 36752052 right  53s elapsed, ETA 11.5 min  peak GPU 28.3 GB  waited for CPU 14.1s (CPU prep overlapped: 14.1s)
+    corax     84 img  22272 tok gpu   8.3s (cpu prep 3.3s, overlapped)  yes/no mass min 0.92  P(yes): 0.49 0.24 0.62 0.40 0.87 0.80 0.74 0.88 0.75 0.92 0.39 0.02
+    sagax_fluid  64 img  16976 tok gpu   5.0s (cpu prep 2.5s, overlapped)  yes/no mass min 0.93  P(yes): 0.49 0.21 0.43 0.31 0.82 0.76 0.72 0.86 0.69 0.90 0.33 0.01
+    corax_fluid  72 img  19088 tok gpu   5.7s (cpu prep 2.9s, overlapped)  yes/no mass min 0.93  P(yes): 0.46 0.19 0.43 0.26 0.84 0.73 0.74 0.82 0.64 0.88 0.30 0.01
+    sagcor_fluid  56 img  14863 tok gpu   4.1s (cpu prep 2.2s, overlapped)  yes/no mass min 0.92  P(yes): 0.49 0.16 0.43 0.31 0.80 0.72 0.69 0.86 0.64 0.91 0.31 0.01
+    plain     56 img  14861 tok gpu   4.1s (cpu prep 2.4s, overlapped)  yes/no mass min 0.93  P(yes): 0.35 0.10 0.29 0.18 0.79 0.72 0.67 0.75 0.41 0.79 0.16 0.01
+this worker 2/14 (0 from before, 2/14 this run) 98335840 right  68s elapsed, ETA 6.8 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 15.2s)
+    corax     84 img  22272 tok gpu   3.7s (cpu prep 3.3s, overlapped)  yes/no mass min 0.92  P(yes): 0.43 0.21 0.46 0.37 0.87 0.81 0.72 0.95 0.65 0.95 0.43 0.01
+    sagax_fluid  70 img  18560 tok gpu   2.8s (cpu prep 3.0s, overlapped)  yes/no mass min 0.93  P(yes): 0.52 0.20 0.43 0.29 0.86 0.79 0.72 0.96 0.68 0.96 0.46 0.01
+    corax_fluid  68 img  18032 tok gpu   2.7s (cpu prep 2.4s, overlapped)  yes/no mass min 0.92  P(yes): 0.46 0.17 0.40 0.26 0.82 0.74 0.69 0.95 0.56 0.94 0.36 0.01
+    sagcor_fluid  70 img  18559 tok gpu   2.8s (cpu prep 2.5s, overlapped)  yes/no mass min 0.92  P(yes): 0.50 0.20 0.43 0.32 0.79 0.72 0.70 0.91 0.78 0.85 0.61 0.03
+    plain     70 img  18557 tok gpu   2.8s (cpu prep 3.5s, overlapped)  yes/no mass min 0.93  P(yes): 0.29 0.13 0.24 0.18 0.72 0.70 0.59 0.67 0.42 0.79 0.26 0.01
+this worker 3/14 (0 from before, 3/14 this run) 36556945 right  80s elapsed, ETA 4.9 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 8.3s)
+    corax     58 img  15408 tok gpu   2.2s (cpu prep 1.9s, overlapped)  yes/no mass min 0.94  P(yes): 0.18 0.09 0.18 0.11 0.69 0.49 0.49 0.89 0.47 0.70 0.16 0.01
+    sagax_fluid  44 img  11696 tok gpu   1.6s (cpu prep 1.4s, overlapped)  yes/no mass min 0.94  P(yes): 0.20 0.08 0.16 0.11 0.72 0.55 0.46 0.86 0.42 0.67 0.13 0.01
+    corax_fluid  40 img  10640 tok gpu   1.5s (cpu prep 1.3s, overlapped)  yes/no mass min 0.94  P(yes): 0.20 0.08 0.18 0.09 0.69 0.55 0.46 0.88 0.50 0.64 0.14 0.01
+    sagcor_fluid  40 img  10639 tok gpu   1.5s (cpu prep 1.4s, overlapped)  yes/no mass min 0.94  P(yes): 0.20 0.09 0.13 0.10 0.52 0.49 0.35 0.40 0.24 0.35 0.15 0.01
+    plain     40 img  10637 tok gpu   1.5s (cpu prep 1.7s, overlapped)  yes/no mass min 0.94  P(yes): 0.20 0.09 0.13 0.11 0.67 0.59 0.47 0.34 0.19 0.44 0.09 0.01
+this worker 4/14 (0 from before, 4/14 this run) 29174803 right  99s elapsed, ETA 4.1 min  peak GPU 28.3 GB  waited for CPU 4.6s (CPU prep overlapped: 13.1s)
+    corax     84 img  22272 tok gpu   3.6s (cpu prep 2.9s, overlapped)  yes/no mass min 0.95  P(yes): 0.35 0.16 0.38 0.22 0.77 0.58 0.55 0.74 0.45 0.79 0.31 0.01
+    sagax_fluid  72 img  19088 tok gpu   2.9s (cpu prep 2.5s, overlapped)  yes/no mass min 0.95  P(yes): 0.35 0.16 0.29 0.16 0.67 0.55 0.52 0.64 0.48 0.72 0.23 0.01
+    corax_fluid  70 img  18560 tok gpu   2.9s (cpu prep 2.5s, overlapped)  yes/no mass min 0.95  P(yes): 0.34 0.16 0.29 0.13 0.61 0.49 0.46 0.64 0.42 0.70 0.20 0.01
+    sagcor_fluid  62 img  16447 tok gpu   2.5s (cpu prep 2.3s, overlapped)  yes/no mass min 0.93  P(yes): 0.24 0.11 0.27 0.16 0.70 0.58 0.46 0.67 0.50 0.58 0.16 0.01
+    plain     63 img  16709 tok gpu   2.7s (cpu prep 2.1s, overlapped)  yes/no mass min 0.95  P(yes): 0.18 0.09 0.20 0.13 0.70 0.62 0.56 0.52 0.19 0.59 0.12 0.00
+this worker 5/14 (0 from before, 5/14 this run) 21482192 right  115s elapsed, ETA 3.5 min  peak GPU 28.3 GB  waited for CPU 0.1s (CPU prep overlapped: 15.2s)
+    corax     84 img  22289 tok gpu   3.6s (cpu prep 3.0s, overlapped)  yes/no mass min 0.92  P(yes): 0.61 0.37 0.67 0.52 0.94 0.90 0.93 0.99 0.93 0.98 0.81 0.04
+    sagax_fluid  67 img  17768 tok gpu   2.7s (cpu prep 2.1s, overlapped)  yes/no mass min 0.93  P(yes): 0.72 0.36 0.59 0.43 0.97 0.94 0.96 0.99 0.93 0.98 0.80 0.03
+    corax_fluid  70 img  18560 tok gpu   2.8s (cpu prep 2.4s, overlapped)  yes/no mass min 0.92  P(yes): 0.70 0.41 0.67 0.52 0.96 0.91 0.94 0.99 0.91 0.98 0.89 0.07
+    sagcor_fluid  67 img  17767 tok gpu   2.6s (cpu prep 2.7s, overlapped)  yes/no mass min 0.94  P(yes): 0.83 0.49 0.62 0.56 0.94 0.91 0.93 0.96 0.93 0.96 0.85 0.05
+    plain     84 img  22270 tok gpu   3.6s (cpu prep 3.4s, overlapped)  yes/no mass min 0.92  P(yes): 0.43 0.22 0.58 0.37 0.96 0.90 0.93 0.95 0.73 0.93 0.48 0.02
+this worker 6/14 (0 from before, 6/14 this run) 70466645 right  123s elapsed, ETA 2.7 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 6.2s)
+    corax     56 img  14880 tok gpu   2.2s (cpu prep 1.8s, overlapped)  yes/no mass min 0.92  P(yes): 0.75 0.39 0.67 0.61 0.93 0.92 0.90 0.98 0.95 0.98 0.85 0.05
+    sagax_fluid  38 img  10112 tok gpu   1.4s (cpu prep 1.1s, overlapped)  yes/no mass min 0.93  P(yes): 0.77 0.34 0.70 0.67 0.94 0.92 0.91 0.99 0.96 0.98 0.74 0.03
+    corax_fluid  38 img  10112 tok gpu   1.4s (cpu prep 1.2s, overlapped)  yes/no mass min 0.93  P(yes): 0.72 0.31 0.67 0.61 0.93 0.93 0.90 0.98 0.95 0.98 0.82 0.04
+    sagcor_fluid  38 img  10111 tok gpu   1.4s (cpu prep 1.2s, overlapped)  yes/no mass min 0.92  P(yes): 0.46 0.19 0.40 0.26 0.87 0.79 0.75 0.93 0.84 0.84 0.45 0.02
+    plain     18 img   4813 tok gpu   0.7s (cpu prep 0.6s, overlapped)  yes/no mass min 0.95  P(yes): 0.41 0.11 0.24 0.18 0.77 0.62 0.53 0.85 0.78 0.85 0.22 0.01
+this worker 7/14 (0 from before, 7/14 this run) 53419550 left  137s elapsed, ETA 2.3 min  peak GPU 28.3 GB  waited for CPU 3.0s (CPU prep overlapped: 10.3s)
+    corax     60 img  15920 tok gpu   2.3s (cpu prep 2.0s, overlapped)  yes/no mass min 0.94  P(yes): 0.20 0.09 0.16 0.12 0.58 0.45 0.31 0.61 0.22 0.66 0.14 0.01
+    sagax_fluid  65 img  17240 tok gpu   2.7s (cpu prep 2.2s, overlapped)  yes/no mass min 0.94  P(yes): 0.32 0.13 0.24 0.16 0.64 0.49 0.37 0.55 0.33 0.72 0.20 0.01
+    corax_fluid  60 img  15920 tok gpu   2.3s (cpu prep 2.0s, overlapped)  yes/no mass min 0.94  P(yes): 0.20 0.09 0.16 0.12 0.58 0.45 0.31 0.61 0.22 0.66 0.14 0.01
+    sagcor_fluid  65 img  17239 tok gpu   2.6s (cpu prep 2.1s, overlapped)  yes/no mass min 0.92  P(yes): 0.29 0.12 0.20 0.15 0.52 0.49 0.40 0.64 0.41 0.67 0.16 0.01
+    plain     35 img   9301 tok gpu   1.2s (cpu prep 1.1s, overlapped)  yes/no mass min 0.92  P(yes): 0.24 0.07 0.15 0.09 0.90 0.79 0.73 0.34 0.21 0.37 0.13 0.01
+this worker 8/14 (0 from before, 8/14 this run) 13143683 left  154s elapsed, ETA 1.9 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 11.0s)
+    corax     84 img  22272 tok gpu   3.8s (cpu prep 2.5s, overlapped)  yes/no mass min 0.94  P(yes): 0.22 0.13 0.29 0.16 0.70 0.61 0.53 0.81 0.51 0.75 0.67 0.03
+    sagax_fluid  69 img  18296 tok gpu   2.8s (cpu prep 2.1s, overlapped)  yes/no mass min 0.94  P(yes): 0.43 0.16 0.24 0.18 0.74 0.67 0.61 0.70 0.48 0.79 0.75 0.03
+    corax_fluid  68 img  18032 tok gpu   2.7s (cpu prep 2.0s, overlapped)  yes/no mass min 0.95  P(yes): 0.34 0.14 0.26 0.16 0.67 0.58 0.52 0.69 0.41 0.73 0.72 0.03
+    sagcor_fluid  65 img  17239 tok gpu   2.6s (cpu prep 1.9s, overlapped)  yes/no mass min 0.94  P(yes): 0.49 0.20 0.40 0.29 0.88 0.83 0.70 0.83 0.60 0.85 0.77 0.03
+    plain     65 img  17237 tok gpu   2.6s (cpu prep 2.0s, overlapped)  yes/no mass min 0.93  P(yes): 0.20 0.13 0.29 0.16 0.79 0.75 0.59 0.61 0.33 0.72 0.24 0.01
+this worker 9/14 (0 from before, 9/14 this run) 48424274 left  171s elapsed, ETA 1.6 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 12.4s)
+    corax     84 img  22272 tok gpu   3.6s (cpu prep 2.7s, overlapped)  yes/no mass min 0.93  P(yes): 0.49 0.20 0.56 0.34 0.87 0.79 0.72 0.90 0.63 0.92 0.45 0.02
+    sagax_fluid  77 img  20408 tok gpu   3.4s (cpu prep 2.3s, overlapped)  yes/no mass min 0.95  P(yes): 0.47 0.20 0.50 0.35 0.89 0.77 0.77 0.89 0.66 0.92 0.43 0.01
+    corax_fluid  73 img  19352 tok gpu   3.0s (cpu prep 2.2s, overlapped)  yes/no mass min 0.93  P(yes): 0.40 0.21 0.43 0.24 0.82 0.66 0.67 0.84 0.59 0.84 0.37 0.01
+    sagcor_fluid  76 img  20143 tok gpu   3.2s (cpu prep 2.4s, overlapped)  yes/no mass min 0.94  P(yes): 0.35 0.24 0.32 0.22 0.77 0.64 0.56 0.86 0.68 0.89 0.43 0.02
+    plain     76 img  20141 tok gpu   3.2s (cpu prep 2.3s, overlapped)  yes/no mass min 0.95  P(yes): 0.25 0.12 0.27 0.22 0.77 0.70 0.56 0.64 0.39 0.86 0.29 0.01
+this worker 10/14 (0 from before, 10/14 this run) 66826710 right  187s elapsed, ETA 1.2 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 14.3s)
+    corax     84 img  22272 tok gpu   3.6s (cpu prep 2.9s, overlapped)  yes/no mass min 0.94  P(yes): 0.83 0.40 0.73 0.62 0.92 0.87 0.90 0.99 0.96 0.98 0.83 0.07
+    sagax_fluid  82 img  21728 tok gpu   3.5s (cpu prep 2.9s, overlapped)  yes/no mass min 0.94  P(yes): 0.86 0.34 0.56 0.47 0.92 0.86 0.92 0.99 0.96 0.97 0.74 0.06
+    corax_fluid  72 img  19088 tok gpu   3.0s (cpu prep 2.5s, overlapped)  yes/no mass min 0.94  P(yes): 0.81 0.34 0.65 0.46 0.92 0.84 0.90 0.99 0.96 0.97 0.80 0.07
+    sagcor_fluid  70 img  18559 tok gpu   2.9s (cpu prep 2.6s, overlapped)  yes/no mass min 0.94  P(yes): 0.62 0.31 0.53 0.37 0.94 0.92 0.92 0.91 0.90 0.89 0.81 0.05
+    plain     63 img  16709 tok gpu   2.5s (cpu prep 2.4s, overlapped)  yes/no mass min 0.94  P(yes): 0.40 0.13 0.38 0.27 0.91 0.86 0.86 0.85 0.48 0.81 0.24 0.01
+this worker 11/14 (0 from before, 11/14 this run) 72465039 right  201s elapsed, ETA 0.9 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 12.7s)
+    corax     77 img  20408 tok gpu   3.4s (cpu prep 2.5s, overlapped)  yes/no mass min 0.94  P(yes): 0.72 0.40 0.59 0.43 0.96 0.93 0.94 0.99 0.92 0.98 0.90 0.09
+    sagax_fluid  78 img  20672 tok gpu   3.3s (cpu prep 2.5s, overlapped)  yes/no mass min 0.94  P(yes): 0.81 0.43 0.65 0.47 0.96 0.94 0.94 0.99 0.92 0.98 0.89 0.08
+    corax_fluid  77 img  20408 tok gpu   3.3s (cpu prep 2.5s, overlapped)  yes/no mass min 0.94  P(yes): 0.72 0.40 0.59 0.43 0.96 0.93 0.94 0.99 0.92 0.98 0.90 0.09
+    sagcor_fluid  79 img  20935 tok gpu   3.3s (cpu prep 2.7s, overlapped)  yes/no mass min 0.92  P(yes): 0.50 0.43 0.47 0.29 0.95 0.91 0.80 0.91 0.71 0.83 0.86 0.14
+    plain     36 img   9565 tok gpu   1.3s (cpu prep 1.7s, overlapped)  yes/no mass min 0.93  P(yes): 0.20 0.09 0.16 0.10 0.91 0.85 0.59 0.40 0.31 0.34 0.20 0.01
+this worker 12/14 (0 from before, 12/14 this run) 95171921 left  219s elapsed, ETA 0.6 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 11.2s)
+    corax     84 img  22272 tok gpu   3.6s (cpu prep 2.6s, overlapped)  yes/no mass min 0.93  P(yes): 0.35 0.20 0.46 0.27 0.86 0.75 0.68 0.77 0.63 0.83 0.46 0.01
+    sagax_fluid  67 img  17768 tok gpu   2.7s (cpu prep 2.0s, overlapped)  yes/no mass min 0.94  P(yes): 0.37 0.20 0.37 0.20 0.86 0.79 0.81 0.61 0.66 0.79 0.52 0.02
+    corax_fluid  81 img  21464 tok gpu   3.5s (cpu prep 2.3s, overlapped)  yes/no mass min 0.94  P(yes): 0.46 0.20 0.44 0.27 0.86 0.77 0.75 0.75 0.69 0.81 0.43 0.01
+    sagcor_fluid  64 img  16975 tok gpu   2.5s (cpu prep 1.9s, overlapped)  yes/no mass min 0.92  P(yes): 0.43 0.26 0.35 0.24 0.88 0.85 0.81 0.70 0.51 0.73 0.58 0.03
+    plain     64 img  16973 tok gpu   2.5s (cpu prep 2.1s, overlapped)  yes/no mass min 0.96  P(yes): 0.20 0.12 0.18 0.13 0.83 0.75 0.70 0.59 0.28 0.53 0.27 0.01
+this worker 13/14 (0 from before, 13/14 this run) 51855003 right  232s elapsed, ETA 0.3 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 10.7s)
+    corax     84 img  22289 tok gpu   3.8s (cpu prep 2.7s, overlapped)  yes/no mass min 0.93  P(yes): 0.72 0.52 0.65 0.59 0.82 0.77 0.64 0.98 0.91 0.95 0.57 0.02
+    sagax_fluid  52 img  13808 tok gpu   1.9s (cpu prep 1.7s, overlapped)  yes/no mass min 0.93  P(yes): 0.79 0.67 0.62 0.55 0.79 0.76 0.61 0.97 0.92 0.95 0.60 0.01
+    corax_fluid  52 img  13808 tok gpu   2.0s (cpu prep 1.7s, overlapped)  yes/no mass min 0.92  P(yes): 0.72 0.54 0.52 0.40 0.76 0.74 0.58 0.98 0.92 0.93 0.51 0.01
+    sagcor_fluid  48 img  12751 tok gpu   1.8s (cpu prep 1.5s, overlapped)  yes/no mass min 0.92  P(yes): 0.29 0.14 0.24 0.20 0.55 0.55 0.29 0.91 0.59 0.84 0.22 0.01
+    plain     76 img  20158 tok gpu   3.2s (cpu prep 2.4s, overlapped)  yes/no mass min 0.94  P(yes): 0.43 0.18 0.40 0.29 0.84 0.77 0.61 0.89 0.57 0.92 0.46 0.01
+this worker 14/14 (0 from before, 14/14 this run) 13570435 left  248s elapsed, ETA 0.0 min  peak GPU 28.3 GB  waited for CPU 0.0s (CPU prep overlapped: 11.8s)
+    corax     84 img  22272 tok gpu   3.6s (cpu prep 2.6s, overlapped)  yes/no mass min 0.91  P(yes): 0.77 0.45 0.73 0.59 0.96 0.94 0.94 0.99 0.95 0.99 0.84 0.05
+    sagax_fluid  75 img  19880 tok gpu   3.0s (cpu prep 2.2s, overlapped)  yes/no mass min 0.92  P(yes): 0.79 0.36 0.67 0.49 0.95 0.93 0.93 0.99 0.93 0.99 0.77 0.03
+    corax_fluid  78 img  20672 tok gpu   3.2s (cpu prep 2.3s, overlapped)  yes/no mass min 0.92  P(yes): 0.79 0.31 0.65 0.46 0.93 0.92 0.93 0.99 0.93 0.99 0.69 0.03
+    sagcor_fluid  69 img  18295 tok gpu   2.8s (cpu prep 2.1s, overlapped)  yes/no mass min 0.92  P(yes): 0.70 0.37 0.53 0.34 0.93 0.91 0.94 0.95 0.86 0.92 0.77 0.04
+    plain     69 img  18293 tok gpu   2.8s (cpu prep 2.1s, overlapped)  yes/no mass min 0.91  P(yes): 0.52 0.28 0.49 0.34 0.94 0.92 0.92 0.86 0.75 0.81 0.76 0.05
+done: 70 study-modes in 248s
+
+remote results: knee-runs volume labelling/medgemma15_audit58/20260924_185429/part3
+attention: sdpa
+GPU NVIDIA H100 80GB HBM3, 85 GB; 14 studies x modes ['corax', 'sagax_fluid', 'corax_fluid', 'sagcor_fluid', 'plain'] x 12 findings
+loaded google/medgemma-1.5-4b-it in 12s: decoder 34 layers, hidden 2560, heads 8 / kv 4, sliding window 1024; 256 tokens per image; GPU mem 8.6 GB
+yes tokens [(4443, 'yes'), (8438, ' Yes'), (10784, 'Yes'), (11262, ' yes')] no tokens [(951, ' no'), (1904, 'no'), (2301, ' No'), (3771, 'No')]
+  [corax] first study: 56 images, 14824 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [corax] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.1719 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0000 (should be < 0.02)
+  [sagax_fluid] first study: 49 images, 12976 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [sagax_fluid] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.2031 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0258 (should be < 0.02)
+  [corax_fluid] first study: 56 images, 14824 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [corax_fluid] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.1719 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0000 (should be < 0.02)
+  [sagcor_fluid] first study: 45 images, 11919 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [sagcor_fluid] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.1875 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0287 (should be < 0.02)
+  [plain] first study: 19 images, 5037 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [plain] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.1875 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0000 (should be < 0.02)
+this worker 1/14 (0 from before, 1/14 this run) 02017580 left  27s elapsed, ETA 5.8 min  peak GPU 22.4 GB  waited for CPU 4.9s (CPU prep overlapped: 4.9s)
+    corax     56 img  14864 tok gpu   5.4s (cpu prep 1.1s, overlapped)  yes/no mass min 0.93  P(yes): 0.67 0.21 0.53 0.22 0.88 0.76 0.72 0.95 0.77 0.91 0.39 0.01
+    sagax_fluid  49 img  13016 tok gpu   3.7s (cpu prep 0.8s, overlapped)  yes/no mass min 0.93  P(yes): 0.69 0.20 0.55 0.26 0.90 0.78 0.77 0.96 0.79 0.94 0.39 0.01
+    corax_fluid  56 img  14864 tok gpu   4.3s (cpu prep 1.0s, overlapped)  yes/no mass min 0.93  P(yes): 0.67 0.21 0.53 0.22 0.88 0.76 0.72 0.95 0.77 0.91 0.39 0.01
+    sagcor_fluid  45 img  11959 tok gpu   3.3s (cpu prep 0.7s, overlapped)  yes/no mass min 0.93  P(yes): 0.37 0.13 0.24 0.16 0.67 0.58 0.52 0.88 0.53 0.77 0.19 0.01
+    plain     19 img   5077 tok gpu   1.5s (cpu prep 0.3s, overlapped)  yes/no mass min 0.95  P(yes): 0.12 0.08 0.18 0.11 0.79 0.67 0.59 0.32 0.48 0.41 0.12 0.00
+this worker 2/14 (0 from before, 2/14 this run) 83976756 right  36s elapsed, ETA 3.6 min  peak GPU 22.4 GB  waited for CPU 0.0s (CPU prep overlapped: 5.6s)
+    corax     50 img  13280 tok gpu   2.0s (cpu prep 2.1s, overlapped)  yes/no mass min 0.92  P(yes): 0.34 0.13 0.24 0.16 0.60 0.42 0.31 0.73 0.43 0.82 0.13 0.01
+    sagax_fluid  48 img  12752 tok gpu   1.9s (cpu prep 0.9s, overlapped)  yes/no mass min 0.93  P(yes): 0.34 0.17 0.29 0.20 0.74 0.58 0.46 0.84 0.55 0.89 0.21 0.01
+    corax_fluid  50 img  13280 tok gpu   1.9s (cpu prep 0.9s, overlapped)  yes/no mass min 0.92  P(yes): 0.34 0.13 0.24 0.16 0.60 0.42 0.31 0.73 0.43 0.82 0.13 0.01
+    sagcor_fluid  50 img  13279 tok gpu   1.9s (cpu prep 0.9s, overlapped)  yes/no mass min 0.90  P(yes): 0.55 0.26 0.37 0.37 0.63 0.69 0.55 0.92 0.70 0.93 0.36 0.01
+    plain     24 img   6397 tok gpu   0.9s (cpu prep 0.4s, overlapped)  yes/no mass min 0.94  P(yes): 0.16 0.07 0.11 0.08 0.52 0.40 0.29 0.43 0.30 0.65 0.05 0.00
+this worker 3/14 (0 from before, 3/14 this run) 88770819 left  45s elapsed, ETA 2.7 min  peak GPU 22.4 GB  waited for CPU 0.0s (CPU prep overlapped: 4.1s)
+    corax     60 img  15936 tok gpu   2.4s (cpu prep 1.0s, overlapped)  yes/no mass min 0.93  P(yes): 0.81 0.30 0.56 0.49 0.88 0.84 0.82 0.99 0.95 0.98 0.82 0.04
+    sagax_fluid  44 img  11696 tok gpu   1.7s (cpu prep 0.7s, overlapped)  yes/no mass min 0.94  P(yes): 0.81 0.26 0.43 0.35 0.87 0.81 0.85 0.99 0.96 0.97 0.72 0.02
+    corax_fluid  42 img  11168 tok gpu   1.6s (cpu prep 0.7s, overlapped)  yes/no mass min 0.93  P(yes): 0.79 0.23 0.43 0.32 0.86 0.81 0.81 0.99 0.95 0.97 0.74 0.03
+    sagcor_fluid  38 img  10111 tok gpu   1.4s (cpu prep 0.6s, overlapped)  yes/no mass min 0.93  P(yes): 0.73 0.29 0.40 0.34 0.91 0.89 0.86 0.96 0.94 0.89 0.66 0.03
+    plain     38 img  10109 tok gpu   1.4s (cpu prep 0.7s, overlapped)  yes/no mass min 0.93  P(yes): 0.32 0.14 0.27 0.16 0.83 0.74 0.67 0.79 0.56 0.75 0.20 0.01
+this worker 4/14 (0 from before, 4/14 this run) 22874891 left  52s elapsed, ETA 2.2 min  peak GPU 22.4 GB  waited for CPU 0.0s (CPU prep overlapped: 3.4s)
+    corax     43 img  11432 tok gpu   1.6s (cpu prep 0.7s, overlapped)  yes/no mass min 0.93  P(yes): 0.27 0.13 0.29 0.16 0.77 0.64 0.64 0.69 0.53 0.67 0.52 0.01
+    sagax_fluid  39 img  10376 tok gpu   1.5s (cpu prep 0.7s, overlapped)  yes/no mass min 0.93  P(yes): 0.26 0.11 0.22 0.13 0.66 0.58 0.46 0.61 0.47 0.55 0.46 0.01
+    corax_fluid  43 img  11432 tok gpu   1.8s (cpu prep 0.7s, overlapped)  yes/no mass min 0.93  P(yes): 0.27 0.13 0.29 0.16 0.77 0.64 0.64 0.69 0.53 0.67 0.52 0.01
+    sagcor_fluid  42 img  11167 tok gpu   1.7s (cpu prep 0.7s, overlapped)  yes/no mass min 0.91  P(yes): 0.27 0.10 0.15 0.12 0.52 0.52 0.34 0.61 0.51 0.53 0.34 0.01
+    plain     19 img   5077 tok gpu   0.8s (cpu prep 0.3s, overlapped)  yes/no mass min 0.96  P(yes): 0.24 0.09 0.22 0.13 0.81 0.68 0.59 0.47 0.76 0.56 0.18 0.00
+this worker 5/14 (0 from before, 5/14 this run) 91102711 right  68s elapsed, ETA 2.1 min  peak GPU 24.0 GB  waited for CPU 1.9s (CPU prep overlapped: 9.5s)
+    corax     84 img  22272 tok gpu   3.7s (cpu prep 1.9s, overlapped)  yes/no mass min 0.94  P(yes): 0.83 0.46 0.77 0.68 0.93 0.87 0.85 0.99 0.92 0.98 0.86 0.05
+    sagax_fluid  58 img  15392 tok gpu   2.3s (cpu prep 1.4s, overlapped)  yes/no mass min 0.93  P(yes): 0.81 0.33 0.56 0.40 0.87 0.80 0.79 0.99 0.91 0.98 0.69 0.02
+    corax_fluid  60 img  15920 tok gpu   2.4s (cpu prep 1.6s, overlapped)  yes/no mass min 0.93  P(yes): 0.83 0.42 0.67 0.55 0.92 0.87 0.86 0.99 0.91 0.98 0.85 0.04
+    sagcor_fluid  58 img  15391 tok gpu   2.3s (cpu prep 1.4s, overlapped)  yes/no mass min 0.93  P(yes): 0.55 0.19 0.34 0.26 0.81 0.72 0.67 0.97 0.79 0.95 0.60 0.02
+    plain     72 img  19085 tok gpu   3.0s (cpu prep 1.4s, overlapped)  yes/no mass min 0.95  P(yes): 0.29 0.12 0.24 0.18 0.81 0.73 0.67 0.70 0.33 0.73 0.34 0.01
+this worker 6/14 (0 from before, 6/14 this run) 48882465 right  81s elapsed, ETA 1.8 min  peak GPU 24.0 GB  waited for CPU 0.0s (CPU prep overlapped: 4.5s)
+    corax     58 img  15392 tok gpu   2.3s (cpu prep 0.9s, overlapped)  yes/no mass min 0.94  P(yes): 0.34 0.07 0.18 0.12 0.54 0.54 0.40 0.96 0.44 0.85 0.31 0.01
+    sagax_fluid  58 img  15392 tok gpu   2.3s (cpu prep 0.9s, overlapped)  yes/no mass min 0.93  P(yes): 0.40 0.09 0.18 0.12 0.49 0.46 0.37 0.96 0.42 0.86 0.26 0.01
+    corax_fluid  58 img  15392 tok gpu   2.3s (cpu prep 0.9s, overlapped)  yes/no mass min 0.94  P(yes): 0.34 0.07 0.18 0.12 0.54 0.54 0.40 0.96 0.44 0.85 0.31 0.01
+    sagcor_fluid  56 img  14863 tok gpu   2.2s (cpu prep 0.9s, overlapped)  yes/no mass min 0.94  P(yes): 0.20 0.08 0.13 0.10 0.55 0.49 0.22 0.59 0.26 0.50 0.15 0.01
+    plain     28 img   7453 tok gpu   1.1s (cpu prep 0.4s, overlapped)  yes/no mass min 0.92  P(yes): 0.11 0.07 0.09 0.06 0.70 0.62 0.24 0.24 0.19 0.46 0.06 0.00
+this worker 7/14 (0 from before, 7/14 this run) 83079911 right  94s elapsed, ETA 1.6 min  peak GPU 24.0 GB  waited for CPU 0.0s (CPU prep overlapped: 5.2s)
+    corax     84 img  22272 tok gpu   3.7s (cpu prep 1.3s, overlapped)  yes/no mass min 0.92  P(yes): 0.70 0.22 0.65 0.43 0.90 0.83 0.83 0.99 0.88 0.96 0.75 0.05
+    sagax_fluid  52 img  13808 tok gpu   2.1s (cpu prep 0.8s, overlapped)  yes/no mass min 0.91  P(yes): 0.81 0.23 0.59 0.37 0.88 0.82 0.83 0.99 0.91 0.95 0.74 0.04
+    corax_fluid  63 img  16712 tok gpu   2.5s (cpu prep 0.9s, overlapped)  yes/no mass min 0.91  P(yes): 0.75 0.23 0.59 0.40 0.93 0.87 0.86 0.98 0.90 0.95 0.79 0.06
+    sagcor_fluid  51 img  13543 tok gpu   2.0s (cpu prep 0.8s, overlapped)  yes/no mass min 0.91  P(yes): 0.56 0.23 0.37 0.22 0.84 0.77 0.64 0.90 0.71 0.87 0.74 0.04
+    plain     51 img  13541 tok gpu   2.0s (cpu prep 0.8s, overlapped)  yes/no mass min 0.93  P(yes): 0.24 0.12 0.18 0.11 0.70 0.64 0.53 0.52 0.33 0.64 0.21 0.01
+this worker 8/14 (0 from before, 8/14 this run) 18305500 right  108s elapsed, ETA 1.4 min  peak GPU 24.0 GB  waited for CPU 0.0s (CPU prep overlapped: 5.8s)
+    corax     84 img  22272 tok gpu   3.7s (cpu prep 1.2s, overlapped)  yes/no mass min 0.92  P(yes): 0.62 0.24 0.67 0.52 0.93 0.90 0.86 0.98 0.89 0.98 0.79 0.04
+    sagax_fluid  65 img  17240 tok gpu   2.7s (cpu prep 1.0s, overlapped)  yes/no mass min 0.92  P(yes): 0.72 0.26 0.65 0.49 0.93 0.90 0.86 0.99 0.90 0.99 0.74 0.05
+    corax_fluid  60 img  15920 tok gpu   2.4s (cpu prep 0.9s, overlapped)  yes/no mass min 0.93  P(yes): 0.64 0.23 0.61 0.40 0.93 0.89 0.88 0.99 0.88 0.98 0.77 0.04
+    sagcor_fluid  65 img  17239 tok gpu   2.7s (cpu prep 1.1s, overlapped)  yes/no mass min 0.93  P(yes): 0.53 0.24 0.52 0.40 0.83 0.83 0.64 0.91 0.70 0.94 0.63 0.03
+    plain     65 img  17237 tok gpu   2.7s (cpu prep 1.0s, overlapped)  yes/no mass min 0.93  P(yes): 0.32 0.14 0.29 0.20 0.85 0.77 0.67 0.83 0.36 0.85 0.28 0.01
+this worker 9/14 (0 from before, 9/14 this run) 34101132 left  121s elapsed, ETA 1.1 min  peak GPU 24.2 GB  waited for CPU 0.0s (CPU prep overlapped: 6.4s)
+    corax     56 img  14863 tok gpu   2.3s (cpu prep 0.9s, overlapped)  yes/no mass min 0.93  P(yes): 0.72 0.28 0.49 0.31 0.76 0.69 0.64 0.93 0.81 0.90 0.36 0.02
+    sagax_fluid  72 img  19088 tok gpu   3.0s (cpu prep 1.0s, overlapped)  yes/no mass min 0.95  P(yes): 0.79 0.34 0.59 0.43 0.90 0.84 0.85 0.94 0.80 0.95 0.52 0.02
+    corax_fluid  30 img   7983 tok gpu   1.1s (cpu prep 0.4s, overlapped)  yes/no mass min 0.94  P(yes): 0.70 0.24 0.43 0.29 0.79 0.69 0.61 0.90 0.84 0.85 0.31 0.01
+    sagcor_fluid  85 img  22502 tok gpu   3.7s (cpu prep 1.5s, overlapped)  yes/no mass min 0.95  P(yes): 0.67 0.34 0.44 0.25 0.89 0.85 0.77 0.85 0.58 0.90 0.43 0.03
+    plain     52 img  13805 tok gpu   2.0s (cpu prep 1.0s, overlapped)  yes/no mass min 0.93  P(yes): 0.20 0.09 0.15 0.08 0.58 0.49 0.40 0.43 0.14 0.37 0.13 0.01
+this worker 10/14 (0 from before, 10/14 this run) 16559395 right  131s elapsed, ETA 0.9 min  peak GPU 24.2 GB  waited for CPU 0.0s (CPU prep overlapped: 3.6s)
+    corax     59 img  15655 tok gpu   2.4s (cpu prep 0.8s, overlapped)  yes/no mass min 0.94  P(yes): 0.89 0.57 0.72 0.67 0.93 0.92 0.91 0.99 0.97 0.98 0.89 0.05
+    sagax_fluid  61 img  16184 tok gpu   2.5s (cpu prep 0.9s, overlapped)  yes/no mass min 0.94  P(yes): 0.88 0.61 0.70 0.70 0.93 0.91 0.90 0.99 0.96 0.98 0.87 0.04
+    corax_fluid  36 img   9567 tok gpu   1.4s (cpu prep 0.5s, overlapped)  yes/no mass min 0.94  P(yes): 0.87 0.48 0.70 0.64 0.93 0.91 0.87 0.99 0.97 0.97 0.84 0.03
+    sagcor_fluid  25 img   6662 tok gpu   1.0s (cpu prep 0.4s, overlapped)  yes/no mass min 0.93  P(yes): 0.32 0.08 0.16 0.13 0.89 0.79 0.73 0.72 0.69 0.22 0.37 0.01
+    plain     49 img  13013 tok gpu   1.9s (cpu prep 0.7s, overlapped)  yes/no mass min 0.92  P(yes): 0.32 0.11 0.20 0.13 0.81 0.70 0.67 0.72 0.53 0.72 0.36 0.01
+this worker 11/14 (0 from before, 11/14 this run) 63784327 left  150s elapsed, ETA 0.7 min  peak GPU 24.2 GB  waited for CPU 0.0s (CPU prep overlapped: 6.7s)
+    corax     84 img  22289 tok gpu   3.8s (cpu prep 1.2s, overlapped)  yes/no mass min 0.94  P(yes): 0.44 0.22 0.56 0.40 0.91 0.86 0.79 0.94 0.85 0.97 0.49 0.02
+    sagax_fluid  70 img  18560 tok gpu   2.9s (cpu prep 1.1s, overlapped)  yes/no mass min 0.92  P(yes): 0.55 0.28 0.59 0.37 0.93 0.88 0.86 0.93 0.84 0.97 0.48 0.02
+    corax_fluid  75 img  19880 tok gpu   3.1s (cpu prep 1.3s, overlapped)  yes/no mass min 0.93  P(yes): 0.46 0.24 0.49 0.27 0.88 0.83 0.74 0.92 0.83 0.96 0.46 0.02
+    sagcor_fluid  65 img  17239 tok gpu   2.7s (cpu prep 1.0s, overlapped)  yes/no mass min 0.93  P(yes): 0.70 0.34 0.56 0.47 0.90 0.88 0.86 0.91 0.76 0.97 0.58 0.03
+    plain     84 img  22270 tok gpu   3.7s (cpu prep 1.3s, overlapped)  yes/no mass min 0.93  P(yes): 0.40 0.16 0.53 0.32 0.94 0.87 0.85 0.89 0.63 0.89 0.26 0.01
+this worker 12/14 (0 from before, 12/14 this run) 32662220 right  159s elapsed, ETA 0.4 min  peak GPU 24.2 GB  waited for CPU 0.0s (CPU prep overlapped: 3.7s)
+    corax     54 img  14336 tok gpu   2.1s (cpu prep 0.8s, overlapped)  yes/no mass min 0.93  P(yes): 0.77 0.33 0.53 0.40 0.92 0.89 0.90 0.97 0.85 0.93 0.90 0.08
+    sagax_fluid  51 img  13544 tok gpu   2.0s (cpu prep 0.8s, overlapped)  yes/no mass min 0.93  P(yes): 0.77 0.36 0.55 0.40 0.91 0.89 0.90 0.97 0.86 0.96 0.85 0.05
+    corax_fluid  54 img  14336 tok gpu   2.1s (cpu prep 0.8s, overlapped)  yes/no mass min 0.93  P(yes): 0.77 0.33 0.53 0.40 0.92 0.89 0.90 0.97 0.85 0.93 0.90 0.08
+    sagcor_fluid  41 img  10903 tok gpu   1.6s (cpu prep 0.6s, overlapped)  yes/no mass min 0.93  P(yes): 0.29 0.14 0.20 0.16 0.63 0.61 0.37 0.92 0.57 0.84 0.37 0.01
+    plain     19 img   5077 tok gpu   0.8s (cpu prep 0.3s, overlapped)  yes/no mass min 0.94  P(yes): 0.20 0.13 0.20 0.15 0.49 0.40 0.22 0.46 0.42 0.53 0.10 0.01
+this worker 13/14 (0 from before, 13/14 this run) 68676828 right  174s elapsed, ETA 0.2 min  peak GPU 24.2 GB  waited for CPU 0.0s (CPU prep overlapped: 5.4s)
+    corax     84 img  22272 tok gpu   3.7s (cpu prep 1.2s, overlapped)  yes/no mass min 0.94  P(yes): 0.56 0.27 0.56 0.37 0.89 0.81 0.81 0.93 0.76 0.95 0.64 0.03
+    sagax_fluid  69 img  18296 tok gpu   2.8s (cpu prep 1.0s, overlapped)  yes/no mass min 0.94  P(yes): 0.72 0.34 0.56 0.34 0.91 0.83 0.81 0.91 0.78 0.94 0.55 0.02
+    corax_fluid  68 img  18032 tok gpu   2.8s (cpu prep 1.0s, overlapped)  yes/no mass min 0.94  P(yes): 0.64 0.26 0.47 0.27 0.90 0.81 0.83 0.93 0.68 0.92 0.58 0.02
+    sagcor_fluid  65 img  17239 tok gpu   2.7s (cpu prep 0.9s, overlapped)  yes/no mass min 0.93  P(yes): 0.65 0.26 0.56 0.43 0.90 0.86 0.81 0.91 0.68 0.94 0.64 0.02
+    plain     65 img  17237 tok gpu   2.7s (cpu prep 0.9s, overlapped)  yes/no mass min 0.92  P(yes): 0.50 0.20 0.50 0.32 0.90 0.86 0.85 0.77 0.48 0.83 0.34 0.01
+this worker 14/14 (0 from before, 14/14 this run) 70552767 left  183s elapsed, ETA 0.0 min  peak GPU 24.2 GB  waited for CPU 0.0s (CPU prep overlapped: 3.7s)
+    corax     56 img  14880 tok gpu   2.2s (cpu prep 0.8s, overlapped)  yes/no mass min 0.92  P(yes): 0.77 0.39 0.72 0.67 0.95 0.94 0.93 0.99 0.94 0.98 0.84 0.03
+    sagax_fluid  43 img  11432 tok gpu   1.6s (cpu prep 0.6s, overlapped)  yes/no mass min 0.93  P(yes): 0.79 0.40 0.73 0.67 0.95 0.95 0.94 0.99 0.93 0.98 0.84 0.03
+    corax_fluid  38 img  10112 tok gpu   1.4s (cpu prep 0.6s, overlapped)  yes/no mass min 0.92  P(yes): 0.70 0.28 0.64 0.58 0.93 0.93 0.92 0.99 0.93 0.98 0.74 0.02
+    sagcor_fluid  41 img  10903 tok gpu   1.6s (cpu prep 0.5s, overlapped)  yes/no mass min 0.92  P(yes): 0.55 0.18 0.37 0.27 0.90 0.88 0.81 0.92 0.79 0.89 0.55 0.02
+    plain     41 img  10901 tok gpu   1.6s (cpu prep 0.6s, overlapped)  yes/no mass min 0.94  P(yes): 0.24 0.12 0.24 0.16 0.81 0.75 0.56 0.67 0.41 0.67 0.22 0.01
+done: 70 study-modes in 183s

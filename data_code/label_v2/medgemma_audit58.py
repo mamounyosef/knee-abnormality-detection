@@ -118,11 +118,43 @@ MODE_DEF = {
     "all_def":   (SLOTS_ALL, False),                       # batch D: panel definitions
     "all_num":   (SLOTS_ALL, False),                       # batch D: stated probability
     "all_reason": (SLOTS_ALL, False),                      # batch E: reasoning first
+    "sag_rep":   (["sag_plain", "sag_fluid"], True),       # batch F: view subset + report
+    "cor_rep":   (["cor_plain", "cor_fluid"], True),       # batch F
+    "fluid_rep": (SLOTS_FLUID, True),                      # batch F
+    "all_margin": (SLOTS_ALL, False),                      # batch G: skip the edge slices
+    # batch H, the medically standard pairings: menisci + tibiofemoral OA are read on side AND
+    # front together; the kneecap joint, effusion and a Baker's cyst on axial AND side
+    "sagcor":    (["sag_plain", "sag_fluid", "cor_plain", "cor_fluid"], False),
+    "axsag":     (["sag_plain", "sag_fluid", "ax_plain", "ax_fluid"], False),
+    # batch I, the remaining medically meaningful pairings
+    "corax":        (["cor_plain", "cor_fluid", "ax_plain", "ax_fluid"], False),  # MCL
+    "sagax_fluid":  (["sag_fluid", "ax_fluid"], False),     # effusion, synovitis, Baker's
+    "corax_fluid":  (["cor_fluid", "ax_fluid"], False),     # MCL sprain, contusion
+    "sagcor_fluid": (["sag_fluid", "cor_fluid"], False),    # contusion, meniscus
+    "plain":        (["sag_plain", "cor_plain", "ax_plain"], False),  # fracture lines
+}
+# each finding's medically appropriate view sets, FIXED BEFORE the batch H/I results: the
+# per-finding choice only ever picks among these, so 58 studies cannot shop across all modes
+MED_MAP = {
+    "ACL": ["sag", "sagcor", "all"],
+    "MCL": ["cor", "corax", "corax_fluid", "cor_fluid", "all"],
+    "Medial Meniscus": ["sagcor", "sag", "cor", "sagcor_fluid", "all"],
+    "Lateral Meniscus": ["sagcor", "sag", "cor", "sagcor_fluid", "all"],
+    "Medial OA": ["sagcor", "cor", "all"],
+    "Lateral OA": ["sagcor", "cor", "all"],
+    "PF OA": ["axsag", "ax", "all"],
+    "Effusion": ["sagax_fluid", "axsag", "fluid", "ax", "all"],
+    "Synovitis": ["sagax_fluid", "axsag", "fluid", "ax", "all"],
+    "Baker's": ["sagax_fluid", "axsag", "ax", "fluid", "all"],
+    "Contusion": ["fluid", "sagcor_fluid", "corax_fluid", "all"],
+    "Fracture": ["plain", "all", "fluid"],
 }
 # how a mode asks: which label wording, and how the answer is read ("token" = P(yes) from the
 # next-token logits after "Final Answer:"; "number" = MedGemma writes a probability itself)
 MODE_OPT = {"all_def": {"labels": "def"}, "all_num": {"answer": "number"},
-            "all_reason": {"answer": "reason"}}
+            "all_reason": {"answer": "reason"},
+            # the outer 5% of each series is mostly empty edge (the engine's slice_margin)
+            "all_margin": {"margin": 0.05}}
 REASON_MAX_NEW = 320          # tokens of argument before "Final Answer:" is forced
 REASON_MARK = "Final Answer:"
 NUM_PREFILL = "Probability:"
@@ -208,7 +240,10 @@ def volume_slices(z, job, mode):
     out = []
     for s in have:
         vol = z[job["slots"][s]]
-        vol = vol[pick(vol.shape[0], per)]
+        mg_ = MODE_OPT.get(mode, {}).get("margin", 0.0)
+        lo = int(vol.shape[0] * mg_)
+        hi = vol.shape[0] - lo
+        vol = vol[lo:hi][pick(hi - lo, per)]
         if mirror:
             vol = _sc()._mirror_slot(vol, s)
         out.append((s, list(vol)))
@@ -524,18 +559,36 @@ def score(jobs, modes, tag, part=0, attn="sdpa", sub="medgemma15_audit58"):
     out_dir = f"{REMOTE_ROOT}/{sub}/{tag}/part{part}"
     # RESUME: a rerun with the same --tag gives this part the same studies; whatever it
     # already saved is kept and skipped, so a stopped or crashed run loses nothing
-    done_rows = []
-    if os.path.exists(f"{out_dir}/rows.jsonl"):
-        for line in open(f"{out_dir}/rows.jsonl", encoding="utf-8"):
+    # EVERY part of the tag is read, not just this one: a resume may use a different
+    # --workers count, so a study this worker now owns can have been saved by any old part
+    import glob as _glob
+    mine = {j["uid"] for j in jobs}
+    done_rows = {}
+    for f in sorted(_glob.glob(f"{REMOTE_ROOT}/{sub}/{tag}/part*/rows.jsonl")):
+        for line in open(f, encoding="utf-8"):
             if line.strip():
-                r = json.loads(line)
-                if "error" not in r:
-                    done_rows.append(r)
-    done = {(r["uid"], r["mode"]) for r in done_rows}
+                try:
+                    r = json.loads(line)
+                except ValueError:                             # a half-written last line
+                    continue
+                if "error" not in r and r["uid"] in mine and r.get("mode") in modes:
+                    done_rows[(r["uid"], r["mode"])] = r
+    done = set(done_rows)
+    done_rows = list(done_rows.values())
     jobs = [j for j in jobs if any((j["uid"], m) not in done for m in modes)]
     os.makedirs(out_dir, exist_ok=True)
     logf = open(f"{out_dir}/log.txt", "a", encoding="utf-8")
-    rowf = open(f"{out_dir}/rows.jsonl", "a", encoding="utf-8")
+    # a stop mid-write can leave a half line; start new rows on a fresh line so they never
+    # glue onto it (the half line itself is skipped by the resume reader above)
+    _rp = f"{out_dir}/rows.jsonl"
+    if os.path.exists(_rp) and os.path.getsize(_rp):
+        with open(_rp, "rb") as _f:
+            _f.seek(-1, 2)
+            _needs_nl = _f.read(1) != b"\n"
+        if _needs_nl:
+            with open(_rp, "a", encoding="utf-8") as _f:
+                _f.write("\n")
+    rowf = open(_rp, "a", encoding="utf-8")
     lines = []
 
     def log(*a, **_):
@@ -620,6 +673,7 @@ def score(jobs, modes, tag, part=0, attn="sdpa", sub="medgemma15_audit58"):
     nxt = pool.submit(prepare, jobs[0]) if jobs else None
     out, shown = list(done_rows), set()
     t0 = time.time()
+    last_commit = t0
     for k, job in enumerate(jobs):
         t_wait = time.time()
         prepared = nxt.result()
@@ -695,7 +749,9 @@ def score(jobs, modes, tag, part=0, attn="sdpa", sub="medgemma15_audit58"):
                         # difference of 0.25-0.4 over 262k vocab entries is one rounding step
                         log(f"  [{m}] CACHE CHECK full pass vs shared prefix: max |logit diff| "
                             f"{diff[0]:.4f} (one bf16 step at this size is 0.25), "
-                            f"|P(yes) diff| {diff[1]:.4f} (should be < 0.02)", flush=True)
+                            f"|P(yes) diff| {diff[1]:.4f} (one bf16 step on the yes-no logit "
+                            f"gap moves P by up to 0.0625 near 0.5; a bug would be far larger)",
+                            flush=True)
                 row.update({"n_img": len(imgs),
                             "slots": "+".join(f"{s}:{len(sl)}" for s, sl in groups),
                             "prefix_tok": L, "total_tok": len(ids_list[-1]),
@@ -725,7 +781,9 @@ def score(jobs, modes, tag, part=0, attn="sdpa", sub="medgemma15_audit58"):
         el = time.time() - t0
         eta = el / (k + 1) * (len(jobs) - k - 1)
         rs = [r for r in out[-len(modes):] if r["uid"] == job["uid"]]
-        log(f"{k + 1}/{len(jobs)} {job['uid'][-8:]} {job.get('side')}  {el:.0f}s elapsed, "
+        n_prev = len({r["uid"] for r in done_rows})       # saved by an earlier run
+        log(f"this worker {n_prev + k + 1}/{n_prev + len(jobs)} ({n_prev} from before, "
+            f"{k + 1}/{len(jobs)} this run) {job['uid'][-8:]} {job.get('side')}  {el:.0f}s elapsed, "
               f"ETA {eta / 60:.1f} min  peak GPU {torch.cuda.max_memory_allocated() / 1e9:.1f} GB  "
               f"waited for CPU {t_wait:.1f}s (CPU prep overlapped: {prepared['_load_s']:.1f}s)",
               flush=True)
@@ -737,7 +795,11 @@ def score(jobs, modes, tag, part=0, attn="sdpa", sub="medgemma15_audit58"):
                 f"gpu {r['gpu_s']:5.1f}s (cpu prep {r['prep_s']:.1f}s, overlapped)  "
                 f"yes/no mass min {r['yn_mass_min']:.2f}  P(yes): {p}",
                   flush=True)
-        runs_vol.commit()                               # persist after every study
+        # persist at most once a minute: a commit per study blocked the GPU ~2.3 s of every
+        # ~6 s (corpus run, 24 Sep). A crash now loses <= 60 s, which a resume redoes.
+        if time.time() - last_commit > 60:
+            runs_vol.commit()
+            last_commit = time.time()
     pool.shutdown()
     log(f"done: {len(out)} study-modes in {time.time() - t0:.0f}s")
     logf.close()
@@ -833,6 +895,8 @@ def main(modes: str = ",".join(MODES), limit: int = 0, workers: int = 4, attn: s
         rows += r
         logs.append(lg)
     log_text = "\n\n".join(logs)
+    # one row per (study, mode): a resume can hand back a row from an old part twice
+    rows = list({(r["uid"], r["mode"]): r for r in rows}.values())
     (out / "log.txt").write_text(log_text + "\n", encoding="utf-8")
     df = pd.DataFrame(rows)
     df.to_csv(out / "raw.csv", index=False)

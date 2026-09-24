@@ -97,5 +97,10 @@ rows2, _ = raw(jobs, MODES, "localtest", part=0)
 n_again = len((part / "rows.jsonl").read_text().splitlines())
 print(f"resume: second run returned {len(rows2)} rows, rows.jsonl still {n_again} lines")
 fails += len(rows2) != exp or n_again != exp
+# a DIFFERENT part number (a resume with another --workers count) must also redo nothing
+rows3, _ = raw(jobs, MODES, "localtest", part=7)
+print(f"resume as part7: returned {len(rows3)} rows, "
+      f"new part7 rows {len((tmp / 'medgemma15_audit58/localtest/part7/rows.jsonl').read_text().splitlines())}")
+fails += len(rows3) != exp or (tmp / "medgemma15_audit58/localtest/part7/rows.jsonl").read_text().strip() != ""
 print("ALL OK" if not fails else f"{fails} FAILED")
 sys.exit(1 if fails else 0)
