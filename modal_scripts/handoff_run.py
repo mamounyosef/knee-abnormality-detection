@@ -96,15 +96,28 @@ def main():
     if not any(g.endswith(".pt") for g in got):
         raise SystemExit("no checkpoint pulled - nothing to hand off. Check the run name.")
 
-    # say WHICH step is being carried over, so a stale file cannot pass unnoticed
-    try:
-        import torch
-        ck = torch.load(local / "results/checkpoints/last.pt", map_location="cpu",
-                        weights_only=False)
-        print("   last.pt is epoch %s, step %s, score %s"
-              % (ck.get("epoch"), ck.get("global_step"), ck.get("score")))
-    except Exception as e:
-        print("   (could not read last.pt: %s)" % e)
+    # say WHICH step every checkpoint holds, so a stale file cannot pass unnoticed
+    import torch
+    step_of = {}
+    for rel in got:
+        if rel.endswith(".pt"):
+            try:
+                ck = torch.load(local / rel, map_location="cpu", weights_only=False)
+                step_of[rel] = int(ck.get("step") or ck.get("global_step") or -1)
+                print("   %-42s epoch %s, step %s, score %s" % (rel, ck.get("epoch"),
+                                                             step_of[rel], ck.get("score")))
+                del ck
+            except Exception as e:
+                step_of[rel] = -1
+                print("   (could not read %s: %s)" % (rel, e))
+    # PUSH ORDER MATTERS: the engine resumes from the most recently MODIFIED checkpoint, and
+    # an upload stamps the upload time. So the checkpoint with the highest step must be
+    # uploaded LAST, or the run resumes from an older one. On 24 Sep last.pt (step 800) went
+    # up after step1000.pt and would have rewound convnext_base_25d_18slices_mglabels.
+    top = max(step_of, key=step_of.get) if step_of else None
+    if top:
+        got = [g for g in got if g != top] + [top]
+        print("   newest state is %s (step %d): pushed LAST so the resume picks it" % (top, step_of[top]))
 
     print("\n=== pushing to session %d ===" % a.dst)
     modal(a.dst, "volume", "create", VOLUME)          # no-op if it already exists
