@@ -64,7 +64,7 @@ for j in jobs:
     j["report"] = "Moderate joint effusion. Intact cruciate ligaments."
 import os  # noqa: E402
 os.environ.setdefault("HF_TOKEN", "local-test")
-MODES = ["ax", "fluid", "all"]              # batch A, the next real run
+MODES = ["all", "all_def", "all_num"]        # batch D, the next real run
 raw = mg.score.get_raw_f()
 rows, log_text = raw(jobs, MODES, "localtest", part=0)
 
@@ -76,10 +76,13 @@ for r in bad:
     print("  ERROR", r["uid"][-8:], r["mode"], r["error"])
 fails += len(rows) != exp or bool(bad)
 ok = [r for r in rows if "error" not in r]
-fails += not all(all(0 <= r[t] <= 1 for t in mg.TASKS) for r in ok)
+fails += not all(all((0 <= r[t] <= 1) or r[t] != r[t] for t in mg.TASKS) for r in ok)
+gen = [r.get("gen_check") for r in ok if "gen_check" in r]
+print("generation checks (greedy on shared cache == model.generate):", gen)
+fails += gen != [True]
 checks = [r["cache_diff"] for r in ok if r.get("cache_diff") is not None]
 print("cache checks (max |logit diff|, bf16 tiny model):", [round(c, 4) for c in checks])
-fails += len(checks) != len(MODES)
+fails += len(checks) != len([m for m in MODES if mg.MODE_OPT.get(m, {}).get("answer") != "number"])
 part = tmp / "localtest/part0"
 saved = [json.loads(x) for x in (part / "rows.jsonl").read_text().splitlines()]
 print("saved rows.jsonl", len(saved), "log.txt lines", len((part / "log.txt").read_text().splitlines()))

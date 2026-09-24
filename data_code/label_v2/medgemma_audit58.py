@@ -64,6 +64,39 @@ LABEL = {
     "Contusion": "a traumatic bone contusion (bone bruise)",
     "Fracture": "a fracture",
 }
+# batch D: the same findings with the panel's own decision rules spelled out (from the
+# 03_label_reports.py system prompt); MedGemma was trained on short labels, so this is the test
+LABEL_DEF = {
+    "ACL": "an anterior cruciate ligament (ACL) tear, partial or complete, including interstitial "
+           "tears (mucoid degeneration alone is not a tear)",
+    "MCL": "a medial collateral ligament (MCL) injury, including a grade 1-2 sprain (not the "
+           "lateral collateral ligament)",
+    "Medial Meniscus": "a medial meniscus tear, meaning abnormal signal or a defect reaching the "
+                       "articular surface (intrasubstance degenerative signal, extrusion alone, or "
+                       "a post-surgical meniscus without a new tear does not count)",
+    "Lateral Meniscus": "a lateral meniscus tear, meaning abnormal signal or a defect reaching the "
+                        "articular surface (intrasubstance degenerative signal, extrusion alone, or "
+                        "a post-surgical meniscus without a new tear does not count)",
+    "Medial OA": "medial tibiofemoral osteoarthritis with substantial cartilage loss (grade 3-4 "
+                 "chondropathy, a full-thickness defect or bone-on-bone; osteophytes or mild "
+                 "fissuring alone do not count)",
+    "Lateral OA": "lateral tibiofemoral osteoarthritis with substantial cartilage loss (grade 3-4 "
+                  "chondropathy, a full-thickness defect or bone-on-bone; osteophytes or mild "
+                  "fissuring alone do not count)",
+    "PF OA": "patellofemoral osteoarthritis with substantial cartilage loss of the patella or "
+             "trochlea (grade 3-4 chondropathy or a full-thickness defect; mild fissuring alone "
+             "does not count)",
+    "Effusion": "a knee joint effusion of MODERATE or LARGE size, or a haemarthrosis (trace, "
+                "minimal, physiologic, small or mild fluid does not count)",
+    "Synovitis": "synovitis: synovial thickening or enhancement, including inflammation of "
+                 "Hoffa's fat pad (hoffitis)",
+    "Baker's": "a Baker's (popliteal) cyst",
+    "Contusion": "a traumatic bone contusion (bone marrow oedema from an injury) or a muscle "
+                 "contusion (subchondral oedema next to degenerative cartilage loss does not "
+                 "count)",
+    "Fracture": "a fracture, including insufficiency and avulsion fractures (an osteochondral "
+                "defect alone does not count)",
+}
 TAIL = (' You may write out your argument before stating your final answer "Final Answer: yes" '
         'or "Final Answer: no"')
 SLOTS_ALL = ["sag_plain", "sag_fluid", "cor_plain", "cor_fluid", "ax_plain", "ax_fluid"]
@@ -82,7 +115,14 @@ MODE_DEF = {
     "cor_fluid": (["cor_fluid"], False),                   # batch B
     "sag":       (["sag_plain", "sag_fluid"], False),      # batch C1: menisci, ACL
     "cor":       (["cor_plain", "cor_fluid"], False),      # batch C2: OA, MCL
+    "all_def":   (SLOTS_ALL, False),                       # batch D: panel definitions
+    "all_num":   (SLOTS_ALL, False),                       # batch D: stated probability
 }
+# how a mode asks: which label wording, and how the answer is read ("token" = P(yes) from the
+# next-token logits after "Final Answer:"; "number" = MedGemma writes a probability itself)
+MODE_OPT = {"all_def": {"labels": "def"}, "all_num": {"answer": "number"}}
+NUM_PREFILL = "Probability:"
+NUM_MAX_NEW = 8
 MODES = list(MODE_DEF)
 FLUID_TASKS = ["Effusion", "Synovitis", "Baker's"]
 SLOT_NAME = {
@@ -165,17 +205,26 @@ def volume_slices(z, job, mode):
 
 
 def prompt_text(job, mode, task):
-    q = f"Is there {LABEL[task]} in the MRI volume?"
+    opt = MODE_OPT.get(mode, {})
+    lab = (LABEL_DEF if opt.get("labels") == "def" else LABEL)[task]
     slots, with_report = MODE_DEF[mode]
+    if opt.get("answer") == "number":
+        return (f"What is the probability that there is {lab} in the MRI volume? Answer with a "
+                f"single number between 0 and 1.")
+    q = f"Is there {lab} in the MRI volume?"
     if not slots:
-        return (f'After reading this knee MRI report "{job["report"]}", is there {LABEL[task]} '
+        return (f'After reading this knee MRI report "{job["report"]}", is there {lab} '
                 f'in this knee?' + TAIL)
     if not with_report:
         return q + TAIL
     return f'After looking at the patient history "{job["report"]}", {q}' + TAIL
 
 
-def messages(groups, text):
+def prefill(mode):
+    return NUM_PREFILL if MODE_OPT.get(mode, {}).get("answer") == "number" else "Final Answer:"
+
+
+def messages(groups, text, pre="Final Answer:"):
     """groups = [(slot, n_slices)]; each series is introduced by its view and sequence."""
     # The Gemma 3 template TRIMS each text item and joins items with nothing, so two text
     # items in a row would run together ("SLICE 21KNEE MRI SERIES"). Adjacent text is merged
@@ -197,7 +246,7 @@ def messages(groups, text):
             merged.append(c)
     content = merged
     return [{"role": "user", "content": content},
-            {"role": "assistant", "content": [{"type": "text", "text": "Final Answer:"}]}]
+            {"role": "assistant", "content": [{"type": "text", "text": pre}]}]
 
 
 def common_prefix_len(seqs):
@@ -290,6 +339,76 @@ def yes_prob_shared(model, ids_list, pixel_values, image_token_id, yes_ids, no_i
     return probs.tolist(), mass.tolist(), L, chk
 
 
+def parse_prob(txt):
+    """First number in MedGemma's reply -> a probability; 0-100 read as a percentage."""
+    import re
+    m = re.search(r"(\d+(?:\.\d+)?|\.\d+)\s*(%)?", txt)
+    if not m:
+        return float("nan")
+    v = float(m.group(1))
+    if m.group(2) or 1 < v <= 100:
+        v /= 100
+    return min(max(v, 0.0), 1.0)
+
+
+def stated_prob_shared(model, ids_list, pixel_values, image_token_id, stop_ids, tok,
+                       max_new=NUM_MAX_NEW, check=False):
+    """MedGemma WRITES a probability: the shared prefix (all images) is encoded once, then each
+    question runs on its own copy of the cache and is decoded greedily for a few tokens.
+
+    Per question, not batched: a right-padded batch would give the shorter questions shifted
+    positions during decoding. A few tokens x 12 questions is cheap next to the prefix.
+    Returns (values, raw texts, prefix length, check) where check says whether the first
+    question's greedy tokens equal model.generate on the full prompt.
+    """
+    import torch
+    dev = next(model.parameters()).device
+    L = common_prefix_len(ids_list) - 1
+    pre_ids = torch.tensor([ids_list[0][:L]], device=dev)
+    kw = {"input_ids": pre_ids, "attention_mask": torch.ones_like(pre_ids),
+          "token_type_ids": (pre_ids == image_token_id).long(), "use_cache": True}
+    if pixel_values is not None:
+        kw["pixel_values"] = pixel_values.to(dev, torch.bfloat16)
+    vals, raws, first_toks = [], [], None
+    with torch.inference_mode():
+        cache = model(**kw).past_key_values
+        for qi, ids in enumerate(ids_list):
+            c = copy.deepcopy(cache)
+            x = torch.tensor([ids[L:]], device=dev)
+            pos = L
+            out_toks = []
+            for _ in range(max_new):
+                n = x.shape[1]
+                lg = model(input_ids=x, attention_mask=torch.ones((1, pos + n), device=dev,
+                                                                 dtype=torch.long),
+                           past_key_values=c, use_cache=True,
+                           token_type_ids=torch.zeros_like(x),
+                           cache_position=torch.arange(pos, pos + n, device=dev)).logits[0, -1]
+                pos += n
+                t = int(lg.argmax())
+                if t in stop_ids:
+                    break
+                out_toks.append(t)
+                x = torch.tensor([[t]], device=dev)
+            txt = tok.decode(out_toks)
+            raws.append(txt)
+            vals.append(parse_prob(txt))
+            if qi == 0:
+                first_toks = out_toks
+        chk = None
+        if check:
+            f = torch.tensor([ids_list[0]], device=dev)
+            gkw = {"input_ids": f, "attention_mask": torch.ones_like(f),
+                   "token_type_ids": (f == image_token_id).long(), "max_new_tokens": max_new,
+                   "do_sample": False}
+            if pixel_values is not None:
+                gkw["pixel_values"] = kw["pixel_values"]
+            g = model.generate(**gkw)[0, f.shape[1]:].tolist()
+            g = g[:next((i for i, t in enumerate(g) if t in stop_ids), len(g))]
+            chk = (g == first_toks, tok.decode(g))
+    return vals, raws, L, chk
+
+
 @app.function(gpu="L40S", image=image, timeout=3 * 3600,
               volumes={"/shards": shards, "/root/.cache/huggingface": hf_cache,
                        "/runs_vol": runs_vol},
@@ -338,6 +457,7 @@ def score(jobs, modes, tag, part=0):
                       for w in (" yes", "yes", " Yes", "Yes")})
     no_ids = sorted({tok.encode(w, add_special_tokens=False)[0]
                      for w in (" no", "no", " No", "No")})
+    stop_ids = {tok.eos_token_id, tok.convert_tokens_to_ids("<end_of_turn>")}
     log("yes tokens", [(i, tok.decode([i])) for i in yes_ids],
           "no tokens", [(i, tok.decode([i])) for i in no_ids], flush=True)
 
@@ -365,7 +485,8 @@ def score(jobs, modes, tag, part=0):
                 imgs = [Image.fromarray(np.ascontiguousarray(x)).convert("RGB")
                         for _, sl in groups for x in sl]
                 texts = [proc.apply_chat_template(
-                    messages([(g, len(sl)) for g, sl in groups], prompt_text(job, m, q)),
+                    messages([(g, len(sl)) for g, sl in groups], prompt_text(job, m, q),
+                             pre=prefill(m)),
                     continue_final_message=True, tokenize=False) for q in TASKS]
                 ids_list, pv = encode_prompts(proc, texts, imgs)
                 if pv is not None:
@@ -416,9 +537,17 @@ def score(jobs, modes, tag, part=0):
                 t_prep = pm["prep_s"]
                 torch.cuda.synchronize()
                 t2 = time.time()
-                probs, mass, L, diff = yes_prob_shared(
-                    model, ids_list, pv, model.config.image_token_id, yes_ids, no_ids,
-                    pad_id=tok.pad_token_id or 0, check=first)
+                number = MODE_OPT.get(m, {}).get("answer") == "number"
+                raws = None
+                if number:
+                    probs, raws, L, gchk = stated_prob_shared(
+                        model, ids_list, pv, model.config.image_token_id, stop_ids, tok,
+                        check=first)
+                    mass, diff = [float("nan")], None
+                else:
+                    probs, mass, L, diff = yes_prob_shared(
+                        model, ids_list, pv, model.config.image_token_id, yes_ids, no_ids,
+                        pad_id=tok.pad_token_id or 0, check=first)
                 torch.cuda.synchronize()
                 t_gpu = time.time() - t2
                 if first:
@@ -427,11 +556,16 @@ def score(jobs, modes, tag, part=0):
                     log(f"  [{m}] first study: {len(imgs)} images, {L} prefix tokens + "
                         f"{len(ids_list[0]) - L} question tokens; fast path == processor: OK; "
                         f"question part: {txt!r}", flush=True)
-                    # bf16 logits of magnitude 32-64 are stored in steps of 0.25, so a max
-                    # difference of 0.25-0.4 over 262k vocab entries is one rounding step
-                    log(f"  [{m}] CACHE CHECK full pass vs shared prefix: max |logit diff| "
-                        f"{diff[0]:.4f} (one bf16 step at this size is 0.25), "
-                        f"|P(yes) diff| {diff[1]:.4f} (should be < 0.02)", flush=True)
+                    if number:
+                        log(f"  [{m}] GENERATION CHECK shared-prefix greedy == model.generate: "
+                            f"{'OK' if gchk[0] else 'DIFFERENT'} (generate said {gchk[1]!r}); "
+                            f"replies: {[r for r in raws]}", flush=True)
+                    else:
+                        # bf16 logits of magnitude 32-64 are stored in steps of 0.25, so a max
+                        # difference of 0.25-0.4 over 262k vocab entries is one rounding step
+                        log(f"  [{m}] CACHE CHECK full pass vs shared prefix: max |logit diff| "
+                            f"{diff[0]:.4f} (one bf16 step at this size is 0.25), "
+                            f"|P(yes) diff| {diff[1]:.4f} (should be < 0.02)", flush=True)
                 row.update({"n_img": len(imgs),
                             "slots": "+".join(f"{s}:{len(sl)}" for s, sl in groups),
                             "prefix_tok": L, "total_tok": len(ids_list[-1]),
@@ -441,6 +575,11 @@ def score(jobs, modes, tag, part=0):
                             "yn_mass_mean": float(np.mean(mass)),
                             "sec": time.time() - t1})
                 row.update(dict(zip(TASKS, probs)))
+                if raws is not None:
+                    row.update({"raw_" + t: r for t, r in zip(TASKS, raws)})
+                    row["unparsed"] = int(sum(v != v for v in probs))
+                    if first:
+                        row["gen_check"] = bool(gchk[0])
             except Exception as e:                             # noqa: BLE001
                 log(f"  ERROR {job['uid']} {m}: {type(e).__name__}: {e}", flush=True)
                 row.update({"error": f"{type(e).__name__}: {e}"})
@@ -583,6 +722,10 @@ def scoreboard(df, ms):
     preds = {"qwen24t-med": qwen.loc[uids, TASKS].values.astype(float)}
     for m in ms:
         preds[m] = ok[ok["mode"] == m].set_index("uid").loc[uids, TASKS].values.astype(float)
+        nan = np.isnan(preds[m])
+        if nan.any():            # a stated probability MedGemma did not write as a number
+            print(f"  {m}: {int(nan.sum())} of {nan.size} answers had no number -> scored as 0.5")
+            preds[m] = np.where(nan, 0.5, preds[m])
     for m in ms:
         preds[f"qwen+{m} mean"] = 0.5 * preds["qwen24t-med"] + 0.5 * preds[m]
     fj = [TASKS.index(t) for t in FLUID_TASKS]
