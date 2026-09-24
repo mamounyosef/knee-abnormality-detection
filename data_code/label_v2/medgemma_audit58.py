@@ -117,10 +117,14 @@ MODE_DEF = {
     "cor":       (["cor_plain", "cor_fluid"], False),      # batch C2: OA, MCL
     "all_def":   (SLOTS_ALL, False),                       # batch D: panel definitions
     "all_num":   (SLOTS_ALL, False),                       # batch D: stated probability
+    "all_reason": (SLOTS_ALL, False),                      # batch E: reasoning first
 }
 # how a mode asks: which label wording, and how the answer is read ("token" = P(yes) from the
 # next-token logits after "Final Answer:"; "number" = MedGemma writes a probability itself)
-MODE_OPT = {"all_def": {"labels": "def"}, "all_num": {"answer": "number"}}
+MODE_OPT = {"all_def": {"labels": "def"}, "all_num": {"answer": "number"},
+            "all_reason": {"answer": "reason"}}
+REASON_MAX_NEW = 320          # tokens of argument before "Final Answer:" is forced
+REASON_MARK = "Final Answer:"
 NUM_PREFILL = "Probability:"
 NUM_MAX_NEW = 8
 MODES = list(MODE_DEF)
@@ -221,7 +225,10 @@ def prompt_text(job, mode, task):
 
 
 def prefill(mode):
-    return NUM_PREFILL if MODE_OPT.get(mode, {}).get("answer") == "number" else "Final Answer:"
+    ans = MODE_OPT.get(mode, {}).get("answer")
+    if ans == "number":
+        return NUM_PREFILL
+    return "" if ans == "reason" else "Final Answer:"
 
 
 def messages(groups, text, pre="Final Answer:"):
@@ -409,6 +416,81 @@ def stated_prob_shared(model, ids_list, pixel_values, image_token_id, stop_ids, 
     return vals, raws, L, chk
 
 
+def reason_prob_shared(model, ids_list, pixel_values, image_token_id, yes_ids, no_ids,
+                       stop_ids, tok, max_new=None, check=False):
+    """MedGemma REASONS first, then answers: the shared prefix (all images) is encoded once;
+    each question runs on its own cache copy and is decoded greedily until its text reaches
+    "Final Answer:". P(yes) is read from the logits right there. If it stops (end of turn) or
+    runs out of tokens first, "Final Answer:" is appended and read the same way (counted as
+    forced). Per question, not batched, for the same reason as stated_prob_shared.
+
+    Returns (P(yes), P(yes)+P(no) mass, reasoning texts, n tokens, forced flags, prefix
+    length, check) where check = |P(yes)| difference of question 0 against ONE full forward
+    pass over prompt + its own reasoning + "Final Answer:".
+    """
+    import torch
+    dev = next(model.parameters()).device
+    L = common_prefix_len(ids_list) - 1
+    pre_ids = torch.tensor([ids_list[0][:L]], device=dev)
+    kw = {"input_ids": pre_ids, "attention_mask": torch.ones_like(pre_ids),
+          "token_type_ids": (pre_ids == image_token_id).long(), "use_cache": True}
+    if pixel_values is not None:
+        kw["pixel_values"] = pixel_values.to(dev, torch.bfloat16)
+    max_new = REASON_MAX_NEW if max_new is None else max_new
+    mark_ids = tok(" " + REASON_MARK, add_special_tokens=False)["input_ids"]
+
+    def step(c, x, pos):
+        n = x.shape[1]
+        lg = model(input_ids=x, attention_mask=torch.ones((1, pos + n), device=dev,
+                                                         dtype=torch.long),
+                   past_key_values=c, use_cache=True, token_type_ids=torch.zeros_like(x),
+                   cache_position=torch.arange(pos, pos + n, device=dev)).logits[0, -1].float()
+        return lg, pos + n
+
+    def read(lg):
+        sm = torch.softmax(lg, 0)
+        p = float(torch.sigmoid(torch.logsumexp(lg[yes_ids], 0) - torch.logsumexp(lg[no_ids], 0)))
+        return p, float(sm[yes_ids].sum() + sm[no_ids].sum())
+
+    probs, mass, texts, ntok, forced, full0 = [], [], [], [], [], None
+    with torch.inference_mode():
+        cache = model(**kw).past_key_values
+        for qi, ids in enumerate(ids_list):
+            c = copy.deepcopy(cache)
+            lg, pos = step(c, torch.tensor([ids[L:]], device=dev), L)
+            gen, done = [], False
+            for _ in range(max_new):
+                t = int(lg.argmax())
+                if t in stop_ids:
+                    break
+                gen.append(t)
+                lg, pos = step(c, torch.tensor([[t]], device=dev), pos)
+                if tok.decode(gen[-8:]).rstrip().endswith(REASON_MARK):
+                    done = True
+                    break
+            if not done:                       # no answer reached: ask for it explicitly
+                gen += mark_ids
+                lg, pos = step(c, torch.tensor([mark_ids], device=dev), pos)
+            p, ms = read(lg)
+            probs.append(p)
+            mass.append(ms)
+            texts.append(tok.decode(gen))
+            ntok.append(len(gen))
+            forced.append(not done)
+            if qi == 0:
+                full0 = ids + gen
+        chk = None
+        if check:
+            f = torch.tensor([full0], device=dev)
+            fkw = {"input_ids": f, "attention_mask": torch.ones_like(f),
+                   "token_type_ids": (f == image_token_id).long()}
+            if pixel_values is not None:
+                fkw["pixel_values"] = kw["pixel_values"]
+            p_full, _ = read(model(**fkw).logits[0, -1].float())
+            chk = abs(p_full - probs[0])
+    return probs, mass, texts, ntok, forced, L, chk
+
+
 @app.function(gpu="L40S", image=image, timeout=3 * 3600,
               volumes={"/shards": shards, "/root/.cache/huggingface": hf_cache,
                        "/runs_vol": runs_vol},
@@ -484,10 +566,18 @@ def score(jobs, modes, tag, part=0):
                 groups = per_mode[m]
                 imgs = [Image.fromarray(np.ascontiguousarray(x)).convert("RGB")
                         for _, sl in groups for x in sl]
-                texts = [proc.apply_chat_template(
-                    messages([(g, len(sl)) for g, sl in groups], prompt_text(job, m, q),
-                             pre=prefill(m)),
-                    continue_final_message=True, tokenize=False) for q in TASKS]
+                if prefill(m):
+                    texts = [proc.apply_chat_template(
+                        messages([(g, len(sl)) for g, sl in groups], prompt_text(job, m, q),
+                                 pre=prefill(m)),
+                        continue_final_message=True, tokenize=False) for q in TASKS]
+                else:
+                    # nothing pre-filled (reasoning): the standard generation prompt, which ends
+                    # "<start_of_turn>model\n"; an empty continued turn would drop that newline
+                    texts = [proc.apply_chat_template(
+                        messages([(g, len(sl)) for g, sl in groups],
+                                 prompt_text(job, m, q))[:1],
+                        add_generation_prompt=True, tokenize=False) for q in TASKS]
                 ids_list, pv = encode_prompts(proc, texts, imgs)
                 if pv is not None:
                     pv = pv.to(torch.bfloat16).pin_memory()
@@ -538,8 +628,14 @@ def score(jobs, modes, tag, part=0):
                 torch.cuda.synchronize()
                 t2 = time.time()
                 number = MODE_OPT.get(m, {}).get("answer") == "number"
+                reason = MODE_OPT.get(m, {}).get("answer") == "reason"
                 raws = None
-                if number:
+                if reason:
+                    probs, mass, raws, ntok, forced, L, rchk = reason_prob_shared(
+                        model, ids_list, pv, model.config.image_token_id, yes_ids, no_ids,
+                        stop_ids, tok, check=first)
+                    diff = None
+                elif number:
                     probs, raws, L, gchk = stated_prob_shared(
                         model, ids_list, pv, model.config.image_token_id, stop_ids, tok,
                         check=first)
@@ -556,7 +652,12 @@ def score(jobs, modes, tag, part=0):
                     log(f"  [{m}] first study: {len(imgs)} images, {L} prefix tokens + "
                         f"{len(ids_list[0]) - L} question tokens; fast path == processor: OK; "
                         f"question part: {txt!r}", flush=True)
-                    if number:
+                    if reason:
+                        log(f"  [{m}] REASONING CHECK shared-prefix decode vs one full pass: "
+                            f"|P(yes) diff| {rchk:.4f} (should be < 0.02); first question "
+                            f"reasoned {ntok[0]} tokens{' (answer forced)' if forced[0] else ''}: "
+                            f"{raws[0][:400]!r}", flush=True)
+                    elif number:
                         log(f"  [{m}] GENERATION CHECK shared-prefix greedy == model.generate: "
                             f"{'OK' if gchk[0] else 'DIFFERENT'} (generate said {gchk[1]!r}); "
                             f"replies: {[r for r in raws]}", flush=True)
@@ -575,7 +676,13 @@ def score(jobs, modes, tag, part=0):
                             "yn_mass_mean": float(np.mean(mass)),
                             "sec": time.time() - t1})
                 row.update(dict(zip(TASKS, probs)))
-                if raws is not None:
+                if raws is not None and reason:
+                    row.update({"reason_" + t: r for t, r in zip(TASKS, raws)})
+                    row["reason_tok_mean"] = float(np.mean(ntok))
+                    row["forced"] = int(sum(forced))
+                    if first:
+                        row["reason_check"] = rchk
+                elif raws is not None:
                     row.update({"raw_" + t: r for t, r in zip(TASKS, raws)})
                     row["unparsed"] = int(sum(v != v for v in probs))
                     if first:

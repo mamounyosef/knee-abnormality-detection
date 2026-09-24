@@ -58,13 +58,15 @@ mg.SHARDS_DIR = str(ROOT / "data/shards")
 mg.runs_vol = _Vol()
 mg.hf_cache = _Vol()
 mg.MAX_SLICES = 8                  # keep the CPU-side tiny model quick; the path is identical
+mg.REASON_MAX_NEW = 12             # tiny model never writes "Final Answer:"; keep the forced path short
+#                 # keep the CPU-side tiny model quick; the path is identical
 local = sorted(p.stem for p in (ROOT / "data/shards").glob("*.npz"))
 jobs = mg.build_jobs(local, reports=False)
 for j in jobs:
     j["report"] = "Moderate joint effusion. Intact cruciate ligaments."
 import os  # noqa: E402
 os.environ.setdefault("HF_TOKEN", "local-test")
-MODES = ["all", "all_def", "all_num"]        # batch D, the next real run
+MODES = ["all", "all_num", "all_reason"]     # batch E, the next real run
 raw = mg.score.get_raw_f()
 rows, log_text = raw(jobs, MODES, "localtest", part=0)
 
@@ -82,7 +84,10 @@ print("generation checks (greedy on shared cache == model.generate):", gen)
 fails += gen != [True]
 checks = [r["cache_diff"] for r in ok if r.get("cache_diff") is not None]
 print("cache checks (max |logit diff|, bf16 tiny model):", [round(c, 4) for c in checks])
-fails += len(checks) != len([m for m in MODES if mg.MODE_OPT.get(m, {}).get("answer") != "number"])
+fails += len(checks) != len([m for m in MODES if mg.MODE_OPT.get(m, {}).get("answer") not in ("number", "reason")])
+rc = [r["reason_check"] for r in ok if "reason_check" in r]
+print("reasoning checks (|P(yes)| shared decode vs one full pass):", rc)
+fails += len(rc) != 1 or not rc[0] < 1e-3
 part = tmp / "localtest/part0"
 saved = [json.loads(x) for x in (part / "rows.jsonl").read_text().splitlines()]
 print("saved rows.jsonl", len(saved), "log.txt lines", len((part / "log.txt").read_text().splitlines()))
