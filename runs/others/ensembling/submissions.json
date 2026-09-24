@@ -308,7 +308,7 @@
    "kernel": "mamounhussam/knee-eleven-effnetv2-submit",
    "kernel_version": 1,
    "submitted": "2026-09-24",
-   "public_score": null,
+   "public_score": 0.937,
    "private_score": null,
    "members": [
     "convnext_base_full_all_knees_same_orientation",
@@ -323,7 +323,7 @@
     "medimageinsight_davit_huge_perslice_480_warm",
     "efficientnetv2_l_384"
    ],
-   "notes": "The 0.938 ten + efficientnetv2_l_384 (step 3900). Best single add of 53 clean runs offline: val +0.0003, audit -0.0001. Gate clean: 11/11 members, 2 GPUs, 6 decode passes, 32.7 s/study serial. The first upload hit Kaggle's private-storage quota (403 on create); the old sign-bridge dataset (~108 GB) was deleted with the user's OK. Pending at time of recording."
+   "notes": "The 0.938 ten + efficientnetv2_l_384 (step 3900). Best single add of 53 clean runs offline: val +0.0003, audit -0.0001. Gate clean: 11/11 members, 2 GPUs, 6 decode passes, 32.7 s/study serial. The first upload hit Kaggle's private-storage quota (403 on create); the old sign-bridge dataset (~108 GB) was deleted with the user's OK. Public 0.937 (-0.001 vs the 0.938 ten)."
   }
  ]
 }
