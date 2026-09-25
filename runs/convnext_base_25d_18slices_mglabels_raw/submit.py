@@ -20,11 +20,13 @@ credit, and it needs the checkpoint already synced locally.
 import sys
 from pathlib import Path
 
-RUN_LOCAL = False              # True = do it here, False = do it on Modal
+RUN_LOCAL = True               # True = do it here, False = do it on Modal
 PUBLISH = True                 # after building: push the dataset + notebook and submit
 WAIT_FOR_RUN = True            # poll until the notebook finishes, then submit
 KAGGLE_USER = "mamounhussam"   # owner slug for the dataset and the notebook
-CHECKPOINT = "best"            # best | last | top1.. | <step> | path
+CHECKPOINT = str(Path(__file__).resolve().parent / "results/checkpoints/avg_4000-5100.pt")
+MESSAGE = ("convnext_base_25d_18slices_mglabels_raw | weight average of steps 4000-5100 "
+           "(12 ckpts) | val 0.9083 | audit58 0.9125")
 VERIFY_STUDIES = 3             # DICOM-vs-shard check; 0 skips it
 
 EXP_NAME = "convnext_base_25d_18slices_mglabels_raw"
@@ -86,7 +88,7 @@ def _publish(out):
     slug = f"knee-{EXP_NAME.replace('_', '-')}"
     cfg = sc.load_config(EXP_DIR, verbose=False)
     sc.kaggle_publish(out, KAGGLE_USER, slug, f"{slug}-submit",
-                      message=sc.submission_message(cfg, EXP_DIR), wait=WAIT_FOR_RUN)
+                      message=MESSAGE or sc.submission_message(cfg, EXP_DIR), wait=WAIT_FOR_RUN)
 
 
 def run_local():

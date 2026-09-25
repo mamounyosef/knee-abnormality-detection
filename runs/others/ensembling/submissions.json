@@ -324,6 +324,30 @@
     "efficientnetv2_l_384"
    ],
    "notes": "The 0.938 ten + efficientnetv2_l_384 (step 3900). Best single add of 53 clean runs offline: val +0.0003, audit -0.0001. Gate clean: 11/11 members, 2 GPUs, 6 decode passes, 32.7 s/study serial. The first upload hit Kaggle's private-storage quota (403 on create); the old sign-bridge dataset (~108 GB) was deleted with the user's OK. Public 0.937 (-0.001 vs the 0.938 ten)."
+  },
+  {
+   "submission_ref": 56531949,
+   "kernel": "mamounhussam/convnext-base-25d-18slices-mglabels-raw-submit",
+   "kernel_version": 1,
+   "submitted": "2026-09-25",
+   "public_score": 0.916,
+   "private_score": null,
+   "members": [
+    "convnext_base_25d_18slices_mglabels_raw"
+   ],
+   "notes": "Solo, MedGemma-blended labels, UNCALIBRATED average (17_*_qwen-mg-raw). Step 3900, val 0.9086, audit 0.9092. Public 0.916 (+0.002 vs parent convnext_base_25d_18slices 0.914). Kernel 16.2 min."
+  },
+  {
+   "submission_ref": 56532108,
+   "kernel": "mamounhussam/knee-convnext-base-25d-18slices-mglabels-submit",
+   "kernel_version": 1,
+   "submitted": "2026-09-25",
+   "public_score": 0.906,
+   "private_score": null,
+   "members": [
+    "convnext_base_25d_18slices_mglabels"
+   ],
+   "notes": "Solo, MedGemma-blended labels, CALIBRATED (17_*_qwen-mg). Step 5000, val 0.9223 (on its own labels), audit 0.9078. Public 0.906 (-0.008 vs parent 0.914). Calibration hurt on the leaderboard despite better Brier."
   }
  ]
 }
