@@ -1,0 +1,142 @@
+loaded ZJU-AI4H/Hulu-Med-14B in 149s on NVIDIA H200; LLM attn sdpa, vision attn sdpa; token compression False; image token 151669; GPU mem 30.4 GB
+yes tokens [(7414, ' Yes'), (9454, 'Yes'), (9693, 'yes'), (9834, ' yes')], no tokens [(902, ' no'), (2152, 'no'), (2308, ' No'), (2753, 'No')]
+  ERROR 1.2.826.0.1.3680043.8.498.10095687747295410396510538520594649149 all180: TypeError: all() received an invalid combination of arguments - got (numpy.ndarray), but expected one of:
+ * (Tensor input, *, Tensor out = None)
+ * (Tensor input, tuple of ints dim = None, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, int dim, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, name dim, bool keepdim = False, *, Tensor out = None)
+
+Traceback (most recent call last):
+  File "/root/hulumed_audit58.py", line 205, in score
+    ids_list.append(proc.process_text(text, img_in)["input_ids"])
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/processing_hulumed.py", line 711, in process_text
+    grid_sizes = self._get_downsampled_grid_sizes(image_inputs)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/processing_hulumed.py", line 258, in _get_downsampled_grid_sizes
+    if not torch.all(grid_size[1:] % merge_size == 0):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: all() received an invalid combination of arguments - got (numpy.ndarray), but expected one of:
+ * (Tensor input, *, Tensor out = None)
+ * (Tensor input, tuple of ints dim = None, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, int dim, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, name dim, bool keepdim = False, *, Tensor out = None)
+
+
+  ERROR 1.2.826.0.1.3680043.8.498.10095687747295410396510538520594649149 all180T: TypeError: all() received an invalid combination of arguments - got (numpy.ndarray), but expected one of:
+ * (Tensor input, *, Tensor out = None)
+ * (Tensor input, tuple of ints dim = None, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, int dim, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, name dim, bool keepdim = False, *, Tensor out = None)
+
+Traceback (most recent call last):
+  File "/root/hulumed_audit58.py", line 205, in score
+    ids_list.append(proc.process_text(text, img_in)["input_ids"])
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/processing_hulumed.py", line 711, in process_text
+    grid_sizes = self._get_downsampled_grid_sizes(image_inputs)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/processing_hulumed.py", line 258, in _get_downsampled_grid_sizes
+    if not torch.all(grid_size[1:] % merge_size == 0):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: all() received an invalid combination of arguments - got (numpy.ndarray), but expected one of:
+ * (Tensor input, *, Tensor out = None)
+ * (Tensor input, tuple of ints dim = None, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, int dim, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, name dim, bool keepdim = False, *, Tensor out = None)
+
+
+  ERROR 1.2.826.0.1.3680043.8.498.10095687747295410396510538520594649149 all96: TypeError: all() received an invalid combination of arguments - got (numpy.ndarray), but expected one of:
+ * (Tensor input, *, Tensor out = None)
+ * (Tensor input, tuple of ints dim = None, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, int dim, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, name dim, bool keepdim = False, *, Tensor out = None)
+
+Traceback (most recent call last):
+  File "/root/hulumed_audit58.py", line 205, in score
+    ids_list.append(proc.process_text(text, img_in)["input_ids"])
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/processing_hulumed.py", line 711, in process_text
+    grid_sizes = self._get_downsampled_grid_sizes(image_inputs)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/processing_hulumed.py", line 258, in _get_downsampled_grid_sizes
+    if not torch.all(grid_size[1:] % merge_size == 0):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: all() received an invalid combination of arguments - got (numpy.ndarray), but expected one of:
+ * (Tensor input, *, Tensor out = None)
+ * (Tensor input, tuple of ints dim = None, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, int dim, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, name dim, bool keepdim = False, *, Tensor out = None)
+
+
+1/2 94649149 right 9s, ETA 0.1 min; 
+  ERROR 1.2.826.0.1.3680043.8.498.10170898615867673028696505248839028269 all180: TypeError: all() received an invalid combination of arguments - got (numpy.ndarray), but expected one of:
+ * (Tensor input, *, Tensor out = None)
+ * (Tensor input, tuple of ints dim = None, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, int dim, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, name dim, bool keepdim = False, *, Tensor out = None)
+
+Traceback (most recent call last):
+  File "/root/hulumed_audit58.py", line 205, in score
+    ids_list.append(proc.process_text(text, img_in)["input_ids"])
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/processing_hulumed.py", line 711, in process_text
+    grid_sizes = self._get_downsampled_grid_sizes(image_inputs)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/processing_hulumed.py", line 258, in _get_downsampled_grid_sizes
+    if not torch.all(grid_size[1:] % merge_size == 0):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: all() received an invalid combination of arguments - got (numpy.ndarray), but expected one of:
+ * (Tensor input, *, Tensor out = None)
+ * (Tensor input, tuple of ints dim = None, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, int dim, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, name dim, bool keepdim = False, *, Tensor out = None)
+
+
+  ERROR 1.2.826.0.1.3680043.8.498.10170898615867673028696505248839028269 all180T: TypeError: all() received an invalid combination of arguments - got (numpy.ndarray), but expected one of:
+ * (Tensor input, *, Tensor out = None)
+ * (Tensor input, tuple of ints dim = None, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, int dim, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, name dim, bool keepdim = False, *, Tensor out = None)
+
+Traceback (most recent call last):
+  File "/root/hulumed_audit58.py", line 205, in score
+    ids_list.append(proc.process_text(text, img_in)["input_ids"])
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/processing_hulumed.py", line 711, in process_text
+    grid_sizes = self._get_downsampled_grid_sizes(image_inputs)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/processing_hulumed.py", line 258, in _get_downsampled_grid_sizes
+    if not torch.all(grid_size[1:] % merge_size == 0):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: all() received an invalid combination of arguments - got (numpy.ndarray), but expected one of:
+ * (Tensor input, *, Tensor out = None)
+ * (Tensor input, tuple of ints dim = None, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, int dim, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, name dim, bool keepdim = False, *, Tensor out = None)
+
+
+  ERROR 1.2.826.0.1.3680043.8.498.10170898615867673028696505248839028269 all96: TypeError: all() received an invalid combination of arguments - got (numpy.ndarray), but expected one of:
+ * (Tensor input, *, Tensor out = None)
+ * (Tensor input, tuple of ints dim = None, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, int dim, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, name dim, bool keepdim = False, *, Tensor out = None)
+
+Traceback (most recent call last):
+  File "/root/hulumed_audit58.py", line 205, in score
+    ids_list.append(proc.process_text(text, img_in)["input_ids"])
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/processing_hulumed.py", line 711, in process_text
+    grid_sizes = self._get_downsampled_grid_sizes(image_inputs)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/processing_hulumed.py", line 258, in _get_downsampled_grid_sizes
+    if not torch.all(grid_size[1:] % merge_size == 0):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: all() received an invalid combination of arguments - got (numpy.ndarray), but expected one of:
+ * (Tensor input, *, Tensor out = None)
+ * (Tensor input, tuple of ints dim = None, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, int dim, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, name dim, bool keepdim = False, *, Tensor out = None)
+
+
+2/2 39028269 right 38s, ETA 0.0 min; 

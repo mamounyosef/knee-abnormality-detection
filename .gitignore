@@ -309,3 +309,6 @@ runs/others/watch104.log
 data/_relay_stage/
 data/_relay_state.json
 results_backup_before_mglabels_mixup/
+# full local shard copy (146.6 GB, modal_scripts/pull_shards.py); the 5 committed samples stay tracked
+data/shards/*.npz
+data/shards/*.part

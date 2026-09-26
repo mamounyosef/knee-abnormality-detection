@@ -1,0 +1,37 @@
+uid,mode,side,error
+1.2.826.0.1.3680043.8.498.10095687747295410396510538520594649149,all180,right,"TypeError: all() received an invalid combination of arguments - got (numpy.ndarray), but expected one of:
+ * (Tensor input, *, Tensor out = None)
+ * (Tensor input, tuple of ints dim = None, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, int dim, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, name dim, bool keepdim = False, *, Tensor out = None)
+"
+1.2.826.0.1.3680043.8.498.10095687747295410396510538520594649149,all180T,right,"TypeError: all() received an invalid combination of arguments - got (numpy.ndarray), but expected one of:
+ * (Tensor input, *, Tensor out = None)
+ * (Tensor input, tuple of ints dim = None, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, int dim, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, name dim, bool keepdim = False, *, Tensor out = None)
+"
+1.2.826.0.1.3680043.8.498.10095687747295410396510538520594649149,all96,right,"TypeError: all() received an invalid combination of arguments - got (numpy.ndarray), but expected one of:
+ * (Tensor input, *, Tensor out = None)
+ * (Tensor input, tuple of ints dim = None, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, int dim, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, name dim, bool keepdim = False, *, Tensor out = None)
+"
+1.2.826.0.1.3680043.8.498.10170898615867673028696505248839028269,all180,right,"TypeError: all() received an invalid combination of arguments - got (numpy.ndarray), but expected one of:
+ * (Tensor input, *, Tensor out = None)
+ * (Tensor input, tuple of ints dim = None, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, int dim, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, name dim, bool keepdim = False, *, Tensor out = None)
+"
+1.2.826.0.1.3680043.8.498.10170898615867673028696505248839028269,all180T,right,"TypeError: all() received an invalid combination of arguments - got (numpy.ndarray), but expected one of:
+ * (Tensor input, *, Tensor out = None)
+ * (Tensor input, tuple of ints dim = None, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, int dim, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, name dim, bool keepdim = False, *, Tensor out = None)
+"
+1.2.826.0.1.3680043.8.498.10170898615867673028696505248839028269,all96,right,"TypeError: all() received an invalid combination of arguments - got (numpy.ndarray), but expected one of:
+ * (Tensor input, *, Tensor out = None)
+ * (Tensor input, tuple of ints dim = None, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, int dim, bool keepdim = False, *, Tensor out = None)
+ * (Tensor input, name dim, bool keepdim = False, *, Tensor out = None)
+"

@@ -1,0 +1,67 @@
+{
+ "model": "ZJU-AI4H/Hulu-Med-14B",
+ "modes": {
+  "all180": [
+   180,
+   false,
+   false
+  ],
+  "all180T": [
+   180,
+   true,
+   false
+  ],
+  "all96": [
+   96,
+   false,
+   false
+  ],
+  "all96S": [
+   96,
+   false,
+   true
+  ]
+ },
+ "question": "Is there {lab} in this knee MRI? Answer with yes or no.",
+ "labels": {
+  "ACL": "a partial or complete anterior cruciate ligament (ACL) tear",
+  "MCL": "a medial collateral ligament (MCL) sprain or tear",
+  "Medial Meniscus": "a medial meniscus tear",
+  "Lateral Meniscus": "a lateral meniscus tear",
+  "Medial OA": "medial tibiofemoral osteoarthritis with high-grade cartilage loss",
+  "Lateral OA": "lateral tibiofemoral osteoarthritis with high-grade cartilage loss",
+  "PF OA": "patellofemoral osteoarthritis with high-grade cartilage loss",
+  "Effusion": "a moderate or large knee joint effusion",
+  "Synovitis": "synovitis (synovial thickening)",
+  "Baker's": "a Baker's (popliteal) cyst",
+  "Contusion": "a traumatic bone contusion (bone bruise)",
+  "Fracture": "a fracture"
+ },
+ "gpu": "H100",
+ "studies": 2,
+ "jobs": [
+  {
+   "uid": "1.2.826.0.1.3680043.8.498.10095687747295410396510538520594649149",
+   "side": "right",
+   "slots": {
+    "sag_plain": "1.2.826.0.1.3680043.8.498.10791858932231443712736629517371931282",
+    "sag_fluid": "1.2.826.0.1.3680043.8.498.37372672584387115708078590109474719429",
+    "cor_plain": "1.2.826.0.1.3680043.8.498.12451507871565834868863189854063726441",
+    "cor_fluid": "1.2.826.0.1.3680043.8.498.21497837050858589852101556928971904198",
+    "ax_fluid": "1.2.826.0.1.3680043.8.498.67495435033389756963800730529101229430"
+   }
+  },
+  {
+   "uid": "1.2.826.0.1.3680043.8.498.10170898615867673028696505248839028269",
+   "side": "right",
+   "slots": {
+    "sag_plain": "1.2.826.0.1.3680043.8.498.54042133199308823292191999163405766552",
+    "sag_fluid": "1.2.826.0.1.3680043.8.498.55642842745139279565158267708282328638",
+    "cor_plain": "1.2.826.0.1.3680043.8.498.11485276391165564447623186225915027296",
+    "cor_fluid": "1.2.826.0.1.3680043.8.498.45571369239262736508574040931936336167",
+    "ax_plain": "1.2.826.0.1.3680043.8.498.80784574440782299658628251628549446552",
+    "ax_fluid": "1.2.826.0.1.3680043.8.498.71876353677262220297725143243928050962"
+   }
+  }
+ ]
+}

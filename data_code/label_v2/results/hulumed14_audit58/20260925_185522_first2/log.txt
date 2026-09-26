@@ -1,0 +1,46 @@
+loaded ZJU-AI4H/Hulu-Med-14B in 148s on NVIDIA H100 80GB HBM3; LLM attn sdpa, vision attn sdpa; token compression False; image token 151669; GPU mem 30.4 GB
+yes tokens [(7414, ' Yes'), (9454, 'Yes'), (9693, 'yes'), (9834, ' yes')], no tokens [(902, ' no'), (2152, 'no'), (2308, ' No'), (2753, 'No')]
+  ERROR 1.2.826.0.1.3680043.8.498.10095687747295410396510538520594649149 all180: AssertionError: ids differ from processor
+Traceback (most recent call last):
+  File "/root/hulumed_audit58.py", line 215, in score
+    assert ref["input_ids"][0].tolist() == ids_list[0], "ids differ from processor"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ids differ from processor
+
+  ERROR 1.2.826.0.1.3680043.8.498.10095687747295410396510538520594649149 all180T: AssertionError: ids differ from processor
+Traceback (most recent call last):
+  File "/root/hulumed_audit58.py", line 215, in score
+    assert ref["input_ids"][0].tolist() == ids_list[0], "ids differ from processor"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ids differ from processor
+
+  ERROR 1.2.826.0.1.3680043.8.498.10095687747295410396510538520594649149 all96: AssertionError: ids differ from processor
+Traceback (most recent call last):
+  File "/root/hulumed_audit58.py", line 215, in score
+    assert ref["input_ids"][0].tolist() == ids_list[0], "ids differ from processor"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ids differ from processor
+
+1/2 94649149 right 12s, ETA 0.2 min; 
+  ERROR 1.2.826.0.1.3680043.8.498.10170898615867673028696505248839028269 all180: AssertionError: ids differ from processor
+Traceback (most recent call last):
+  File "/root/hulumed_audit58.py", line 215, in score
+    assert ref["input_ids"][0].tolist() == ids_list[0], "ids differ from processor"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ids differ from processor
+
+  ERROR 1.2.826.0.1.3680043.8.498.10170898615867673028696505248839028269 all180T: AssertionError: ids differ from processor
+Traceback (most recent call last):
+  File "/root/hulumed_audit58.py", line 215, in score
+    assert ref["input_ids"][0].tolist() == ids_list[0], "ids differ from processor"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ids differ from processor
+
+  ERROR 1.2.826.0.1.3680043.8.498.10170898615867673028696505248839028269 all96: AssertionError: ids differ from processor
+Traceback (most recent call last):
+  File "/root/hulumed_audit58.py", line 215, in score
+    assert ref["input_ids"][0].tolist() == ids_list[0], "ids differ from processor"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ids differ from processor
+
+2/2 39028269 right 53s, ETA 0.0 min; 

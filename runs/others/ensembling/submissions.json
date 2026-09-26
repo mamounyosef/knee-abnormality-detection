@@ -348,6 +348,18 @@
     "convnext_base_25d_18slices_mglabels"
    ],
    "notes": "Solo, MedGemma-blended labels, CALIBRATED (17_*_qwen-mg). Step 5000, val 0.9223 (on its own labels), audit 0.9078. Public 0.906 (-0.008 vs parent 0.914). Calibration hurt on the leaderboard despite better Brier."
+  },
+  {
+   "submission_ref": 56554409,
+   "kernel": "mamounhussam/knee-convnext-base-25d-18slices-mglabels-raw-submit",
+   "kernel_version": 2,
+   "submitted": "2026-09-25",
+   "public_score": 0.916,
+   "private_score": null,
+   "members": [
+    "convnext_base_25d_18slices_mglabels_raw (weight average of steps 4000-5100)"
+   ],
+   "notes": "Uniform weight average of 12 checkpoints (steps 4000-5100, modal_scripts/avg_checkpoints.py): val 0.9083, audit 0.9125 vs step 3900's 0.9086 / 0.9092. Public 0.916, identical to the step-3900 submission (56531949): averaging moved nothing visible at 3 decimals."
   }
  ]
 }

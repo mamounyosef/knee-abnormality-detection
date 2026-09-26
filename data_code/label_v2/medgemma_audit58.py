@@ -44,8 +44,16 @@ from pathlib import Path
 
 import modal
 
+import os as _os  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent.parent
-MODEL = "google/medgemma-1.5-4b-it"
+# which MedGemma, set BEFORE `modal run` (fixed when the function is defined):
+#   $env:MEDGEMMA_MODEL = "google/medgemma-27b-it"   (v1 27B multimodal, 2D-trained)
+MODEL = _os.environ.get("MEDGEMMA_MODEL", "google/medgemma-1.5-4b-it")
+MTAG = {"google/medgemma-1.5-4b-it": "medgemma15", "google/medgemma-27b-it": "medgemma27"}[MODEL]
+# questions per decoder batch on the shared prefix; 0 = all 12 at once. The 27B's cache is
+# ~2 GB per copy at 85 images, so 12 copies plus 54 GB of weights needs chunks or an H200
+QCHUNK = int(_os.environ.get("MEDGEMMA_QCHUNK", "0"))
 MAX_SLICES = 85
 TASKS = ["ACL", "MCL", "Medial Meniscus", "Lateral Meniscus", "Medial OA", "Lateral OA",
          "PF OA", "Effusion", "Synovitis", "Baker's", "Contusion", "Fracture"]
@@ -140,6 +148,8 @@ MODE_DEF = {
     # batch K, test-time variants of the recipe: other slices of the same knee, or unmirrored
     "all_shift":  (SLOTS_ALL, False),
     "all_noflip": (SLOTS_ALL, False),
+    # MedGemma 27B (2D-trained): the recipe with fewer, i.e. sparser, images
+    "all36":      (SLOTS_ALL, False),
 }
 PF_ALT = {"pf1": "chondromalacia patellae",
           "pf2": "high-grade cartilage loss of the patella or trochlea",
@@ -166,7 +176,8 @@ MODE_OPT = {"all_def": {"labels": "def"}, "all_num": {"answer": "number"},
             "all_reason": {"answer": "reason"},
             # the outer 5% of each series is mostly empty edge (the engine's slice_margin)
             "all_margin": {"margin": 0.05},
-            "all_shift": {"shift": True}, "all_noflip": {"noflip": True}}
+            "all_shift": {"shift": True}, "all_noflip": {"noflip": True},
+            "all36": {"slices": 36}}
 REASON_MAX_NEW = 320          # tokens of argument before "Final Answer:" is forced
 REASON_MARK = "Final Answer:"
 NUM_PREFILL = "Probability:"
@@ -184,10 +195,9 @@ SLOT_NAME = {
 FLIP_SIDE = "left"                     # same side every laterality_flip member mirrors
 # GPU type, set BEFORE `modal run` because it is fixed when the function is defined:
 #   $env:MEDGEMMA_GPU = "H100"   (speed only; the model and its answers do not change)
-import os as _os  # noqa: E402
 GPU = _os.environ.get("MEDGEMMA_GPU", "H100")   # benchmark 24 Sep: cheapest per study, 2x L40S speed
 
-app = modal.App("medgemma-audit58")
+app = modal.App("medgemma-audit58" if MTAG == "medgemma15" else f"{MTAG}-audit58")
 image = (modal.Image.debian_slim(python_version="3.12")
          .pip_install("torch==2.8.0", "torchvision==0.23.0", "transformers==4.57.3", "accelerate", "pillow",
                       "numpy", "pandas", "pyyaml")
@@ -195,11 +205,11 @@ image = (modal.Image.debian_slim(python_version="3.12")
 shards = modal.Volume.from_name("knee-shards")
 hf_cache = modal.Volume.from_name("hf-cache", create_if_missing=True)
 runs_vol = modal.Volume.from_name("knee-runs")
-REMOTE_DIR = "/runs_vol/labelling/medgemma15_audit58"      # knee-runs volume
+REMOTE_DIR = f"/runs_vol/labelling/{MTAG}_audit58"        # knee-runs volume
 REMOTE_ROOT = "/runs_vol/labelling"
-SPLIT_DIR = {"audit": "medgemma15_audit58", "corpus": "medgemma15_corpus"}
+SPLIT_DIR = {"audit": f"{MTAG}_audit58", "corpus": f"{MTAG}_corpus"}
 SHARDS_DIR = "/shards"                                     # knee-shards volume
-LOCAL_DIR = ROOT / "data_code/label_v2/results/medgemma15_audit58"
+LOCAL_DIR = ROOT / f"data_code/label_v2/results/{MTAG}_audit58"
 LOCAL_ROOT = ROOT / "data_code/label_v2/results"
 
 
@@ -247,7 +257,7 @@ def volume_slices(z, job, mode):
     if not want:
         return []
     have = [s for s in want if job["slots"].get(s) in z.files]
-    per = MAX_SLICES // max(len(have), 1)
+    per = MODE_OPT.get(mode, {}).get("slices", MAX_SLICES) // max(len(have), 1)
     mirror = job.get("side") == FLIP_SIDE and not MODE_OPT.get(mode, {}).get("noflip")
     shift = MODE_OPT.get(mode, {}).get("shift")
     out = []
@@ -368,7 +378,10 @@ def yes_prob_shared(model, ids_list, pixel_values, image_token_id, yes_ids, no_i
     L = common_prefix_len(ids_list) - 1           # keep >= 1 own token per prompt
     pre_ids = torch.tensor([ids_list[0][:L]], device=dev)
     kw = {"input_ids": pre_ids, "attention_mask": torch.ones_like(pre_ids),
-          "token_type_ids": (pre_ids == image_token_id).long(), "use_cache": True}
+          "token_type_ids": (pre_ids == image_token_id).long(), "use_cache": True,
+          # only the cache is used from the prefix pass: scoring all positions costs
+          # vocab 262k x prefix 22k x bf16 = 11 GB on the 27B (OOM, 25 Sep)
+          "logits_to_keep": 1}
     if pixel_values is not None:
         kw["pixel_values"] = pixel_values.to(dev, torch.bfloat16)
 
@@ -377,22 +390,30 @@ def yes_prob_shared(model, ids_list, pixel_values, image_token_id, yes_ids, no_i
                              - torch.logsumexp(lg[..., no_ids], -1))
 
     with torch.inference_mode():
-        cache = model(**kw).past_key_values
-        B = len(ids_list)
-        suf = [x[L:] for x in ids_list]
-        n = max(len(x) for x in suf)
-        lens = torch.tensor([len(x) for x in suf], device=dev)
-        s_ids = torch.full((B, n), pad_id, dtype=torch.long, device=dev)
-        s_mask = torch.zeros((B, L + n), dtype=torch.long, device=dev)
-        s_mask[:, :L] = 1
-        for i, x in enumerate(suf):
-            s_ids[i, :len(x)] = torch.tensor(x, device=dev)
-            s_mask[i, L:L + len(x)] = 1
-        cache.batch_repeat_interleave(B)
-        out = model(input_ids=s_ids, attention_mask=s_mask, past_key_values=cache,
-                    token_type_ids=torch.zeros_like(s_ids), use_cache=True,
-                    cache_position=torch.arange(L, L + n, device=dev)).logits
-        lg = out[torch.arange(B, device=dev), lens - 1].float()        # (B, vocab)
+        cache0 = model(**kw).past_key_values
+        suf_all = [x[L:] for x in ids_list]
+        step = QCHUNK or len(suf_all)
+        lgs = []
+        for c0 in range(0, len(suf_all), step):
+            suf = suf_all[c0:c0 + step]
+            B = len(suf)
+            # the last chunk may consume the prefix cache itself; earlier ones need a copy
+            cache = cache0 if c0 + step >= len(suf_all) else copy.deepcopy(cache0)
+            n = max(len(x) for x in suf)
+            lens = torch.tensor([len(x) for x in suf], device=dev)
+            s_ids = torch.full((B, n), pad_id, dtype=torch.long, device=dev)
+            s_mask = torch.zeros((B, L + n), dtype=torch.long, device=dev)
+            s_mask[:, :L] = 1
+            for i, x in enumerate(suf):
+                s_ids[i, :len(x)] = torch.tensor(x, device=dev)
+                s_mask[i, L:L + len(x)] = 1
+            cache.batch_repeat_interleave(B)
+            out = model(input_ids=s_ids, attention_mask=s_mask, past_key_values=cache,
+                        token_type_ids=torch.zeros_like(s_ids), use_cache=True,
+                        cache_position=torch.arange(L, L + n, device=dev)).logits
+            lgs.append(out[torch.arange(B, device=dev), lens - 1].float())
+            del out, cache
+        lg = torch.cat(lgs)                                             # (12, vocab)
         probs = p_yes(lg)
         sm = torch.softmax(lg, -1)
         mass = sm[:, yes_ids].sum(-1) + sm[:, no_ids].sum(-1)
@@ -400,7 +421,7 @@ def yes_prob_shared(model, ids_list, pixel_values, image_token_id, yes_ids, no_i
         if check:
             f_ids = torch.tensor([ids_list[0]], device=dev)
             fkw = {"input_ids": f_ids, "attention_mask": torch.ones_like(f_ids),
-                   "token_type_ids": (f_ids == image_token_id).long()}
+                   "token_type_ids": (f_ids == image_token_id).long(), "logits_to_keep": 1}
             if pixel_values is not None:
                 fkw["pixel_values"] = kw["pixel_values"]
             full = model(**fkw).logits[0, -1].float()
@@ -435,7 +456,10 @@ def stated_prob_shared(model, ids_list, pixel_values, image_token_id, stop_ids, 
     L = common_prefix_len(ids_list) - 1
     pre_ids = torch.tensor([ids_list[0][:L]], device=dev)
     kw = {"input_ids": pre_ids, "attention_mask": torch.ones_like(pre_ids),
-          "token_type_ids": (pre_ids == image_token_id).long(), "use_cache": True}
+          "token_type_ids": (pre_ids == image_token_id).long(), "use_cache": True,
+          # only the cache is used from the prefix pass: scoring all positions costs
+          # vocab 262k x prefix 22k x bf16 = 11 GB on the 27B (OOM, 25 Sep)
+          "logits_to_keep": 1}
     if pixel_values is not None:
         kw["pixel_values"] = pixel_values.to(dev, torch.bfloat16)
     vals, raws, first_toks = [], [], None
@@ -495,7 +519,10 @@ def reason_prob_shared(model, ids_list, pixel_values, image_token_id, yes_ids, n
     L = common_prefix_len(ids_list) - 1
     pre_ids = torch.tensor([ids_list[0][:L]], device=dev)
     kw = {"input_ids": pre_ids, "attention_mask": torch.ones_like(pre_ids),
-          "token_type_ids": (pre_ids == image_token_id).long(), "use_cache": True}
+          "token_type_ids": (pre_ids == image_token_id).long(), "use_cache": True,
+          # only the cache is used from the prefix pass: scoring all positions costs
+          # vocab 262k x prefix 22k x bf16 = 11 GB on the 27B (OOM, 25 Sep)
+          "logits_to_keep": 1}
     if pixel_values is not None:
         kw["pixel_values"] = pixel_values.to(dev, torch.bfloat16)
     max_new = REASON_MAX_NEW if max_new is None else max_new
@@ -563,8 +590,11 @@ def reason_prob_shared(model, ids_list, pixel_values, image_token_id, yes_ids, n
 @app.function(gpu=GPU, image=image, timeout=3 * 3600,
               volumes={"/shards": shards, "/root/.cache/huggingface": hf_cache,
                        "/runs_vol": runs_vol},
-              secrets=[modal.Secret.from_name("huggingface")])
-def score(jobs, modes, tag, part=0, attn="sdpa", sub="medgemma15_audit58"):
+              secrets=[modal.Secret.from_name(_os.environ.get("HF_SECRET", "huggingface")),
+                       # a container re-imports this file WITHOUT the local environment:
+                       # without this it silently loads the default model (25 Sep)
+                       modal.Secret.from_dict({"MEDGEMMA_MODEL": MODEL, "MEDGEMMA_QCHUNK": str(QCHUNK)})])
+def score(jobs, modes, tag, part=0, attn="sdpa", sub="medgemma15_audit58", expect_model=None):
     """Returns (rows, log text). Also writes log.txt and rows.jsonl to the knee-runs volume
     after EVERY study, so a crash or a stop keeps everything done so far."""
     import os
@@ -575,7 +605,11 @@ def score(jobs, modes, tag, part=0, attn="sdpa", sub="medgemma15_audit58"):
     from PIL import Image
     from transformers import AutoModelForImageTextToText, AutoProcessor
 
-    assert os.environ.get("HF_TOKEN"), "Modal secret `huggingface` has no HF_TOKEN"
+    for _k in ("HUGGING_FACE_HUB_TOKEN", "HUGGINGFACE_TOKEN", "HF_API_TOKEN"):
+        if not os.environ.get("HF_TOKEN") and os.environ.get(_k):
+            os.environ["HF_TOKEN"] = os.environ[_k]       # older secrets name it differently
+    assert os.environ.get("HF_TOKEN"), "the Hugging Face secret has no HF_TOKEN"
+    assert expect_model in (None, MODEL), f"container has {MODEL}, caller asked for {expect_model}"
     out_dir = f"{REMOTE_ROOT}/{sub}/{tag}/part{part}"
     # RESUME: a rerun with the same --tag gives this part the same studies; whatever it
     # already saved is kept and skipped, so a stopped or crashed run loses nothing
@@ -621,7 +655,7 @@ def score(jobs, modes, tag, part=0, attn="sdpa", sub="medgemma15_audit58"):
     log(f"remote results: knee-runs volume {out_dir.replace('/runs_vol/', '')}"
         + (f"; resuming, {len(done_rows)} study-modes already saved" if done_rows else ""))
     t_load = time.time()
-    log(f"attention: {attn}")
+    log(f"model {MODEL}, question chunk {QCHUNK or 'all'}, attention: {attn}")
     log(f"GPU {torch.cuda.get_device_name(0)}, "
           f"{torch.cuda.get_device_properties(0).total_memory / 1e9:.0f} GB; "
           f"{len(jobs)} studies x modes {modes} x {len(TASKS)} findings", flush=True)
@@ -911,7 +945,7 @@ def main(modes: str = ",".join(MODES), limit: int = 0, workers: int = 4, attn: s
     rows, logs = [], []
     # MEDGEMMA_GPU and --attn change SPEED only: attn=flex_attention is checked equal to sdpa by
     # checks/medgemma_attn_backend_check.py, and the GPU type never changes the model
-    for r, lg in score.starmap([(c, ms, tag, i, attn, sub) for i, c in enumerate(chunks)]):
+    for r, lg in score.starmap([(c, ms, tag, i, attn, sub, MODEL) for i, c in enumerate(chunks)]):
         rows += r
         logs.append(lg)
     log_text = "\n\n".join(logs)
@@ -928,11 +962,11 @@ def main(modes: str = ",".join(MODES), limit: int = 0, workers: int = 4, attn: s
         d = d[["StudyInstanceUID", "unusable"] + TASKS]
         d.to_csv(out / f"labels_{m}.csv", index=False)
         if split == "corpus" and not limit:
-            f = ROOT / f"data/16_medgemma15_corpus_{m}.csv"     # the relabel's raw scores
+            f = ROOT / f"data/16_{MTAG}_corpus_{m}.csv"         # the relabel's raw scores
             d.to_csv(f, index=False)
             print("wrote", f.relative_to(ROOT), len(d))
         elif not limit:                 # compare_labelers.py reads these; a smoke test never
-            f = ROOT / f"data/03_report_labels_medgemma15-{m.replace('_', '-')}_validate58.csv"
+            f = ROOT / f"data/03_report_labels_{MTAG}-{m.replace('_', '-')}_validate58.csv"
             d.to_csv(f, index=False)    # overwrites them
             print("wrote", f.relative_to(ROOT))
     buf = _io.StringIO()

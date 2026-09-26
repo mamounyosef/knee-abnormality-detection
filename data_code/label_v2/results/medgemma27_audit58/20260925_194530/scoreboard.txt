@@ -1,0 +1,24 @@
+
+SCOREBOARD vs the panel, 58 studies (macro AUROC; delta vs Qwen with 95% bootstrap CI)
+  qwen24t-med            0.9114 (+0.0000)  CI [+0.0000, +0.0000]  P(better)   0%  Brier 0.1149
+  all                    0.5784 (-0.3330)  CI [-0.3868, -0.2771]  P(better)   0%  Brier 0.4595
+  all36                  0.6101 (-0.3013)  CI [-0.3569, -0.2498]  P(better)   0%  Brier 0.4618
+  qwen+all mean          0.9013 (-0.0101)  CI [-0.0220, +0.0002]  P(better)   3%  Brier 0.1932
+  qwen+all36 mean        0.8970 (-0.0144)  CI [-0.0301, +0.0005]  P(better)   3%  Brier 0.1947
+  qwen+all fluid3        0.9116 (+0.0002)  CI [-0.0036, +0.0035]  P(better)  54%  Brier 0.1241
+  qwen+all36 fluid3      0.9106 (-0.0008)  CI [-0.0073, +0.0047]  P(better)  41%  Brier 0.1238
+
+per finding AUROC:
+   qwen24t-med          all        all36 qwen+all mea qwen+all36 m qwen+all flu qwen+all36 f   finding
+         0.979        0.615        0.584        0.966        0.947        0.979        0.979   ACL (24 pos)
+         0.983        0.432        0.410        0.982        0.980        0.983        0.983   MCL (9 pos)
+         0.957        0.562        0.567        0.892        0.934        0.957        0.957   Medial Meniscus (26 pos)
+         0.895        0.677        0.699        0.953        0.894        0.895        0.895   Lateral Meniscus (23 pos)
+         0.945        0.505        0.564        0.946        0.943        0.945        0.945   Medial OA (15 pos)
+         0.839        0.565        0.710        0.833        0.832        0.839        0.839   Lateral OA (11 pos)
+         0.912        0.681        0.674        0.921        0.926        0.912        0.912   PF OA (21 pos)
+         0.865        0.693        0.760        0.870        0.883        0.870        0.883   Effusion (35 pos)
+         0.842        0.590        0.659        0.833        0.813        0.833        0.813   Synovitis (27 pos)
+         0.909        0.597        0.627        0.915        0.909        0.915        0.909   Baker's (12 pos)
+         0.897        0.551        0.542        0.821        0.812        0.897        0.897   Contusion (19 pos)
+         0.914        0.472        0.525        0.885        0.890        0.914        0.914   Fracture (18 pos)

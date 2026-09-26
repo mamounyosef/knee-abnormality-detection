@@ -1,0 +1,396 @@
+loaded ZJU-AI4H/Hulu-Med-14B in 28s on NVIDIA H100 80GB HBM3; LLM attn sdpa, vision attn sdpa; token compression False; image token 151669; GPU mem 30.4 GB
+yes tokens [(7414, ' Yes'), (9454, 'Yes'), (9693, 'yes'), (9834, ' yes')], no tokens [(902, ' no'), (2152, 'no'), (2308, ' No'), (2753, 'No')]
+  ERROR 1.2.826.0.1.3680043.8.498.10095687747295410396510538520594649149 all180: OutOfMemoryError: CUDA out of memory. Tried to allocate 168.29 GiB. GPU 0 has a total capacity of 79.18 GiB of which 40.42 GiB is free. Process 1 has 38.75 GiB memory in use. Of the allocated memory 38.03 GiB is allocated by PyTorch, and 46.31 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Traceback (most recent call last):
+  File "/root/hulumed_audit58.py", line 236, in score
+    _, _, _, _, emb, _ = model.prepare_inputs_labels_for_multimodal(
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_qwen3.py", line 355, in prepare_inputs_labels_for_multimodal
+    mm_features = self.encode_images(pixel_values, grid_sizes, merge_sizes).to(input_ids.device)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_qwen3.py", line 191, in encode_images
+    mm_features = self.get_model().get_vision_encoder()(
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 479, in forward
+    hidden_states = self.encoder(hidden_states, grid_sizes, merge_sizes)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 449, in forward
+    hidden_states = blk(hidden_states, cu_seqlens=cu_seqlens, rotary_pos_emb=rotary_pos_emb)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 386, in forward
+    hidden_states = hidden_states + self.self_attn(
+                                    ^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 343, in forward
+    attn_output = F.scaled_dot_product_attention(query_states, key_states, value_states, attention_mask, dropout_p=0.0)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 168.29 GiB. GPU 0 has a total capacity of 79.18 GiB of which 40.42 GiB is free. Process 1 has 38.75 GiB memory in use. Of the allocated memory 38.03 GiB is allocated by PyTorch, and 46.31 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+
+  ERROR 1.2.826.0.1.3680043.8.498.10095687747295410396510538520594649149 all180T: OutOfMemoryError: CUDA out of memory. Tried to allocate 168.29 GiB. GPU 0 has a total capacity of 79.18 GiB of which 40.39 GiB is free. Process 1 has 38.78 GiB memory in use. Of the allocated memory 38.03 GiB is allocated by PyTorch, and 72.23 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Traceback (most recent call last):
+  File "/root/hulumed_audit58.py", line 236, in score
+    _, _, _, _, emb, _ = model.prepare_inputs_labels_for_multimodal(
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_qwen3.py", line 355, in prepare_inputs_labels_for_multimodal
+    mm_features = self.encode_images(pixel_values, grid_sizes, merge_sizes).to(input_ids.device)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_qwen3.py", line 191, in encode_images
+    mm_features = self.get_model().get_vision_encoder()(
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 479, in forward
+    hidden_states = self.encoder(hidden_states, grid_sizes, merge_sizes)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 449, in forward
+    hidden_states = blk(hidden_states, cu_seqlens=cu_seqlens, rotary_pos_emb=rotary_pos_emb)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 386, in forward
+    hidden_states = hidden_states + self.self_attn(
+                                    ^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 343, in forward
+    attn_output = F.scaled_dot_product_attention(query_states, key_states, value_states, attention_mask, dropout_p=0.0)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 168.29 GiB. GPU 0 has a total capacity of 79.18 GiB of which 40.39 GiB is free. Process 1 has 38.78 GiB memory in use. Of the allocated memory 38.03 GiB is allocated by PyTorch, and 72.23 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+
+  ERROR 1.2.826.0.1.3680043.8.498.10095687747295410396510538520594649149 all96: OutOfMemoryError: CUDA out of memory. Tried to allocate 169.18 GiB. GPU 0 has a total capacity of 79.18 GiB of which 38.42 GiB is free. Process 1 has 40.75 GiB memory in use. Of the allocated memory 38.08 GiB is allocated by PyTorch, and 2.00 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Traceback (most recent call last):
+  File "/root/hulumed_audit58.py", line 236, in score
+    _, _, _, _, emb, _ = model.prepare_inputs_labels_for_multimodal(
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_qwen3.py", line 355, in prepare_inputs_labels_for_multimodal
+    mm_features = self.encode_images(pixel_values, grid_sizes, merge_sizes).to(input_ids.device)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_qwen3.py", line 191, in encode_images
+    mm_features = self.get_model().get_vision_encoder()(
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 479, in forward
+    hidden_states = self.encoder(hidden_states, grid_sizes, merge_sizes)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 449, in forward
+    hidden_states = blk(hidden_states, cu_seqlens=cu_seqlens, rotary_pos_emb=rotary_pos_emb)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 386, in forward
+    hidden_states = hidden_states + self.self_attn(
+                                    ^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 343, in forward
+    attn_output = F.scaled_dot_product_attention(query_states, key_states, value_states, attention_mask, dropout_p=0.0)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 169.18 GiB. GPU 0 has a total capacity of 79.18 GiB of which 38.42 GiB is free. Process 1 has 40.75 GiB memory in use. Of the allocated memory 38.08 GiB is allocated by PyTorch, and 2.00 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+
+  ERROR 1.2.826.0.1.3680043.8.498.10095687747295410396510538520594649149 all96S: OutOfMemoryError: CUDA out of memory. Tried to allocate 169.18 GiB. GPU 0 has a total capacity of 79.18 GiB of which 38.65 GiB is free. Process 1 has 40.52 GiB memory in use. Of the allocated memory 38.08 GiB is allocated by PyTorch, and 1.77 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Traceback (most recent call last):
+  File "/root/hulumed_audit58.py", line 236, in score
+    _, _, _, _, emb, _ = model.prepare_inputs_labels_for_multimodal(
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_qwen3.py", line 355, in prepare_inputs_labels_for_multimodal
+    mm_features = self.encode_images(pixel_values, grid_sizes, merge_sizes).to(input_ids.device)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_qwen3.py", line 191, in encode_images
+    mm_features = self.get_model().get_vision_encoder()(
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 479, in forward
+    hidden_states = self.encoder(hidden_states, grid_sizes, merge_sizes)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 449, in forward
+    hidden_states = blk(hidden_states, cu_seqlens=cu_seqlens, rotary_pos_emb=rotary_pos_emb)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 386, in forward
+    hidden_states = hidden_states + self.self_attn(
+                                    ^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 343, in forward
+    attn_output = F.scaled_dot_product_attention(query_states, key_states, value_states, attention_mask, dropout_p=0.0)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 169.18 GiB. GPU 0 has a total capacity of 79.18 GiB of which 38.65 GiB is free. Process 1 has 40.52 GiB memory in use. Of the allocated memory 38.08 GiB is allocated by PyTorch, and 1.77 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+
+1/2 94649149 right 19s, ETA 0.3 min; 
+  ERROR 1.2.826.0.1.3680043.8.498.10170898615867673028696505248839028269 all180: OutOfMemoryError: CUDA out of memory. Tried to allocate 198.25 GiB. GPU 0 has a total capacity of 79.18 GiB of which 37.97 GiB is free. Process 1 has 41.20 GiB memory in use. Of the allocated memory 39.59 GiB is allocated by PyTorch, and 960.61 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Traceback (most recent call last):
+  File "/root/hulumed_audit58.py", line 236, in score
+    _, _, _, _, emb, _ = model.prepare_inputs_labels_for_multimodal(
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_qwen3.py", line 355, in prepare_inputs_labels_for_multimodal
+    mm_features = self.encode_images(pixel_values, grid_sizes, merge_sizes).to(input_ids.device)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_qwen3.py", line 191, in encode_images
+    mm_features = self.get_model().get_vision_encoder()(
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 479, in forward
+    hidden_states = self.encoder(hidden_states, grid_sizes, merge_sizes)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 449, in forward
+    hidden_states = blk(hidden_states, cu_seqlens=cu_seqlens, rotary_pos_emb=rotary_pos_emb)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 386, in forward
+    hidden_states = hidden_states + self.self_attn(
+                                    ^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 343, in forward
+    attn_output = F.scaled_dot_product_attention(query_states, key_states, value_states, attention_mask, dropout_p=0.0)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 198.25 GiB. GPU 0 has a total capacity of 79.18 GiB of which 37.97 GiB is free. Process 1 has 41.20 GiB memory in use. Of the allocated memory 39.59 GiB is allocated by PyTorch, and 960.61 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+
+  ERROR 1.2.826.0.1.3680043.8.498.10170898615867673028696505248839028269 all180T: OutOfMemoryError: CUDA out of memory. Tried to allocate 198.25 GiB. GPU 0 has a total capacity of 79.18 GiB of which 38.09 GiB is free. Process 1 has 41.08 GiB memory in use. Of the allocated memory 39.59 GiB is allocated by PyTorch, and 842.61 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Traceback (most recent call last):
+  File "/root/hulumed_audit58.py", line 236, in score
+    _, _, _, _, emb, _ = model.prepare_inputs_labels_for_multimodal(
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_qwen3.py", line 355, in prepare_inputs_labels_for_multimodal
+    mm_features = self.encode_images(pixel_values, grid_sizes, merge_sizes).to(input_ids.device)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_qwen3.py", line 191, in encode_images
+    mm_features = self.get_model().get_vision_encoder()(
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 479, in forward
+    hidden_states = self.encoder(hidden_states, grid_sizes, merge_sizes)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 449, in forward
+    hidden_states = blk(hidden_states, cu_seqlens=cu_seqlens, rotary_pos_emb=rotary_pos_emb)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 386, in forward
+    hidden_states = hidden_states + self.self_attn(
+                                    ^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 343, in forward
+    attn_output = F.scaled_dot_product_attention(query_states, key_states, value_states, attention_mask, dropout_p=0.0)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 198.25 GiB. GPU 0 has a total capacity of 79.18 GiB of which 38.09 GiB is free. Process 1 has 41.08 GiB memory in use. Of the allocated memory 39.59 GiB is allocated by PyTorch, and 842.61 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+
+  ERROR 1.2.826.0.1.3680043.8.498.10170898615867673028696505248839028269 all96: OutOfMemoryError: CUDA out of memory. Tried to allocate 251.03 GiB. GPU 0 has a total capacity of 79.18 GiB of which 30.24 GiB is free. Process 1 has 48.93 GiB memory in use. Of the allocated memory 42.30 GiB is allocated by PyTorch, and 5.96 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Traceback (most recent call last):
+  File "/root/hulumed_audit58.py", line 236, in score
+    _, _, _, _, emb, _ = model.prepare_inputs_labels_for_multimodal(
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_qwen3.py", line 355, in prepare_inputs_labels_for_multimodal
+    mm_features = self.encode_images(pixel_values, grid_sizes, merge_sizes).to(input_ids.device)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_qwen3.py", line 191, in encode_images
+    mm_features = self.get_model().get_vision_encoder()(
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 479, in forward
+    hidden_states = self.encoder(hidden_states, grid_sizes, merge_sizes)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 449, in forward
+    hidden_states = blk(hidden_states, cu_seqlens=cu_seqlens, rotary_pos_emb=rotary_pos_emb)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 386, in forward
+    hidden_states = hidden_states + self.self_attn(
+                                    ^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 343, in forward
+    attn_output = F.scaled_dot_product_attention(query_states, key_states, value_states, attention_mask, dropout_p=0.0)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 251.03 GiB. GPU 0 has a total capacity of 79.18 GiB of which 30.24 GiB is free. Process 1 has 48.93 GiB memory in use. Of the allocated memory 42.30 GiB is allocated by PyTorch, and 5.96 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+
+  ERROR 1.2.826.0.1.3680043.8.498.10170898615867673028696505248839028269 all96S: OutOfMemoryError: CUDA out of memory. Tried to allocate 251.03 GiB. GPU 0 has a total capacity of 79.18 GiB of which 30.24 GiB is free. Process 1 has 48.93 GiB memory in use. Of the allocated memory 42.30 GiB is allocated by PyTorch, and 5.96 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Traceback (most recent call last):
+  File "/root/hulumed_audit58.py", line 236, in score
+    _, _, _, _, emb, _ = model.prepare_inputs_labels_for_multimodal(
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_qwen3.py", line 355, in prepare_inputs_labels_for_multimodal
+    mm_features = self.encode_images(pixel_values, grid_sizes, merge_sizes).to(input_ids.device)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_qwen3.py", line 191, in encode_images
+    mm_features = self.get_model().get_vision_encoder()(
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 479, in forward
+    hidden_states = self.encoder(hidden_states, grid_sizes, merge_sizes)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 449, in forward
+    hidden_states = blk(hidden_states, cu_seqlens=cu_seqlens, rotary_pos_emb=rotary_pos_emb)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 386, in forward
+    hidden_states = hidden_states + self.self_attn(
+                                    ^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.cache/huggingface/modules/transformers_modules/ZJU-AI4H/Hulu-Med-14B/b30d9161b8c23a79e20e1eca3891f63697531904/modeling_hulumed_encoder.py", line 343, in forward
+    attn_output = F.scaled_dot_product_attention(query_states, key_states, value_states, attention_mask, dropout_p=0.0)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 251.03 GiB. GPU 0 has a total capacity of 79.18 GiB of which 30.24 GiB is free. Process 1 has 48.93 GiB memory in use. Of the allocated memory 42.30 GiB is allocated by PyTorch, and 5.96 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+
+2/2 39028269 right 72s, ETA 0.0 min; 

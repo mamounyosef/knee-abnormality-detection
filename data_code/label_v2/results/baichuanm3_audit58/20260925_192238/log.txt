@@ -1,0 +1,3 @@
+loaded baichuan-inc/Baichuan-M3-235B-FP8 on H100:4 in 523s
+prompt tokens: min 1155, max 1910; prompt tail 'atellar tendinosis.<|im_end|>\n<|im_start|>assistant\n<think>\n'
+generated 116 answers in 479s: 791180 tokens (1653 tok/s), mean 6821, max 11469; finish reasons ['stop'], hit max_tokens 0

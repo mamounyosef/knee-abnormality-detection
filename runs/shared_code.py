@@ -2222,6 +2222,7 @@ def _write_checkpoint(payload: dict, path: Path) -> Path:
     tmp = path.with_suffix(".tmp")
     torch.save(payload, tmp)
     tmp.replace(path)                          # atomic: never leave a half-written ckpt
+    _after_checkpoint_write(path)              # optional off-site copy (CheckpointUploader)
     return path
 
 
@@ -2234,6 +2235,108 @@ def _cpu_snapshot(x):
     if isinstance(x, (list, tuple)):
         return type(x)(_cpu_snapshot(v) for v in x)
     return x
+
+
+class CheckpointUploader:
+    """Copy freshly written checkpoints to a Modal volume, so a LOCAL run can keep only a few on
+    disk (output.upload_checkpoints: {modal_config, volume, patterns}).
+
+    Each file is hard-linked into results/_upload_staging first (no extra disk, and it survives
+    the rolling prune deleting the original mid-upload), then `modal volume put --force` runs in a
+    subprocess whose ONLY Modal config is the one given, on a single background thread, newest
+    version first if the same name is queued twice. Success and failure are printed in the
+    training console; a failed upload never stops training.
+    """
+
+    def __init__(self, spec: dict, run_name: str, res_dir: Path, rel_ckpt_dir: str, default_volume: str):
+        import fnmatch
+        import queue
+        import threading
+        self.spec, self.run = spec, run_name
+        # the same volume and path a Modal run writes to: <runs_volume>:/<run>/results/checkpoints
+        self.volume = spec.get("volume") or default_volume
+        self.rel = rel_ckpt_dir
+        self.patterns = spec.get("patterns", ["step*.pt", "top_step*.pt", "best.pt"])
+        self.cfg_path = str(Path(os.path.expanduser(spec["modal_config"])))
+        self.stage = Path(res_dir) / "_upload_staging"
+        self.stage.mkdir(parents=True, exist_ok=True)
+        self._match = lambda n: any(fnmatch.fnmatch(n, p) for p in self.patterns)
+        self.q, self.pending, self.lock = queue.Queue(), {}, threading.Lock()
+        self.done = self.failed = 0
+        self.thread = threading.Thread(target=self._loop, daemon=True)
+        self.thread.start()
+        print(f"  ☁️  checkpoint upload ON: {', '.join(self.patterns)} -> Modal volume "
+              f"'{self.volume}':/{self.run}/{self.rel}/ ({self.cfg_path})", flush=True)
+
+    def offer(self, path: Path) -> None:
+        path = Path(path)
+        if not self._match(path.name):
+            return
+        staged = self.stage / path.name
+        try:
+            if staged.exists():
+                staged.unlink()
+            os.link(path, staged)                  # same volume: instant, no extra space
+        except OSError as e:
+            print(f"  ⚠️  upload staging failed for {path.name}: {e}", flush=True)
+            return
+        with self.lock:
+            fresh = path.name not in self.pending
+            self.pending[path.name] = staged
+        if fresh:
+            self.q.put(path.name)
+
+    def _loop(self):
+        import subprocess
+        import time as _t
+        while True:
+            name = self.q.get()
+            if name is None:
+                return
+            with self.lock:
+                staged = self.pending.pop(name, None)
+            if staged is None or not staged.exists():
+                continue
+            size = staged.stat().st_size
+            remote = f"/{self.run}/{self.rel}/{name}"
+            env = dict(os.environ, MODAL_CONFIG_PATH=self.cfg_path, PYTHONUTF8="1")
+            ca = Path.home() / ".certs" / "ca-bundle.pem"
+            if ca.exists():
+                env["REQUESTS_CA_BUNDLE"] = env["SSL_CERT_FILE"] = str(ca)
+            t0 = _t.time()
+            r = subprocess.run([sys.executable, "-m", "modal", "volume", "put", "--force",
+                                self.volume, str(staged), remote],
+                               capture_output=True, text=True, encoding="utf-8",
+                               errors="replace", env=env)
+            dt = _t.time() - t0
+            if r.returncode == 0:
+                self.done += 1
+                print(f"  ☁️  uploaded {name} ({size / 1e9:.2f} GB) -> {self.volume}:{remote} "
+                      f"in {dt:.0f}s ({size / 1e6 / max(dt, 1e-9):.0f} MB/s)", flush=True)
+            else:
+                self.failed += 1
+                tail = (r.stderr or r.stdout).strip().splitlines()[-1:] or ["?"]
+                print(f"  ⚠️  upload FAILED for {name} after {dt:.0f}s: {tail[0][:200]}", flush=True)
+            with self.lock:
+                if name not in self.pending:
+                    try:
+                        staged.unlink()
+                    except OSError:
+                        pass
+
+    def join(self) -> None:
+        """Wait for every queued upload, then stop the thread."""
+        self.q.put(None)
+        self.thread.join()
+        print(f"  ☁️  checkpoint uploads finished: {self.done} uploaded, {self.failed} failed", flush=True)
+
+
+_UPLOADER = None                                   # set by run_experiment when configured
+
+
+def _after_checkpoint_write(path: Path) -> None:
+    if _UPLOADER is not None:
+        _UPLOADER.offer(path)
 
 
 class AsyncSaver:
@@ -3032,6 +3135,13 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     """Full training run: loaders, loss, optimizer, epoch loop, eval, checkpoints, logs."""
     persist = AsyncPersist(persist_fn)         # volume flushes, off the training thread
     saver = AsyncSaver(cfg["output"].get("async_checkpoints", True))
+    global _UPLOADER
+    _UPLOADER = None
+    if cfg["output"].get("upload_checkpoints"):
+        _o = cfg["output"]
+        _UPLOADER = CheckpointUploader(
+            _o["upload_checkpoints"], cfg["experiment"]["name"], Path(out_dir) / _o["run_dir"],
+            f"{_o['run_dir']}/{_o['checkpoints_dir']}", cfg.get("modal", {}).get("runs_volume", "knee-runs"))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     epochs = cfg["training"]["epochs"]
     run_id = cfg.setdefault("experiment", {}).get("run_id") or ""
@@ -4168,6 +4278,10 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                   f"skipped as redundant (one was already in flight)")
         if persist.last_error:
             print(f"  ⚠️  last volume flush error: {persist.last_error}")
+    saver.join()                           # the last checkpoint is on disk (and offered)
+    if _UPLOADER is not None:
+        _UPLOADER.join()                   # ... and every upload has landed
+        _UPLOADER = None
     return best
 
 

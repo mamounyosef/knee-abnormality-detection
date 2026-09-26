@@ -56,7 +56,8 @@ def full_p(ids, pix, yes_ids, no_ids):
 
 fails = 0
 yes_ids, no_ids = [100, 101], [102, 103]
-for n_img in (0, 1, 3):
+for n_img, qchunk in ((0, 0), (1, 0), (3, 0), (3, 1), (3, 3)):
+    mg.QCHUNK = qchunk                  # questions per batch on the shared cache; 0 = all
     pix = torch.randn(n_img, 3, 56, 56) if n_img else None
     shared = torch.randint(30, 200, (15,)).tolist()   # e.g. the report
     questions = [torch.randint(30, 200, (int(k),)).tolist() for k in (5, 9, 3, 12)]
@@ -66,7 +67,7 @@ for n_img in (0, 1, 3):
     worst = max(abs(full_p(ids, pix, yes_ids, no_ids) - p) for ids, p in zip(ids_list, probs))
     ok = worst < 1e-5 and chk[0] < 1e-4 and all(0 < v <= 1 for v in mass)
     fails += not ok
-    print(f"  {n_img} images: prompts {[len(x) for x in ids_list]} tokens, shared prefix {L}, "
+    print(f"  {n_img} images, qchunk {qchunk}: prompts {[len(x) for x in ids_list]} tokens, shared prefix {L}, "
           f"sliding window 8, batch {len(ids_list)} right-padded, max |P(yes) full - batched| = "
           f"{worst:.2e}, built-in check {chk[0]:.1e}  {'OK' if ok else 'FAIL'}")
 assert model.config.image_token_id == IMG_TOK, "config.image_token_id is what the audit uses"

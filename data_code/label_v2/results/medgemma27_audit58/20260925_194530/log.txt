@@ -1,0 +1,195 @@
+remote results: knee-runs volume labelling/medgemma27_audit58/20260925_194530/part0
+model google/medgemma-27b-it, question chunk 3, attention: sdpa
+GPU NVIDIA H100 80GB HBM3, 85 GB; 29 studies x modes ['all', 'all36'] x 12 findings
+loaded google/medgemma-27b-it in 33s: decoder 62 layers, hidden 5376, heads 32 / kv 16, sliding window 1024; 256 tokens per image; GPU mem 54.9 GB
+yes tokens [(4443, 'yes'), (8438, ' Yes'), (10784, 'Yes'), (11262, ' yes')] no tokens [(951, ' no'), (1904, 'no'), (2301, ' No'), (3771, 'No')]
+  [all] first study: 85 images, 22529 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [all] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.2812 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0038 (one bf16 step on the yes-no logit gap moves P by up to 0.0625 near 0.5; a bug would be far larger)
+  [all36] first study: 35 images, 9334 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [all36] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.2500 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0102 (one bf16 step on the yes-no logit gap moves P by up to 0.0625 near 0.5; a bug would be far larger)
+this worker 1/29 (0 from before, 1/29 this run) 94649149 right  36s elapsed, ETA 16.6 min  peak GPU 78.9 GB  waited for CPU 6.7s (CPU prep overlapped: 6.7s)
+    all       85 img  22569 tok gpu  18.8s (cpu prep 4.1s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.00 0.88 0.82 1.00 0.99 0.99 0.98 0.92 0.01 0.78 0.00
+    all36     35 img   9374 tok gpu   5.4s (cpu prep 2.2s, overlapped)  yes/no mass min 1.00  P(yes): 0.91 0.00 0.85 0.68 0.99 0.99 0.98 0.95 0.71 0.00 0.62 0.00
+this worker 2/29 (0 from before, 2/29 this run) 36752052 right  47s elapsed, ETA 10.7 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 9.0s)
+    all       85 img  22569 tok gpu   8.9s (cpu prep 5.5s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.01 0.97 0.94 0.99 0.99 0.96 0.97 0.90 0.02 0.00 0.00
+    all36     35 img   9374 tok gpu   2.8s (cpu prep 2.5s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.01 0.97 0.87 0.99 0.98 0.78 0.96 0.92 0.01 0.00 0.00
+this worker 3/29 (0 from before, 3/29 this run) 02209238 left  59s elapsed, ETA 8.6 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 8.4s)
+    all       84 img  22322 tok gpu   8.8s (cpu prep 4.1s, overlapped)  yes/no mass min 1.00  P(yes): 0.82 0.00 0.03 0.04 0.99 0.98 0.96 0.93 0.03 0.00 0.01 0.00
+    all36     36 img   9662 tok gpu   3.0s (cpu prep 1.9s, overlapped)  yes/no mass min 1.00  P(yes): 0.90 0.00 0.88 0.65 0.99 0.98 0.90 0.91 0.27 0.01 0.01 0.00
+this worker 4/29 (0 from before, 4/29 this run) 98335840 right  71s elapsed, ETA 7.4 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 7.2s)
+    all       85 img  22569 tok gpu   9.0s (cpu prep 4.4s, overlapped)  yes/no mass min 1.00  P(yes): 0.99 0.01 0.98 0.98 1.00 0.99 0.99 0.97 0.96 0.01 0.62 0.03
+    all36     35 img   9374 tok gpu   2.8s (cpu prep 1.7s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.01 0.98 0.97 1.00 0.99 0.98 0.98 0.97 0.01 0.53 0.00
+this worker 5/29 (0 from before, 5/29 this run) 74810604 right  85s elapsed, ETA 6.8 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 6.1s)
+    all       85 img  22569 tok gpu   9.0s (cpu prep 4.1s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.00 0.95 0.94 1.00 0.99 0.99 0.98 0.99 0.02 0.03 0.00
+    all36     35 img   9374 tok gpu   2.9s (cpu prep 1.5s, overlapped)  yes/no mass min 1.00  P(yes): 0.99 0.01 0.99 0.98 1.00 0.99 0.99 0.98 0.99 0.09 0.11 0.01
+this worker 6/29 (0 from before, 6/29 this run) 36556945 right  97s elapsed, ETA 6.2 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 5.3s)
+    all       85 img  22569 tok gpu   9.0s (cpu prep 3.2s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.01 0.97 0.95 1.00 0.99 0.99 0.98 0.97 0.01 0.65 0.00
+    all36     35 img   9374 tok gpu   2.8s (cpu prep 1.3s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.00 0.97 0.91 1.00 0.99 0.99 0.95 0.95 0.00 0.44 0.01
+this worker 7/29 (0 from before, 7/29 this run) 88111973 left  109s elapsed, ETA 5.7 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 7.6s)
+    all       84 img  22322 tok gpu   8.8s (cpu prep 4.0s, overlapped)  yes/no mass min 1.00  P(yes): 0.93 0.00 0.78 0.32 0.99 0.98 0.98 0.91 0.25 0.01 0.16 0.00
+    all36     36 img   9662 tok gpu   3.0s (cpu prep 1.5s, overlapped)  yes/no mass min 1.00  P(yes): 0.95 0.00 0.91 0.65 0.99 0.99 0.97 0.95 0.27 0.01 0.04 0.00
+this worker 8/29 (0 from before, 8/29 this run) 29174803 right  121s elapsed, ETA 5.3 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 6.0s)
+    all       85 img  22569 tok gpu   9.1s (cpu prep 3.4s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.00 0.95 0.94 1.00 0.99 0.98 0.97 0.97 0.01 0.78 0.00
+    all36     35 img   9374 tok gpu   2.8s (cpu prep 1.4s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.01 0.98 0.97 1.00 1.00 0.99 0.98 0.99 0.01 0.95 0.00
+this worker 9/29 (0 from before, 9/29 this run) 29200903 right  133s elapsed, ETA 4.9 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 8.3s)
+    all       85 img  22569 tok gpu   9.0s (cpu prep 4.8s, overlapped)  yes/no mass min 1.00  P(yes): 0.99 0.02 0.99 0.99 1.00 1.00 1.00 0.99 1.00 0.02 0.93 0.03
+    all36     35 img   9374 tok gpu   2.9s (cpu prep 1.9s, overlapped)  yes/no mass min 1.00  P(yes): 0.99 0.53 1.00 0.99 1.00 1.00 1.00 0.99 1.00 0.25 0.95 0.02
+this worker 10/29 (0 from before, 10/29 this run) 21482192 right  146s elapsed, ETA 4.6 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 8.0s)
+    all       84 img  22322 tok gpu   8.8s (cpu prep 3.9s, overlapped)  yes/no mass min 1.00  P(yes): 0.93 0.01 0.97 0.92 1.00 0.99 0.99 0.98 0.99 0.02 0.82 0.00
+    all36     36 img   9662 tok gpu   3.0s (cpu prep 2.1s, overlapped)  yes/no mass min 1.00  P(yes): 0.95 0.01 0.98 0.97 1.00 1.00 0.99 0.97 0.99 0.03 0.82 0.01
+this worker 11/29 (0 from before, 11/29 this run) 36573378 left  158s elapsed, ETA 4.3 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 5.5s)
+    all       85 img  22569 tok gpu   9.0s (cpu prep 3.9s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.00 0.95 0.93 1.00 1.00 0.99 0.98 0.98 0.00 0.96 0.02
+    all36     35 img   9374 tok gpu   2.9s (cpu prep 1.3s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.00 0.99 0.98 1.00 1.00 0.99 0.98 0.99 0.00 0.98 0.20
+this worker 12/29 (0 from before, 12/29 this run) 70466645 right  169s elapsed, ETA 4.0 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 5.4s)
+    all       75 img  19913 tok gpu   7.5s (cpu prep 3.5s, overlapped)  yes/no mass min 1.00  P(yes): 0.95 0.00 0.90 0.90 0.99 0.99 0.97 0.99 0.98 0.02 0.05 0.00
+    all36     36 img   9613 tok gpu   3.0s (cpu prep 1.5s, overlapped)  yes/no mass min 1.00  P(yes): 0.62 0.00 0.85 0.68 0.99 0.98 0.93 0.97 0.95 0.01 0.02 0.00
+this worker 13/29 (0 from before, 13/29 this run) 00134924 right  181s elapsed, ETA 3.7 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 5.8s)
+    all       84 img  22322 tok gpu   8.8s (cpu prep 3.4s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.01 0.97 0.95 0.99 0.99 0.98 0.96 0.98 0.01 0.41 0.01
+    all36     36 img   9662 tok gpu   3.0s (cpu prep 1.4s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.02 0.99 0.96 0.99 0.99 0.98 0.98 0.99 0.02 0.82 0.02
+this worker 14/29 (0 from before, 14/29 this run) 53419550 left  193s elapsed, ETA 3.4 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 5.3s)
+    all       84 img  22289 tok gpu   8.7s (cpu prep 3.4s, overlapped)  yes/no mass min 1.00  P(yes): 0.99 0.00 0.95 0.92 1.00 0.99 0.99 0.97 0.99 0.01 0.35 0.01
+    all36     36 img   9613 tok gpu   3.0s (cpu prep 1.3s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.01 0.97 0.92 0.99 0.99 0.97 0.98 0.99 0.01 0.44 0.00
+this worker 15/29 (0 from before, 15/29 this run) 55725945 right  205s elapsed, ETA 3.2 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 5.4s)
+    all       85 img  22569 tok gpu   9.0s (cpu prep 3.5s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.01 0.97 0.91 1.00 0.99 0.99 0.99 0.99 0.04 0.29 0.00
+    all36     35 img   9374 tok gpu   2.9s (cpu prep 1.1s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.01 0.97 0.90 1.00 0.99 0.99 0.98 0.99 0.02 0.68 0.00
+this worker 16/29 (0 from before, 16/29 this run) 13143683 left  218s elapsed, ETA 3.0 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 5.6s)
+    all       85 img  22569 tok gpu   8.9s (cpu prep 3.9s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.01 0.97 0.97 1.00 0.99 0.99 0.96 0.94 0.01 0.97 0.02
+    all36     35 img   9374 tok gpu   2.8s (cpu prep 1.2s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.01 0.97 0.95 1.00 1.00 0.99 0.97 0.97 0.01 0.93 0.01
+this worker 17/29 (0 from before, 17/29 this run) 14837125 right  230s elapsed, ETA 2.7 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 7.7s)
+    all       84 img  22322 tok gpu   8.8s (cpu prep 4.7s, overlapped)  yes/no mass min 1.00  P(yes): 0.99 0.01 0.98 0.96 1.00 0.99 0.98 0.96 0.99 0.01 0.89 0.02
+    all36     36 img   9662 tok gpu   3.0s (cpu prep 1.4s, overlapped)  yes/no mass min 1.00  P(yes): 0.99 0.01 0.98 0.97 1.00 0.99 0.99 0.98 0.99 0.01 0.88 0.00
+this worker 18/29 (0 from before, 18/29 this run) 48424274 left  242s elapsed, ETA 2.5 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 5.4s)
+    all       85 img  22569 tok gpu   8.9s (cpu prep 3.6s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.00 0.89 0.80 1.00 0.99 0.99 0.97 0.95 0.01 0.84 0.00
+    all36     35 img   9374 tok gpu   2.8s (cpu prep 1.3s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.00 0.95 0.87 1.00 0.99 0.99 0.96 0.95 0.01 0.89 0.00
+this worker 19/29 (0 from before, 19/29 this run) 70080450 left  254s elapsed, ETA 2.2 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 6.3s)
+    all       85 img  22569 tok gpu   9.0s (cpu prep 3.8s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.01 0.89 0.88 0.99 0.99 0.98 0.98 0.98 0.03 0.38 0.01
+    all36     35 img   9374 tok gpu   2.9s (cpu prep 1.3s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.01 0.96 0.93 1.00 0.99 0.99 0.96 0.94 0.01 0.76 0.01
+this worker 20/29 (0 from before, 20/29 this run) 66826710 right  266s elapsed, ETA 2.0 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 6.6s)
+    all       85 img  22569 tok gpu   8.9s (cpu prep 4.1s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.01 0.97 0.97 1.00 0.99 0.99 0.98 0.98 0.01 0.29 0.00
+    all36     35 img   9374 tok gpu   2.8s (cpu prep 1.4s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.01 0.98 0.97 1.00 1.00 0.99 0.99 0.99 0.03 0.76 0.00
+this worker 21/29 (0 from before, 21/29 this run) 68367236 right  278s elapsed, ETA 1.8 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 7.1s)
+    all       85 img  22569 tok gpu   8.9s (cpu prep 4.2s, overlapped)  yes/no mass min 1.00  P(yes): 0.99 0.01 0.99 0.99 1.00 0.99 0.99 0.98 0.99 0.03 0.96 0.59
+    all36     35 img   9374 tok gpu   2.8s (cpu prep 1.3s, overlapped)  yes/no mass min 1.00  P(yes): 0.99 0.02 0.99 0.98 1.00 1.00 0.99 0.99 0.99 0.04 0.97 0.47
+this worker 22/29 (0 from before, 22/29 this run) 72465039 right  291s elapsed, ETA 1.5 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 6.6s)
+    all       84 img  22289 tok gpu   8.8s (cpu prep 4.1s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.00 0.98 0.98 1.00 0.99 0.99 0.99 0.98 0.02 0.10 0.00
+    all36     36 img   9613 tok gpu   3.0s (cpu prep 1.5s, overlapped)  yes/no mass min 1.00  P(yes): 0.96 0.01 0.97 0.96 1.00 1.00 0.99 0.98 0.98 0.06 0.56 0.00
+this worker 23/29 (0 from before, 23/29 this run) 53941774 right  303s elapsed, ETA 1.3 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 5.1s)
+    all       85 img  22569 tok gpu   9.0s (cpu prep 3.2s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.00 0.94 0.88 0.99 0.99 0.98 0.98 0.89 0.01 0.05 0.00
+    all36     35 img   9374 tok gpu   2.8s (cpu prep 1.1s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.01 0.97 0.92 0.99 0.99 0.97 0.98 0.91 0.11 0.35 0.00
+this worker 24/29 (0 from before, 24/29 this run) 95171921 left  315s elapsed, ETA 1.1 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 5.1s)
+    all       85 img  22569 tok gpu   8.9s (cpu prep 3.3s, overlapped)  yes/no mass min 1.00  P(yes): 0.90 0.00 0.85 0.68 0.99 0.99 0.99 0.95 0.53 0.01 0.03 0.00
+    all36     35 img   9374 tok gpu   2.9s (cpu prep 1.2s, overlapped)  yes/no mass min 1.00  P(yes): 0.92 0.00 0.90 0.65 0.99 0.99 0.99 0.89 0.87 0.04 0.08 0.00
+this worker 25/29 (0 from before, 25/29 this run) 32839995 right  327s elapsed, ETA 0.9 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 8.0s)
+    all       84 img  22289 tok gpu   8.7s (cpu prep 3.7s, overlapped)  yes/no mass min 1.00  P(yes): 0.94 0.00 0.71 0.59 0.99 0.99 0.98 0.96 0.65 0.01 0.08 0.00
+    all36     36 img   9613 tok gpu   3.0s (cpu prep 1.4s, overlapped)  yes/no mass min 1.00  P(yes): 0.80 0.00 0.95 0.91 0.99 0.99 0.99 0.96 0.97 0.02 0.44 0.01
+this worker 26/29 (0 from before, 26/29 this run) 51855003 right  339s elapsed, ETA 0.7 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 5.9s)
+    all       84 img  22322 tok gpu   8.8s (cpu prep 3.6s, overlapped)  yes/no mass min 1.00  P(yes): 0.89 0.00 0.97 0.93 1.00 0.99 0.98 0.90 0.97 0.00 0.47 0.01
+    all36     36 img   9662 tok gpu   3.0s (cpu prep 1.5s, overlapped)  yes/no mass min 1.00  P(yes): 0.84 0.00 0.92 0.78 0.99 0.99 0.95 0.95 0.96 0.01 0.22 0.00
+this worker 27/29 (0 from before, 27/29 this run) 39890254 right  351s elapsed, ETA 0.4 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 6.1s)
+    all       84 img  22322 tok gpu   8.8s (cpu prep 3.4s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.00 0.97 0.85 0.99 0.99 0.98 0.97 0.95 0.00 0.03 0.00
+    all36     36 img   9662 tok gpu   3.0s (cpu prep 1.3s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.00 0.97 0.90 0.99 0.99 0.97 0.97 0.98 0.01 0.12 0.00
+this worker 28/29 (0 from before, 28/29 this run) 13570435 left  364s elapsed, ETA 0.2 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 4.9s)
+    all       85 img  22569 tok gpu   9.0s (cpu prep 3.2s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.01 0.98 0.97 1.00 0.99 0.99 0.98 0.98 0.02 0.68 0.00
+    all36     35 img   9374 tok gpu   2.9s (cpu prep 1.2s, overlapped)  yes/no mass min 1.00  P(yes): 0.99 0.02 0.99 0.97 1.00 0.99 0.99 0.99 0.99 0.04 0.85 0.01
+this worker 29/29 (0 from before, 29/29 this run) 31739312 left  376s elapsed, ETA 0.0 min  peak GPU 78.9 GB  waited for CPU 0.0s (CPU prep overlapped: 5.9s)
+    all       84 img  22289 tok gpu   8.8s (cpu prep 3.3s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.01 0.98 0.97 1.00 0.99 0.99 0.98 0.97 0.02 0.08 0.00
+    all36     36 img   9613 tok gpu   3.0s (cpu prep 1.5s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.01 0.98 0.95 1.00 0.99 0.99 0.98 0.98 0.01 0.05 0.00
+done: 58 study-modes in 376s
+
+remote results: knee-runs volume labelling/medgemma27_audit58/20260925_194530/part1
+model google/medgemma-27b-it, question chunk 3, attention: sdpa
+GPU NVIDIA H100 80GB HBM3, 85 GB; 29 studies x modes ['all', 'all36'] x 12 findings
+loaded google/medgemma-27b-it in 46s: decoder 62 layers, hidden 5376, heads 32 / kv 16, sliding window 1024; 256 tokens per image; GPU mem 54.9 GB
+yes tokens [(4443, 'yes'), (8438, ' Yes'), (10784, 'Yes'), (11262, ' yes')] no tokens [(951, ' no'), (1904, 'no'), (2301, ' No'), (3771, 'No')]
+  [all] first study: 84 images, 22282 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [all] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.2188 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0000 (one bf16 step on the yes-no logit gap moves P by up to 0.0625 near 0.5; a bug would be far larger)
+  [all36] first study: 36 images, 9622 prefix tokens + 49 question tokens; fast path == processor: OK; question part: ' there a partial or complete anterior cruciate ligament (ACL) tear in the MRI volume? You may write out your argument before stating your final answer "Final Answer: yes" or "Final Answer: no"<end_of_turn>\n<start_of_turn>model\nFinal Answer:'
+  [all36] CACHE CHECK full pass vs shared prefix: max |logit diff| 0.1875 (one bf16 step at this size is 0.25), |P(yes) diff| 0.0026 (one bf16 step on the yes-no logit gap moves P by up to 0.0625 near 0.5; a bug would be far larger)
+this worker 1/29 (0 from before, 1/29 this run) 39028269 right  36s elapsed, ETA 16.9 min  peak GPU 78.6 GB  waited for CPU 6.1s (CPU prep overlapped: 6.1s)
+    all       84 img  22322 tok gpu  18.0s (cpu prep 3.6s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.00 0.89 0.78 0.99 0.99 0.98 0.96 0.96 0.01 0.38 0.00
+    all36     36 img   9662 tok gpu   5.5s (cpu prep 1.5s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.01 0.98 0.96 1.00 0.99 0.98 0.97 0.98 0.01 0.38 0.00
+this worker 2/29 (0 from before, 2/29 this run) 02017580 left  47s elapsed, ETA 10.7 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 8.9s)
+    all       80 img  21233 tok gpu   8.2s (cpu prep 4.3s, overlapped)  yes/no mass min 1.00  P(yes): 0.95 0.00 0.94 0.90 1.00 0.99 0.96 0.98 0.97 0.01 0.03 0.00
+    all36     36 img   9613 tok gpu   2.9s (cpu prep 1.5s, overlapped)  yes/no mass min 1.00  P(yes): 0.93 0.00 0.97 0.93 0.99 0.99 0.97 0.98 0.94 0.03 0.71 0.00
+this worker 3/29 (0 from before, 3/29 this run) 82701935 right  59s elapsed, ETA 8.6 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 6.2s)
+    all       84 img  22322 tok gpu   8.8s (cpu prep 3.5s, overlapped)  yes/no mass min 1.00  P(yes): 0.92 0.00 0.89 0.78 0.99 0.99 0.99 0.98 0.98 0.00 0.47 0.00
+    all36     36 img   9662 tok gpu   2.9s (cpu prep 1.6s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.01 0.97 0.94 1.00 0.99 0.99 0.98 0.99 0.02 0.82 0.00
+this worker 4/29 (0 from before, 4/29 this run) 83976756 right  71s elapsed, ETA 7.4 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 7.5s)
+    all       84 img  22289 tok gpu   8.7s (cpu prep 3.5s, overlapped)  yes/no mass min 1.00  P(yes): 0.95 0.00 0.88 0.80 0.99 0.99 0.98 0.99 0.98 0.02 0.07 0.00
+    all36     36 img   9613 tok gpu   2.9s (cpu prep 1.5s, overlapped)  yes/no mass min 1.00  P(yes): 0.94 0.00 0.95 0.89 0.99 0.99 0.97 0.98 0.98 0.01 0.62 0.00
+this worker 5/29 (0 from before, 5/29 this run) 07169581 right  91s elapsed, ETA 7.3 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 4.5s)
+    all       84 img  22289 tok gpu   8.7s (cpu prep 2.9s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.00 0.96 0.94 1.00 0.99 0.99 0.99 0.99 0.02 0.07 0.00
+    all36     36 img   9613 tok gpu   2.9s (cpu prep 1.2s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.01 0.97 0.92 1.00 1.00 0.99 0.97 0.99 0.02 0.73 0.00
+this worker 6/29 (0 from before, 6/29 this run) 88770819 left  103s elapsed, ETA 6.6 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 4.8s)
+    all       85 img  22569 tok gpu   8.9s (cpu prep 3.0s, overlapped)  yes/no mass min 1.00  P(yes): 0.99 0.00 0.97 0.96 1.00 0.99 0.99 0.99 0.99 0.02 0.62 0.00
+    all36     35 img   9374 tok gpu   2.8s (cpu prep 1.2s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.00 0.97 0.95 1.00 0.99 0.99 0.98 0.98 0.01 0.53 0.00
+this worker 7/29 (0 from before, 7/29 this run) 32197492 left  114s elapsed, ETA 6.0 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 4.7s)
+    all       84 img  22305 tok gpu   8.7s (cpu prep 3.0s, overlapped)  yes/no mass min 1.00  P(yes): 0.96 0.00 0.96 0.95 0.99 0.99 0.98 0.99 0.98 0.01 0.20 0.00
+    all36     35 img   9374 tok gpu   2.8s (cpu prep 1.2s, overlapped)  yes/no mass min 1.00  P(yes): 0.91 0.00 0.92 0.84 0.99 0.99 0.98 0.98 0.96 0.02 0.44 0.00
+this worker 8/29 (0 from before, 8/29 this run) 22874891 left  126s elapsed, ETA 5.5 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 4.8s)
+    all       79 img  20969 tok gpu   8.0s (cpu prep 2.9s, overlapped)  yes/no mass min 1.00  P(yes): 0.96 0.01 0.96 0.96 1.00 0.99 0.98 0.98 0.99 0.01 0.92 0.00
+    all36     36 img   9613 tok gpu   2.9s (cpu prep 1.3s, overlapped)  yes/no mass min 1.00  P(yes): 0.91 0.00 0.96 0.94 1.00 0.99 0.99 0.96 0.99 0.00 0.97 0.00
+this worker 9/29 (0 from before, 9/29 this run) 20253309 left  137s elapsed, ETA 5.1 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 6.8s)
+    all       85 img  22569 tok gpu   8.9s (cpu prep 3.6s, overlapped)  yes/no mass min 1.00  P(yes): 0.99 0.00 0.99 0.98 1.00 0.99 1.00 0.98 0.99 0.09 0.06 0.00
+    all36     35 img   9374 tok gpu   2.8s (cpu prep 1.6s, overlapped)  yes/no mass min 1.00  P(yes): 0.99 0.02 0.99 0.98 1.00 0.99 0.99 0.99 0.99 0.03 0.73 0.00
+this worker 10/29 (0 from before, 10/29 this run) 91102711 right  149s elapsed, ETA 4.7 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 8.1s)
+    all       85 img  22569 tok gpu   8.9s (cpu prep 4.1s, overlapped)  yes/no mass min 1.00  P(yes): 0.99 0.01 0.97 0.97 1.00 0.99 0.99 0.98 0.99 0.02 0.89 0.00
+    all36     35 img   9374 tok gpu   2.8s (cpu prep 1.8s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.01 0.99 0.98 1.00 1.00 0.99 0.99 1.00 0.06 0.95 0.01
+this worker 11/29 (0 from before, 11/29 this run) 36903404 left  167s elapsed, ETA 4.6 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 4.4s)
+    all       85 img  22569 tok gpu   8.9s (cpu prep 2.8s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.01 0.96 0.94 1.00 0.99 0.98 0.98 0.98 0.01 0.73 0.01
+    all36     35 img   9374 tok gpu   2.8s (cpu prep 1.1s, overlapped)  yes/no mass min 1.00  P(yes): 0.96 0.01 0.97 0.96 1.00 0.99 0.98 0.98 0.98 0.01 0.95 0.01
+this worker 12/29 (0 from before, 12/29 this run) 48882465 right  179s elapsed, ETA 4.2 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 4.7s)
+    all       84 img  22289 tok gpu   8.7s (cpu prep 2.9s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.01 0.91 0.87 1.00 0.99 0.99 0.98 0.98 0.02 0.22 0.00
+    all36     36 img   9613 tok gpu   2.9s (cpu prep 1.2s, overlapped)  yes/no mass min 1.00  P(yes): 0.95 0.00 0.92 0.73 0.99 0.99 0.98 0.97 0.93 0.01 0.09 0.00
+this worker 13/29 (0 from before, 13/29 this run) 08452608 right  191s elapsed, ETA 3.9 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 4.3s)
+    all       85 img  22569 tok gpu   8.9s (cpu prep 2.7s, overlapped)  yes/no mass min 1.00  P(yes): 0.99 0.02 0.99 0.99 1.00 1.00 0.99 0.99 0.99 0.05 0.97 0.05
+    all36     35 img   9374 tok gpu   2.8s (cpu prep 1.1s, overlapped)  yes/no mass min 1.00  P(yes): 0.99 0.02 0.99 0.98 1.00 0.99 0.99 0.98 0.98 0.04 0.96 0.01
+this worker 14/29 (0 from before, 14/29 this run) 83079911 right  203s elapsed, ETA 3.6 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 4.9s)
+    all       85 img  22569 tok gpu   8.9s (cpu prep 3.0s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.00 0.98 0.97 1.00 0.99 0.99 0.99 0.96 0.03 0.15 0.00
+    all36     35 img   9374 tok gpu   2.8s (cpu prep 1.2s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.00 0.98 0.92 0.99 0.99 0.97 0.98 0.98 0.01 0.12 0.00
+this worker 15/29 (0 from before, 15/29 this run) 67212742 right  214s elapsed, ETA 3.3 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 4.7s)
+    all       83 img  22025 tok gpu   8.5s (cpu prep 3.0s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.00 0.94 0.91 1.00 0.99 0.99 0.99 0.99 0.02 0.82 0.01
+    all36     36 img   9613 tok gpu   2.9s (cpu prep 1.3s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.01 0.98 0.97 1.00 1.00 0.99 0.99 0.99 0.02 0.92 0.00
+this worker 16/29 (0 from before, 16/29 this run) 18305500 right  226s elapsed, ETA 3.1 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 4.8s)
+    all       85 img  22569 tok gpu   8.9s (cpu prep 2.9s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.00 0.80 0.89 0.99 0.99 0.99 0.97 0.97 0.01 0.35 0.00
+    all36     35 img   9374 tok gpu   2.8s (cpu prep 1.2s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.01 0.97 0.96 1.00 0.99 0.99 0.96 0.94 0.01 0.76 0.00
+this worker 17/29 (0 from before, 17/29 this run) 68677187 left  245s elapsed, ETA 2.9 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 4.5s)
+    all       85 img  22569 tok gpu   8.9s (cpu prep 2.9s, overlapped)  yes/no mass min 1.00  P(yes): 0.93 0.00 0.96 0.89 0.99 0.99 0.98 0.97 0.95 0.02 0.03 0.00
+    all36     35 img   9374 tok gpu   2.8s (cpu prep 1.2s, overlapped)  yes/no mass min 1.00  P(yes): 0.91 0.00 0.91 0.68 1.00 0.99 0.98 0.97 0.85 0.04 0.05 0.00
+this worker 18/29 (0 from before, 18/29 this run) 34101132 left  257s elapsed, ETA 2.6 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 6.4s)
+    all       84 img  22288 tok gpu   8.6s (cpu prep 3.1s, overlapped)  yes/no mass min 1.00  P(yes): 0.99 0.01 0.98 0.97 0.99 0.99 0.97 0.98 0.97 0.02 0.02 0.00
+    all36     36 img   9612 tok gpu   2.9s (cpu prep 1.3s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.01 0.98 0.95 0.99 0.99 0.96 0.98 0.95 0.02 0.01 0.00
+this worker 19/29 (0 from before, 19/29 this run) 35447363 right  268s elapsed, ETA 2.4 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 5.1s)
+    all       84 img  22322 tok gpu   8.7s (cpu prep 3.0s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.00 0.95 0.93 0.99 0.99 0.99 0.98 0.97 0.01 0.62 0.00
+    all36     36 img   9662 tok gpu   2.9s (cpu prep 1.3s, overlapped)  yes/no mass min 1.00  P(yes): 0.99 0.02 0.99 0.98 1.00 0.99 0.99 0.99 0.99 0.87 0.97 0.13
+this worker 20/29 (0 from before, 20/29 this run) 16559395 right  280s elapsed, ETA 2.1 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 4.5s)
+    all       84 img  22288 tok gpu   8.6s (cpu prep 2.8s, overlapped)  yes/no mass min 1.00  P(yes): 0.95 0.01 0.94 0.88 0.99 0.99 0.98 0.98 0.97 0.01 0.85 0.00
+    all36     36 img   9612 tok gpu   2.9s (cpu prep 1.2s, overlapped)  yes/no mass min 1.00  P(yes): 0.96 0.01 0.95 0.94 1.00 0.99 0.99 0.98 0.98 0.03 0.68 0.00
+this worker 21/29 (0 from before, 21/29 this run) 83272910 right  292s elapsed, ETA 1.9 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 4.9s)
+    all       85 img  22569 tok gpu   8.9s (cpu prep 3.0s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.00 0.95 0.91 1.00 0.99 0.99 0.99 0.99 0.04 0.32 0.00
+    all36     35 img   9374 tok gpu   2.8s (cpu prep 1.2s, overlapped)  yes/no mass min 1.00  P(yes): 0.96 0.01 0.97 0.93 1.00 0.99 0.99 0.99 0.99 0.20 0.35 0.00
+this worker 22/29 (0 from before, 22/29 this run) 63784327 left  304s elapsed, ETA 1.6 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 7.0s)
+    all       84 img  22322 tok gpu   8.7s (cpu prep 3.0s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.01 0.97 0.96 0.99 0.99 0.98 0.96 0.99 0.01 0.41 0.00
+    all36     36 img   9662 tok gpu   2.9s (cpu prep 1.3s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.02 0.99 0.98 1.00 0.99 0.99 0.98 1.00 0.07 0.90 0.00
+this worker 23/29 (0 from before, 23/29 this run) 44639002 left  322s elapsed, ETA 1.4 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 5.6s)
+    all       85 img  22569 tok gpu   8.9s (cpu prep 3.4s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.00 0.95 0.93 1.00 0.99 0.99 0.96 0.90 0.00 0.09 0.01
+    all36     35 img   9374 tok gpu   2.8s (cpu prep 1.5s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.01 0.97 0.91 1.00 0.99 0.99 0.96 0.93 0.01 0.29 0.00
+this worker 24/29 (0 from before, 24/29 this run) 32662220 right  334s elapsed, ETA 1.2 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 4.8s)
+    all       80 img  21233 tok gpu   8.2s (cpu prep 2.8s, overlapped)  yes/no mass min 1.00  P(yes): 0.82 0.00 0.38 0.62 0.99 0.99 0.98 0.99 0.97 0.01 0.11 0.00
+    all36     36 img   9613 tok gpu   2.9s (cpu prep 1.3s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.00 0.97 0.95 0.99 0.99 0.98 0.98 0.98 0.10 0.25 0.00
+this worker 25/29 (0 from before, 25/29 this run) 46125190 right  346s elapsed, ETA 0.9 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 5.3s)
+    all       85 img  22569 tok gpu   8.9s (cpu prep 3.2s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.01 0.97 0.95 1.00 1.00 0.99 0.98 0.98 0.01 0.93 0.00
+    all36     35 img   9374 tok gpu   2.8s (cpu prep 1.3s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.00 0.97 0.95 1.00 1.00 0.99 0.98 0.99 0.01 0.97 0.00
+this worker 26/29 (0 from before, 26/29 this run) 68676828 right  357s elapsed, ETA 0.7 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 4.5s)
+    all       85 img  22569 tok gpu   8.9s (cpu prep 2.8s, overlapped)  yes/no mass min 1.00  P(yes): 0.98 0.01 0.98 0.97 1.00 0.99 0.99 0.99 0.98 0.02 0.50 0.00
+    all36     35 img   9374 tok gpu   2.8s (cpu prep 1.1s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.01 0.98 0.96 1.00 0.99 0.98 0.98 0.98 0.03 0.59 0.00
+this worker 27/29 (0 from before, 27/29 this run) 45464037 right  366s elapsed, ETA 0.5 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 3.7s)
+    all       60 img  15953 tok gpu   5.4s (cpu prep 2.1s, overlapped)  yes/no mass min 1.00  P(yes): 0.80 0.00 0.22 0.05 0.99 0.99 0.96 0.97 0.97 0.00 0.15 0.00
+    all36     36 img   9613 tok gpu   2.9s (cpu prep 1.2s, overlapped)  yes/no mass min 1.00  P(yes): 0.90 0.00 0.87 0.35 0.99 0.99 0.96 0.94 0.96 0.01 0.04 0.00
+this worker 28/29 (0 from before, 28/29 this run) 70552767 left  378s elapsed, ETA 0.2 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 5.1s)
+    all       85 img  22569 tok gpu   8.9s (cpu prep 3.1s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.00 0.96 0.96 1.00 1.00 0.99 0.97 0.99 0.03 0.84 0.01
+    all36     35 img   9374 tok gpu   2.8s (cpu prep 1.2s, overlapped)  yes/no mass min 1.00  P(yes): 0.97 0.00 0.97 0.94 1.00 0.99 0.99 0.98 0.99 0.03 0.68 0.00
+this worker 29/29 (0 from before, 29/29 this run) 17521662 right  393s elapsed, ETA 0.0 min  peak GPU 78.6 GB  waited for CPU 0.0s (CPU prep overlapped: 7.2s)
+    all       84 img  22289 tok gpu   8.7s (cpu prep 3.3s, overlapped)  yes/no mass min 1.00  P(yes): 0.18 0.00 0.04 0.05 0.99 0.99 0.98 0.90 0.62 0.00 0.03 0.00
+    all36     36 img   9613 tok gpu   2.9s (cpu prep 1.4s, overlapped)  yes/no mass min 1.00  P(yes): 0.03 0.00 0.13 0.20 0.99 0.99 0.98 0.27 0.20 0.00 0.22 0.00
+done: 58 study-modes in 393s
