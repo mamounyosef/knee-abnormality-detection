@@ -360,6 +360,18 @@
     "convnext_base_25d_18slices_mglabels_raw (weight average of steps 4000-5100)"
    ],
    "notes": "Uniform weight average of 12 checkpoints (steps 4000-5100, modal_scripts/avg_checkpoints.py): val 0.9083, audit 0.9125 vs step 3900's 0.9086 / 0.9092. Public 0.916, identical to the step-3900 submission (56531949): averaging moved nothing visible at 3 decimals."
+  },
+  {
+   "submission_ref": 56589011,
+   "kernel": "mamounhussam/knee-convnext-base-25d-18slices-oof-submit",
+   "kernel_version": 1,
+   "submitted": "2026-09-27",
+   "public_score": 0.905,
+   "private_score": null,
+   "members": [
+    "convnext_base_25d_18slices_oof"
+   ],
+   "notes": "Solo, trained LOCALLY (RTX 4060) on 18_* labels: 17_*-raw + 30% out-of-fold convnext_base_25d_18slices logits, all 12 findings (label audit 0.9396). Best-val step 2900, val 0.9281 (own labels), audit 0.9052. Public 0.905 (-0.011 vs the MedGemma twin 0.916): out-of-fold same-architecture labels HURT."
   }
  ]
 }
