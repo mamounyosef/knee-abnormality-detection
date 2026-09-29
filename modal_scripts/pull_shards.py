@@ -4,7 +4,7 @@ Skips every file already present with the right size, writes each download to a 
 and renames it only when complete (an interrupted run never leaves a truncated .npz), and
 checks the free disk space first. Re-run the same command to resume.
 
-    $env:MODAL_CONFIG_PATH = "$HOME\\.modal_session4.toml"
+    (select the Modal workspace first)
     python modal_scripts/pull_shards.py [--workers 8]
 """
 import argparse

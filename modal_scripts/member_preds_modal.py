@@ -9,7 +9,7 @@ engine's validation prediction function. Every finished member is written to the
 data/19_member_preds/<member>.npz in the same format as the local script, then checked the same
 way (saved validation predictions of the same step, audit-58 AUROC).
 
-    $env:MODAL_CONFIG_PATH = "$HOME\\.modal_session4.toml"
+    (select the Modal workspace first)
     python -m modal run modal_scripts/member_preds_modal.py
 """
 import io

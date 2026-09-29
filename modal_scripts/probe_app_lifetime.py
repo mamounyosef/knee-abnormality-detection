@@ -13,7 +13,7 @@ This does nothing but sleep and print a heartbeat, on CPU, so it costs about a c
 shares no code path with the downloader. If it reaches 15 minutes, the cap is not real and
 the downloader is provoking the cancellation. If it dies near 10, the workspace is the cap.
 
-    $env:MODAL_CONFIG_PATH = "$HOME\.modal_session23.toml"
+    (select the Modal workspace first)
     python -m modal run modal_scripts/probe_app_lifetime.py
 """
 
