@@ -444,7 +444,7 @@ def hardware_info(cfg: dict) -> dict:
 
 
 def workspace_name() -> str:
-    """Which Modal workspace this is, from MODAL_CONFIG_PATH + modal_setup_commands.txt.
+    """A console label for the active Modal workspace (a local, git-ignored helper decides).
 
     For the CONSOLE and for results/.run_ids/*, both of which stay on this PC - the
     launch log lands in results/train_config/, and that plus .run_ids are git-ignored.
@@ -453,22 +453,11 @@ def workspace_name() -> str:
     ws = os.environ.get("MODAL_WORKSPACE") or os.environ.get("MODAL_PROFILE")
     if ws:
         return ws
-    m = re.search(r"modal_session(\d+)", os.environ.get("MODAL_CONFIG_PATH", ""))
-    if not m:
-        return runtime_side()
-    try:
-        txt = (Path(__file__).resolve().parent.parent
-               / "modal_setup_commands.txt").read_text(encoding="utf-8-sig")
-        name = None
-        for line in txt.splitlines():
-            line = line.strip()
-            if line.startswith("#"):
-                name = line.lstrip("# ").rstrip(":").strip()
-            elif f".modal_session{m.group(1)}.toml" in line and name:
-                return name
+    try:                                       # optional, git-ignored local lookup
+        from _local_workspace import label
+        return label() or runtime_side()
     except Exception:
-        pass
-    return f"session{m.group(1)}"
+        return runtime_side()
 
 
 def runtime_side() -> str:

@@ -312,3 +312,17 @@ results_backup_before_mglabels_mixup/
 # full local shard copy (146.6 GB, modal_scripts/pull_shards.py); the 5 committed samples stay tracked
 data/shards/*.npz
 data/shards/*.part
+
+# local-only workspace tooling: never tracked (the user's rule, 29 Sep 2026)
+runs/_local_workspace.py
+modal_scripts/archive_parts.py
+modal_scripts/check_sessions.py
+modal_scripts/credit_report.py
+modal_scripts/find_run_across_workspaces.py
+modal_scripts/handoff_run.py
+modal_scripts/probe_app_lifetime.py
+modal_scripts/provision_session.py
+modal_scripts/pull_final_checkpoint.py
+modal_scripts/relay_shards.py
+modal_scripts/wait_download.py
+modal_scripts/watch_download.py
