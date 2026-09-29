@@ -372,6 +372,51 @@
     "convnext_base_25d_18slices_oof"
    ],
    "notes": "Solo, trained LOCALLY (RTX 4060) on 18_* labels: 17_*-raw + 30% out-of-fold convnext_base_25d_18slices logits, all 12 findings (label audit 0.9396). Best-val step 2900, val 0.9281 (own labels), audit 0.9052. Public 0.905 (-0.011 vs the MedGemma twin 0.916): out-of-fold same-architecture labels HURT."
+  },
+  {
+   "submission_ref": 56633125,
+   "kernel": "mamounhussam/knee-convnext-base-25d-18slices-ens-submit",
+   "kernel_version": 1,
+   "submitted": "2026-09-28",
+   "public_score": 0.903,
+   "private_score": null,
+   "members": [
+    "convnext_base_25d_18slices_ens"
+   ],
+   "notes": "Solo, trained LOCALLY (RTX 4060) on 20_* labels: 17_*-raw + 30% of the 0.938 ensemble's flat-mean logits (10 members), all 12 findings. Best-val step 2900, val 0.9155 (own ensemble-blended labels), audit 0.9029. Kernel 9.1 min. Public 0.903 (-0.013 vs the MedGemma twin 0.916): ensemble-prediction labels HURT, like the out-of-fold ones."
+  },
+  {
+   "submission_ref": 56647776,
+   "kernel": "mamounhussam/knee-cb25d-allknees-fulldata-v3-submit",
+   "kernel_version": 1,
+   "submitted": "2026-09-28",
+   "public_score": 0.906,
+   "private_score": null,
+   "members": [
+    "convnext_base_25d_all_knees_same_orientation_fulldata_v3_labels"
+   ],
+   "notes": "Solo, trained LOCALLY (RTX 4060): ensemble member convnext_base_25d_all_knees_same_orientation_fulldata retrained on v3 labels (17_train_full_qwen-mg-raw), final step 6600, no val. Public 0.906, far below the split-data v2 version's 0.919 (the v2 full-data member was never scored solo, so no like-for-like pair). First submit attempt hit a Kaggle 500 and did not count. CAVEAT found the same day: every local run before the 28 Sep fix replayed epoch 1's augmentation (Windows-spawned loader workers never saw the epoch counter), so this score is not evidence about v3 labels."
+  },
+  {
+   "submission_ref": 56648621,
+   "kernel": "mamounhussam/knee-ten-v3-labels-25d-submit",
+   "kernel_version": 1,
+   "submitted": "2026-09-28",
+   "public_score": 0.938,
+   "private_score": null,
+   "members": [
+    "convnext_base_full_all_knees_same_orientation",
+    "mricore_vitb_cross_attention",
+    "mricore_vitb_mae_cross_attention_fulldata_flip",
+    "dinov3_convnext_base",
+    "convnext_base_25d_all_knees_same_orientation_fulldata_v3_labels",
+    "swinv2_base_in22k",
+    "convnext_base_25d_poolattn_fulldata_flip",
+    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+    "medimageinsight_davit_huge_336_fulldata",
+    "medimageinsight_davit_huge_perslice_480_warm"
+   ],
+   "notes": "The 0.938 ten with convnext_base_25d_all_knees_same_orientation_fulldata swapped for its local v3-label retrain. Public 0.938, a TIE with the original ten (56489550) even though the swapped member was trained with the frozen-augmentation bug and scored only 0.906 solo. Flat logit average of 10."
   }
  ]
 }

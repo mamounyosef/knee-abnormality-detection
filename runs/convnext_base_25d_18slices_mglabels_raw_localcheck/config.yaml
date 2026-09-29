@@ -1,0 +1,129 @@
+# convnext_base_25d_18slices_mglabels_raw_localcheck
+#
+# LOCAL CHECK of the Modal 0.916 run after the Windows augmentation-seed fix (28 Sep): identical labels, split and settings, FULL run. Its lr, train loss, gradient norm, val loss and val AUROC must track the Modal run's logs (the buggy local runs drifted from epoch 4; compare with runs/others/compare_train_logs.py), and its final val (Modal 0.9086) and leaderboard (Modal 0.916) must match.
+#
+# ---- the donor's notes follow ----
+# UNCALIBRATED TWIN of convnext_base_25d_18slices_mglabels: identical except that MedGemma's
+# logit is averaged in on its OWN scale, not rescaled to Qwen's. Trained and submitted in
+# parallel with it, so the leaderboard says whether the rescale is right.
+#
+# convnext_base_25d_18slices with ONE change: the LABELS. Everything else is byte-identical to
+# its parent (val 0.9010, audit 0.9054, solo LB 0.914), so its own solo LB answers the only
+# question that matters: do the MedGemma-blended labels help a model on the leaderboard? A twin
+# with the parent's settings costs no extra run, where a changed config would need a second one.
+#
+# The labels: Qwen 2.4T everywhere, except Effusion, Synovitis, Baker's, Lateral Meniscus and
+# Lateral OA, where MedGemma 1.5 4B's image-only opinion (all six views) is averaged in, in logit
+# space, after being put on Qwen's scale. On the panel's audit-58 the LABELS go 0.9114 -> 0.9309.
+# Built by data_code/17_make_medgemma_labels.py, all checks in that script.
+#
+# READ WITH CARE: val now scores against the NEW labels, so val here is not comparable to the
+# parent's 0.9010. Audit-58 (panel labels) and the leaderboard are the comparisons.
+
+experiment:
+  name: "convnext_base_25d_18slices_mglabels_raw_localcheck"
+
+paths:
+  # Byte-identical split MEMBERSHIP to convnext_base_25d_group3 and convnext_base_336px.
+  train_csv: "17_train_qwen-mg-raw.csv"    # same blend WITHOUT the rescale (17_make_medgemma_labels.py --raw)
+  val_csv:   "17_val_qwen-mg-raw.csv"
+  # audit_csv stays 05_audit58.csv - the panel labels never change, so it is the one
+  # honest cross-label-set comparison.
+
+model:
+  name: "convnext_base.fb_in22k_ft_in1k"   # timm id: ConvNeXt-Base pretrained on ImageNet-22k
+  pretrained: true
+  pool: "mean"                      # how the 24 image features collapse per study: mean | max | attn
+  drop_rate: 0.1                    # dropout in the head, mild regularization
+
+input:
+  # 336 x 0.40 = 134 mm of frame, unchanged. mm_per_px stays 0.40, the value every run in
+  # this project has used: it is the knob that controls interpolation, and at 0.40 exactly
+  # 24.4% of series are upsampled (median 1.17x).
+  size: 336
+
+  # 18 real slices per slot, down from the shared default of 24. This is the ONLY difference
+  # from convnext_base_25d_group3.
+  n_slices: 18
+
+  # 6 IMAGES PER SLOT, each holding 3 consecutive slices in its 3 channels.
+  # prepare_batch reshapes (B, 4, 18, H, W) -> (B*4*6, 3, H, W). The slice axis splits with
+  # the GROUP as the outer index and the CHANNEL as the inner one, so the groups are
+  # contiguous and non-overlapping: (0,1,2), (3,4,5), ... (15,16,17).
+  # 18 / 6 = 3 means train.py builds the backbone with in_chans=3, i.e. the pretrained stem
+  # exactly as shipped. No filter tiling, no rescaling, no adaptation.
+  slices_as_channels: 6
+
+training:
+  grad_checkpointing: true          # local 8 GB GPU: recompute activations (exact)
+  epochs: 12
+  grad_clip: 3.0                    # 3.0, NEVER 1.0. 1.0 clips every step and silently
+                                    # throttles the effective learning rate.
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-5                      # BACKBONE lr, identical to convnext_base_25d_group3 so
+                                    # the slice count is the only variable
+    backbone_lr_mult: 0.5           # head = lr / 0.5 = 1.0e-4, twice the trunk
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05
+    min_lr_mult: 0.01               # floor: ends at 1% of the base learning rate
+  loss:
+    name: "bce"                     # bce = binary cross-entropy | focal = focuses on hard cases
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 12                     # VALIDATIONS without improvement, not epochs.
+
+# CPU-side loading; decoding shards is the bottleneck and stays one here, though 18 slices
+# is a quarter less to decode per study than 24.
+dataloader:
+  batch_size: 2                     # LOCAL: 2 x accum_steps 4 = the same 8 studies per update
+                                    # MEASURED basis: convnext_base_25d_group3 peaked at
+                                    # 71.02 GB on 256 images, i.e. ~0.273 GB/image, so 192
+                                    # images is ~54 GB of the A100-80GB. Comfortable.
+  accum_steps: 4                    # effective 8 studies per update
+                                    # other run, so step counts and the lr schedule compare
+                                    # directly against convnext_base_25d_group3
+  val_batch_size: 4                 # local
+                                    # backward pass there are no stored activations, so this
+                                    # is far cheaper than the training batch despite being
+                                    # twice the studies. Speeds the validations up.
+
+  num_workers: 2                    # local PC: 16 GB RAM, keep it usable
+                                    # per study, so the loader is the binding constraint
+  val_num_workers: 2
+
+  prefetch_factor: 2                # batches queued per worker
+  pin_memory: false                 # local: no page-locked memory
+  persistent_workers: true          # don't respawn workers every epoch
+  drop_last: false                  # keep the ragged final batch
+
+modal:
+  gpu: "A100-80GB"                  # 192 images is ~54 GB, so the 80 GB card fits it with
+                                    # room. NOT the A100-40GB: that would be over the card.
+                                    # At 24 passes per study this run is I/O bound anyway,
+                                    # so the faster H200 would idle.
+  cpu: 14.0                         # one core per dataloader worker, decoding npz is
+                                    # CPU-bound and matters more than ever here
+  memory_gb: 64                     # 26 workers x prefetch 6 x ~32 MB per queued batch
+
+# inherits resume: "last" from shared_config - the preemption-safe setting.
+
+output:
+  # local disk (~8 GB free on D): 3 rolling full checkpoints (enough to resume) + the best 3
+  # weights-only, a 1 GB write every 500 steps, every new step / top / best checkpoint copied
+  # to the knee-runs upload volume (<run>/results/checkpoints)
+  keep_last_n: 3
+  keep_top_k: 3
+  checkpoint_every_steps: 500
+  upload_checkpoints:
+    modal_config: "local"            # path in ~/.knee_upload_modal_config (outside the repo)
+    patterns: ["step*.pt", "top_step*.pt", "best.pt"]

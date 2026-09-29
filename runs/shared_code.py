@@ -879,6 +879,13 @@ class KneeShardDataset(Dataset):
             train or cfg["augmentation"].get("eval_enable", False))
         self.aug = cfg["augmentation"] if _aug_on else None
         self.seed = int(cfg["reproducibility"]["seed"])
+        # the epoch counter travels WITH the dataset. Reading the module global from a worker
+        # only works when workers are forked (Linux). Windows spawns them, each re-imports this
+        # file and gets its OWN _EPOCH frozen at 0, so every local epoch replayed epoch 1's
+        # augmentation: gnorm fell 0.7 -> 0.13 and three local runs scored ~0.905 (28 Sep,
+        # checks/epoch_seed_check.py). A Value handed over at worker start is the real one.
+        self._epoch = _EPOCH
+        self._retr = (_RETR_NS, _RETR_BYTES, _RETR_IMGS)   # read-time telemetry, same reason
         # 2.5D: instead of copying one slice into 3 identical channels, fill them with
         # neighbouring slices of the SAME series, so the backbone sees through-plane
         # context. Costs nothing extra - those channels already existed, just wasted.
@@ -955,10 +962,11 @@ class KneeShardDataset(Dataset):
                           0, arr.shape[0] - 1).reshape(-1)
         vol = arr[idx].astype(np.float32)
         # only the volume read is timed; resample/window/augment come after
-        with _RETR_NS.get_lock():
-            _RETR_NS.value += int((time.perf_counter() - _t) * 1e9)
-            _RETR_BYTES.value += int(arr.nbytes)
-            _RETR_IMGS.value += len(idx)
+        ns, nb, ni = self._retr                          # the real shared counters (see _epoch)
+        with ns.get_lock():
+            ns.value += int((time.perf_counter() - _t) * 1e9)
+            nb.value += int(arr.nbytes)
+            ni.value += len(idx)
 
         # native spacing varies 5x across scanners; rescale so a knee is the same size
         if self.mm_per_px:
@@ -1037,7 +1045,7 @@ class KneeShardDataset(Dataset):
         # every item's randomness is a pure function of (seed, epoch, index) for train
         # and (seed, study) for val/audit - so a run is reproducible and a resumed run
         # sees the same stream it would have seen uninterrupted
-        rng = np.random.default_rng([self.seed, int(_EPOCH.value), i] if self.train
+        rng = np.random.default_rng([self.seed, int(self._epoch.value), i] if self.train
                                     else [self.seed, hash(study) & 0xFFFFFFFF])
         chosen = self.plan.get(study, {})               # {slot: series} picked by plan_slots
         # mirror this study if it is the side we normalise away. Unknown side = leave it.
@@ -1763,6 +1771,58 @@ class _NullScheduler:
         return None
 
 
+UPLOAD_POINTER = Path.home() / ".knee_upload_modal_config"   # one line: a Modal config path
+
+
+def resolve_upload_modal_config(value: str) -> str:
+    """`modal_config: "local"` reads the real path from ~/.knee_upload_modal_config, a file
+    outside the repo, so no workspace-specific path is ever committed. Any other value is
+    used as given."""
+    if value != "local":
+        return value
+    if not UPLOAD_POINTER.exists():
+        raise SystemExit(f"upload_checkpoints.modal_config is 'local' but {UPLOAD_POINTER} "
+                         f"does not exist: write the Modal config path into it")
+    return UPLOAD_POINTER.read_text(encoding="utf-8").strip()
+
+
+def _adamw(o: dict):
+    """torch AdamW, or bitsandbytes' 8-bit AdamW when optimizer.eight_bit is set: the two
+    moment buffers stored in 8 bits (block-wise quantised) instead of 32, 4x less optimizer
+    memory, same update rule. Tensors under 4,096 elements stay 32-bit."""
+    if o.get("eight_bit"):
+        import bitsandbytes as bnb
+        print("  🗜️  8-bit AdamW (bitsandbytes): moment buffers in 8 bits")
+        return bnb.optim.AdamW8bit
+    return torch.optim.AdamW
+
+
+def chunk_backbone(model: nn.Module, n: int) -> None:
+    """Run model.backbone over `n` images at a time instead of the whole (B*windows) stack.
+
+    Training: each chunk sits under its own activation checkpoint, so only ONE chunk's
+    activations are alive at once (the rest is recomputed chunk by chunk in the backward).
+    Eval: plain chunks, no checkpoint. Exact for backbones that treat every image on its own
+    (LayerNorm, no BatchNorm, no cross-image attention); refused otherwise. The forward is
+    patched on the instance, so parameter names and checkpoints are unchanged."""
+    from torch.utils.checkpoint import checkpoint
+    bb = getattr(model, "backbone")
+    bn = [m_ for m_ in bb.modules() if isinstance(m_, nn.modules.batchnorm._BatchNorm)]
+    if bn:
+        raise SystemExit(f"backbone_chunk: {len(bn)} BatchNorm layers mix images across a "
+                         f"chunk boundary, so chunking would change the result")
+    orig = bb.forward
+
+    def fwd(x):
+        grad = bb.training and torch.is_grad_enabled()
+        if x.shape[0] <= n and not grad:
+            return orig(x)
+        return torch.cat([checkpoint(orig, c, use_reentrant=False) if grad else orig(c)
+                          for c in x.split(n)], dim=0)
+    bb.forward = fwd
+    print(f"  🧩 backbone runs {n} images at a time (training: one checkpointed chunk alive)")
+
+
 def build_optimizer(model: nn.Module, cfg: dict, loss_fn: nn.Module | None = None):
     """AdamW with two learning rates.
 
@@ -1845,7 +1905,7 @@ def build_optimizer(model: nn.Module, cfg: dict, loss_fn: nn.Module | None = Non
         # head still sits at head_lr and `lr` stays "what the trunk's top layer gets"
         groups = _param_groups_llrd(model, head_lr, o.get("weight_decay", 0.05), float(ld))
         _print_llrd(groups, head_lr, float(ld), max(g["layer_id"] for g in groups))
-        return torch.optim.AdamW(groups, lr=head_lr, weight_decay=o.get("weight_decay", 0.05))
+        return _adamw(o)(groups, lr=head_lr, weight_decay=o.get("weight_decay", 0.05))
     # split structurally, not by name: everything under .backbone is the pretrained
     # trunk, the rest is freshly initialized. Substring matching got this wrong -
     # "fc" also matches every mlp.fc1/fc2 inside a ConvNeXt block.
@@ -1886,7 +1946,7 @@ def build_optimizer(model: nn.Module, cfg: dict, loss_fn: nn.Module | None = Non
         msg += (f"  |  \u26a0\ufe0f {len(fresh_ids)} tensors declare is_fresh but "
                 f"optimizer.fresh_lr is unset - they are on the trunk rate")
     print(msg)
-    return torch.optim.AdamW(groups, lr=head_lr, weight_decay=o.get("weight_decay", 0.05))
+    return _adamw(o)(groups, lr=head_lr, weight_decay=o.get("weight_decay", 0.05))
 
 
 def schedule_steps(cfg: dict, total_steps: int) -> int:
@@ -2257,7 +2317,7 @@ class CheckpointUploader:
         self.volume = spec.get("volume") or default_volume
         self.rel = rel_ckpt_dir
         self.patterns = spec.get("patterns", ["step*.pt", "top_step*.pt", "best.pt"])
-        self.cfg_path = str(Path(os.path.expanduser(spec["modal_config"])))
+        self.cfg_path = str(Path(os.path.expanduser(resolve_upload_modal_config(spec["modal_config"]))))
         self.stage = Path(res_dir) / "_upload_staging"
         self.stage.mkdir(parents=True, exist_ok=True)
         self._match = lambda n: any(fnmatch.fnmatch(n, p) for p in self.patterns)
@@ -3195,6 +3255,8 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         else:
             print(f"  ⚠️  grad_checkpointing requested but {type(_bb).__name__} "
                   f"has no set_grad_checkpointing - ignored")
+    if cfg["training"].get("backbone_chunk"):
+        chunk_backbone(model, int(cfg["training"]["backbone_chunk"]))
     tot_p = sum(q.numel() for q in model.parameters())
     tr_p = sum(q.numel() for q in model.parameters() if q.requires_grad)
     _banner("MODEL", "\U0001F9E0")
@@ -3218,7 +3280,12 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     _bb_pids = {id(p) for n, p in model.named_parameters() if n.startswith("backbone.")}
     _grp_is_bb = [any(id(p) in _bb_pids for p in g["params"]) for g in opt.param_groups]
     accum = accum_steps(cfg)
-    steps_per_epoch = max(1, len(loaders["train"]) // accum)
+    # CEIL, not floor: the epoch's last, partial accumulation window is stepped (rescaled to
+    # its real size in the loop), exactly like the partial last batch of an accum-1 run. With
+    # floor, 3,638 studies at 2 x 4 gave 454 steps/epoch against 455 at batch 8, dropped 6
+    # studies per epoch and shifted the lr schedule off the Modal run's (28 Sep).
+    n_micro = len(loaders["train"])
+    steps_per_epoch = max(1, -(-n_micro // accum))
     total = steps_per_epoch * epochs
     _pesg = isinstance(loss_fn, AUCMOfficial)
     if _pesg:
@@ -3869,7 +3936,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
             # `it % accum == 0` is the micro-batch that also triggers the optimizer step
             # below. Arming one earlier means the NEXT iteration's arm(False) wipes the
             # reading before read() sees it, which is why the probe printed nothing.
-            probe.arm(probe.active(gstep + 1) and it % accum == 0)
+            probe.arm(probe.active(gstep + 1) and (it % accum == 0 or it == n_micro))
             with torch.autocast("cuda", enabled=scaler.is_enabled()):
                 # NOT `out`: that name is the run's OUTPUT DIRECTORY in this same scope,
                 # captured by the validation and checkpoint closure. Shadowing it would
@@ -3928,7 +3995,15 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
             scaler.scale(loss).backward()
             seen += imgs_per_batch
             win_imgs += imgs_per_batch
-            if it % accum == 0:
+            if it % accum == 0 or it == n_micro:
+                _r = it % accum
+                if _r:
+                    # partial last window: each of its _r micro-losses was divided by accum,
+                    # so the summed gradient is _r/accum of the window's MEAN gradient. Scale
+                    # it back: identical to one batch of those studies at accum 1.
+                    for _p in model.parameters():
+                        if _p.grad is not None:
+                            _p.grad.mul_(accum / _r)
                 gnorm = float("nan")
                 _clip = float(cfg["training"]["grad_clip"] or 0.0)
                 if _clip:
@@ -4041,7 +4116,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                         _extra["aux_top1"] = round(aux_run[3] / aux_run[4], 4)
                     aux_run[:] = [0.0, 0, 0.0, 0.0, 0]
                 train_log.log({**_extra, **ScaleProbe.row(_pb),
-                               "epoch": epoch, "epoch_step": it // accum,
+                               "epoch": epoch, "epoch_step": -(-it // accum),
                                "global_step": gstep, "loss": round(l, 6), "lr": lr,
                                "lr_min": lr_lo, "lr_max": lr_hi,
                                "lr_head": lr_head,
@@ -4075,6 +4150,13 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                     _validate_and_checkpoint(epoch, gstep, trig)
                     if stop_now[0]:
                         break             # stop AT patience, not at the next epoch end
+                _sa = int(cfg["training"].get("stop_after_steps") or 0)
+                if _sa and gstep >= _sa:
+                    # a deliberately short run (e.g. checking a machine against a known curve):
+                    # the lr schedule stays the FULL run's, so every step up to here matches it
+                    print(f"\n🛑 stop_after_steps={_sa} reached at step {gstep}")
+                    stop_now[0] = True
+                    break
                 every = cfg["output"].get("checkpoint_every_steps", 0)
                 if every and gstep % every == 0:
                     save_checkpoint(ckpt_dir / f"step{gstep}.pt", cfg, model, opt, sched,
@@ -4119,7 +4201,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                         lr_s = (f"lr[head={lr_head:.3e}  backbone top={lr_bb_hi:.3e} "
                                 f"bottom={lr_bb_lo:.3e}]")
                     print("─" * 70)
-                    print(f"  Epoch {epoch}/{epochs}  epoch_step: {it // accum}/{steps_per_epoch}"
+                    print(f"  Epoch {epoch}/{epochs}  epoch_step: {-(-it // accum)}/{steps_per_epoch}"
                           f"  global_step: {gstep}/{total}")
                     # one step's gnorm is noisy (ours span 0.6 to 23 on the same run), so
                     # the rolling mean is what actually says whether the trunk runs hot,
@@ -4205,7 +4287,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         # never reached opt.step(), so without this their gradients leak into the first
         # step of the next epoch (and a resumed run, being a fresh process, would not
         # have them - the two trajectories then diverge).
-        if it % accum:
+        if it % accum and it != n_micro:           # the full epoch's tail is now stepped
             opt.zero_grad(set_to_none=True)
             print(f"  \U0001F9F9 discarded {it % accum} trailing micro-batch(es) "
                   f"(not a full accumulation window)")
@@ -6208,7 +6290,8 @@ pd.read_csv('submission.csv').head()""",
 
 
 def build_kaggle_assets(cfg: dict, exp_dir, out_dir, checkpoint_path,
-                        kaggle_user: str, dataset_slug: str = "", notebook_slug: str = ""):
+                        kaggle_user: str, dataset_slug: str = "", notebook_slug: str = "",
+                        kaggle_name: str = ""):
     """Write everything `kaggle kernels push` needs: weights, config, notebook, metadata.
 
     Two Kaggle objects are involved: a DATASET holding the weights (notebooks run
@@ -6219,11 +6302,20 @@ def build_kaggle_assets(cfg: dict, exp_dir, out_dir, checkpoint_path,
     out = Path(out_dir)
     (out / "weights").mkdir(parents=True, exist_ok=True)
     (out / "notebook").mkdir(parents=True, exist_ok=True)
-    dataset_slug = dataset_slug or f"knee-{exp.replace('_', '-')}"
-    notebook_slug = notebook_slug or f"knee-{exp.replace('_', '-')}-submit"
+    # Kaggle names (titles, slugs) are capped at 50 characters. A long run name cut to fit
+    # can land on ANOTHER run's dataset and notebook (the _v3_labels copy of a 44-character
+    # run cut back to exactly its parent's names, 28 Sep) and push a new version of them.
+    # So a run whose names would be cut must pass a short, unique kaggle_name instead.
+    kname = kaggle_name or exp
+    if not kaggle_name and any(exp not in _kaggle_title(exp, s) for s in ("weights", "submit")):
+        raise SystemExit(f"❌ '{exp}' is too long for Kaggle's 50-character names and would be "
+                         f"cut to a name another run may own: pass kaggle_name (KAGGLE_NAME in "
+                         f"submit.py), short and unique")
+    dataset_slug = dataset_slug or f"knee-{kname.replace('_', '-')}"
+    notebook_slug = notebook_slug or f"knee-{kname.replace('_', '-')}-submit"
     # Kaggle takes the slug from the title, so a title trimmed to the 50-character cap
     # moves the notebook. Follow it rather than fight it: the id becomes the title's slug.
-    _nb_title = _kaggle_title(exp, "submit")
+    _nb_title = _kaggle_title(kname, "submit")
     notebook_slug = _kaggle_slug(_nb_title)
 
     # weights: strip the optimizer/scheduler state, it is dead weight for inference
@@ -6239,7 +6331,7 @@ def build_kaggle_assets(cfg: dict, exp_dir, out_dir, checkpoint_path,
     _kcfg["model"].pop("weights", None)
     (out / "weights" / "config.json").write_text(json.dumps(_kcfg, indent=2))
     (out / "weights" / "dataset-metadata.json").write_text(json.dumps(
-        {"title": _kaggle_title(exp, "weights"), "id": f"{kaggle_user}/{dataset_slug}",
+        {"title": _kaggle_title(kname, "weights"), "id": f"{kaggle_user}/{dataset_slug}",
          "licenses": [{"name": "CC0-1.0"}]}, indent=2))
 
     # the notebook imports shared_code from the weights dataset, so inference and
@@ -7808,6 +7900,14 @@ def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
     if n_members is None:                      # count what we are about to ship
         n_members = len(list((Path(assets_dir) / "weights").glob("m*_model.pt")))
     _banner("KAGGLE PUBLISH", "\U0001F680")
+    try:                                       # the assets are the source of truth here too
+        _did = str(json.loads((assets / "weights" / "dataset-metadata.json").read_text())
+                   .get("id", "")).split("/")[-1]
+        if _did and _did != dataset_slug:
+            print("      dataset slug from the assets: %s (was %s)" % (_did, dataset_slug))
+            dataset_slug = _did
+    except (OSError, ValueError):
+        pass
 
     print(f"  1/4 dataset {user}/{dataset_slug}")
     # kaggle CLI 2.2.4 mangles -p on windows (weights/config.json -> weights_config.json),

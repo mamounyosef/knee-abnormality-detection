@@ -5,7 +5,7 @@
 3. every local .npz opens and lists its arrays (a truncated download fails the zip index), and
    each array the series index expects for that study is present
 
-    $env:MODAL_CONFIG_PATH = "$HOME\\.modal_session4.toml"
+    (select the Modal workspace that holds knee-shards first)
     python checks/local_shards_check.py
 """
 import zipfile

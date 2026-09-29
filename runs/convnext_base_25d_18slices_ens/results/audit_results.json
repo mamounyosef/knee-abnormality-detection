@@ -1,0 +1,160 @@
+{
+  "experiment": "convnext_base_25d_18slices_ens",
+  "run_id": "run001",
+  "set": "audit",
+  "csv": "05_audit58.csv",
+  "checkpoint": "D:\\My Projects\\knee_abnormality_detection\\runs\\convnext_base_25d_18slices_ens\\results\\checkpoints\\best.pt",
+  "checkpoint_step": 2900,
+  "checkpoint_epoch": 7,
+  "n_studies": 58,
+  "device": "cuda",
+  "amp": 1,
+  "threshold_source": "per-task max-F1 on 20_val_qwen-mg-ens.csv",
+  "thresholds": {
+    "ACL": 0.43935641646385193,
+    "MCL": 0.28437718749046326,
+    "Medial Meniscus": 0.6489113569259644,
+    "Lateral Meniscus": 0.5089406371116638,
+    "Medial OA": 0.4146617650985718,
+    "Lateral OA": 0.506721019744873,
+    "PF OA": 0.4931949973106384,
+    "Effusion": 0.4681522846221924,
+    "Synovitis": 0.47274431586265564,
+    "Baker's": 0.5045927166938782,
+    "Contusion": 0.44197404384613037,
+    "Fracture": 0.39828941226005554
+  },
+  "loss": 0.4368067322106197,
+  "macro": {
+    "macro_auroc": 0.9029165614583025,
+    "macro_auprc": 0.8292583977137046,
+    "f1": 0.7412844036697248,
+    "precision": 0.6622950819672131,
+    "recall": 0.8416666666666667,
+    "specificity": 0.7741228070175439
+  },
+  "per_task": {
+    "ACL": {
+      "auroc": 0.9571078431372548,
+      "auprc": 0.9283136000451166,
+      "pos": 24,
+      "threshold": 0.43935641646385193,
+      "precision": 0.8846153846153846,
+      "recall": 0.9583333333333334,
+      "f1": 0.9199999999999999,
+      "specificity": 0.9117647058823529
+    },
+    "MCL": {
+      "auroc": 0.8548752834467119,
+      "auprc": 0.48185939414009593,
+      "pos": 9,
+      "threshold": 0.28437718749046326,
+      "precision": 0.2962962962962963,
+      "recall": 0.8888888888888888,
+      "f1": 0.4444444444444444,
+      "specificity": 0.6122448979591837
+    },
+    "Medial Meniscus": {
+      "auroc": 0.9507211538461539,
+      "auprc": 0.9378204386813171,
+      "pos": 26,
+      "threshold": 0.6489113569259644,
+      "precision": 0.9130434782608695,
+      "recall": 0.8076923076923077,
+      "f1": 0.8571428571428572,
+      "specificity": 0.9375
+    },
+    "Lateral Meniscus": {
+      "auroc": 0.8807453416149068,
+      "auprc": 0.8313476206726511,
+      "pos": 23,
+      "threshold": 0.5089406371116638,
+      "precision": 0.75,
+      "recall": 0.782608695652174,
+      "f1": 0.7659574468085107,
+      "specificity": 0.8285714285714286
+    },
+    "Medial OA": {
+      "auroc": 0.958139534883721,
+      "auprc": 0.8855583104496149,
+      "pos": 15,
+      "threshold": 0.4146617650985718,
+      "precision": 0.8571428571428571,
+      "recall": 0.8,
+      "f1": 0.8275862068965518,
+      "specificity": 0.9534883720930233
+    },
+    "Lateral OA": {
+      "auroc": 0.8394584139264991,
+      "auprc": 0.7159353048645245,
+      "pos": 11,
+      "threshold": 0.506721019744873,
+      "precision": 0.45,
+      "recall": 0.8181818181818182,
+      "f1": 0.5806451612903226,
+      "specificity": 0.7659574468085106
+    },
+    "PF OA": {
+      "auroc": 0.8314028314028313,
+      "auprc": 0.8124178723661126,
+      "pos": 21,
+      "threshold": 0.4931949973106384,
+      "precision": 0.8235294117647058,
+      "recall": 0.6666666666666666,
+      "f1": 0.7368421052631577,
+      "specificity": 0.918918918918919
+    },
+    "Effusion": {
+      "auroc": 0.972670807453416,
+      "auprc": 0.9822716028615595,
+      "pos": 35,
+      "threshold": 0.4681522846221924,
+      "precision": 0.7142857142857143,
+      "recall": 1.0,
+      "f1": 0.8333333333333333,
+      "specificity": 0.391304347826087
+    },
+    "Synovitis": {
+      "auroc": 0.8399044205495818,
+      "auprc": 0.8297967130109709,
+      "pos": 27,
+      "threshold": 0.47274431586265564,
+      "precision": 0.5681818181818182,
+      "recall": 0.9259259259259259,
+      "f1": 0.7042253521126761,
+      "specificity": 0.3870967741935484
+    },
+    "Baker's": {
+      "auroc": 0.9710144927536233,
+      "auprc": 0.9190957190957192,
+      "pos": 12,
+      "threshold": 0.5045927166938782,
+      "precision": 0.42857142857142855,
+      "recall": 1.0,
+      "f1": 0.6,
+      "specificity": 0.6521739130434783
+    },
+    "Contusion": {
+      "auroc": 0.9595141700404858,
+      "auprc": 0.9050745669949574,
+      "pos": 19,
+      "threshold": 0.44197404384613037,
+      "precision": 0.76,
+      "recall": 1.0,
+      "f1": 0.8636363636363636,
+      "specificity": 0.8461538461538461
+    },
+    "Fracture": {
+      "auroc": 0.8194444444444444,
+      "auprc": 0.7216096293818173,
+      "pos": 18,
+      "threshold": 0.39828941226005554,
+      "precision": 0.75,
+      "recall": 0.3333333333333333,
+      "f1": 0.46153846153846156,
+      "specificity": 0.95
+    }
+  },
+  "predictions_csv": "D:\\My Projects\\knee_abnormality_detection\\runs\\convnext_base_25d_18slices_ens\\results\\audit_predictions.csv",
+  "evaluated_at": "2026-09-28T10:13:04"
+}

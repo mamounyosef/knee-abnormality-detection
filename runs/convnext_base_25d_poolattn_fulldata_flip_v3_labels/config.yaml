@@ -1,0 +1,156 @@
+# convnext_base_25d_poolattn_fulldata_flip_v3_labels
+#
+# V3-LABEL RELABEL of ensemble member convnext_base_25d_poolattn_fulldata_flip. Only the LABELS change:
+# 08_train_full (v2, Qwen 2.4T) -> 17_train_full_qwen-mg-raw (v3, Qwen + MedGemma 1.5 on
+# Lateral Meniscus, Lateral OA, Effusion, Synovitis, Baker's). v3 did not move the best step
+# of convnext_base_25d_18slices (3900 vs 3900), so the donor's fixed schedule stays.
+# Trained LOCALLY on the RTX 4060 (8 GB): batch 2 x 4 accumulation = the same 8 studies per
+# update, gradient checkpointing, 2 loader workers, no pinned memory.
+#
+# ---- the donor's notes follow ----
+#
+# The weakest member solo (val 0.8977) and historically the STRONGEST ensemble contributor, because replacing the mean pool with a learned one really decorrelates it (0.807 against mricore_cross, where the 2.5D siblings sit at 0.95-0.99).
+# Gets both changes at once: full data and the mirror.
+# 1.0 h.
+# convnext_base_25d_18slices with LEARNED POOLING instead of a flat mean.
+#
+# THE SMALLEST POSSIBLE VERSION OF THE ATTENTION QUESTION. A tiny MLP scores each of the 24
+# image features, softmax over them, weighted sum. One shared weighting for all 12 findings -
+# no label queries, no slot embeddings, no cross-attention.
+#
+#   mean   f.mean(dim=1)                       every image weighted 1/24, always
+#   this   w = softmax(MLP(f)); (f * w).sum(1) every image weighted by how useful it looks
+#
+# The MLP is Sequential(Linear(1024,128), Tanh(), Linear(128,1)) and it has been sitting in
+# our train.py unused since the beginning: of 54 run configs, 53 use "mean" and one uses
+# "transformer" (convnext_small_transformer_pool, 0.8792, a loss).
+#
+# WHY RUN IT AFTER the two attention heads came back neutral. slotattn (12 label queries)
+# tied at 0.9004 and tokenattn (token-to-token) lost at 0.8940, but BOTH were gated residuals
+# whose gate only ever reached ~0.012-0.025 - the branch was never really used, and the runs
+# correlate 0.9941 with the parent. This one has NO gate and NO mean fallback: the learned
+# weighting replaces the mean outright, so it cannot quietly do nothing. If a flat mean is
+# genuinely near-optimal over these 24 vectors, this is the run that says so cleanly.
+#
+# Cost: one Linear(1024,128) and one Linear(128,1) per image. Free.
+#
+# Beat: convnext_base_25d_18slices, val 0.9010 / audit 0.9054 / LB 0.914.
+
+experiment:
+  name: "convnext_base_25d_poolattn_fulldata_flip_v3_labels"
+
+paths:
+  # Byte-identical split MEMBERSHIP to convnext_base_25d_group3 and convnext_base_336px.
+  train_csv: "17_train_full_qwen-mg-raw.csv"   # train + val + audit, v3 labels
+  val_csv:   "17_val_qwen-mg-raw.csv"          # unused: evaluation is off
+  # audit_csv stays 05_audit58.csv - the panel labels never change, so it is the one
+  # honest cross-label-set comparison.
+
+model:
+  name: "convnext_base.fb_in22k_ft_in1k"   # timm id: ConvNeXt-Base pretrained on ImageNet-22k
+  pretrained: true
+  pool: "attn"                      # learned softmax weighting over the 24 images,
+                                    # replacing mean(dim=1). See the header.                      # how the 24 image features collapse per study: mean | max | attn
+  drop_rate: 0.1                    # dropout in the head, mild regularization
+
+input:
+  laterality_flip: "left"   # mirror every LEFT knee
+  # 336 x 0.40 = 134 mm of frame, unchanged. mm_per_px stays 0.40, the value every run in
+  # this project has used: it is the knob that controls interpolation, and at 0.40 exactly
+  # 24.4% of series are upsampled (median 1.17x).
+  size: 336
+
+  # 18 real slices per slot, down from the shared default of 24. This is the ONLY difference
+  # from convnext_base_25d_group3.
+  n_slices: 18
+
+  # 6 IMAGES PER SLOT, each holding 3 consecutive slices in its 3 channels.
+  # prepare_batch reshapes (B, 4, 18, H, W) -> (B*4*6, 3, H, W). The slice axis splits with
+  # the GROUP as the outer index and the CHANNEL as the inner one, so the groups are
+  # contiguous and non-overlapping: (0,1,2), (3,4,5), ... (15,16,17).
+  # 18 / 6 = 3 means train.py builds the backbone with in_chans=3, i.e. the pretrained stem
+  # exactly as shipped. No filter tiling, no rescaling, no adaptation.
+  slices_as_channels: 6
+
+training:
+  grad_checkpointing: true          # local 8 GB GPU: recompute activations (exact)
+  # FIXED at the donor's peak epoch (7). With train+val+audit in the
+  # training set there is nothing left to early-stop on, so the epoch count
+  # is the only thing standing between this and overfitting.
+  epochs: 7
+  grad_clip: 3.0                    # 3.0, NEVER 1.0. 1.0 clips every step and silently
+                                    # throttles the effective learning rate.
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-5                      # BACKBONE lr, identical to convnext_base_25d_group3 so
+                                    # the slice count is the only variable
+    backbone_lr_mult: 0.5           # head = lr / 0.5 = 1.0e-4, twice the trunk
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05
+    min_lr_mult: 0.01               # floor: ends at 1% of the base learning rate
+  loss:
+    name: "bce"                     # bce = binary cross-entropy | focal = focuses on hard cases
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  early_stopping:
+    enable: false
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 7                     # VALIDATIONS without improvement, not epochs.
+
+# CPU-side loading; decoding shards is the bottleneck and stays one here, though 18 slices
+# is a quarter less to decode per study than 24.
+dataloader:
+  batch_size: 2                     # LOCAL: 2 x accum_steps 4 = the donor's 8 studies per update
+                                    # MEASURED basis: convnext_base_25d_group3 peaked at
+                                    # 71.02 GB on 256 images, i.e. ~0.273 GB/image, so 192
+                                    # images is ~54 GB of the A100-80GB. Comfortable.
+  accum_steps: 4                    # effective 8 studies per update, same steps and lr schedule
+                                    # other run, so step counts and the lr schedule compare
+                                    # directly against convnext_base_25d_group3
+  val_batch_size: 4                 # local (unused, evaluation off)
+                                    # backward pass there are no stored activations, so this
+                                    # is far cheaper than the training batch despite being
+                                    # twice the studies. Speeds the validations up.
+
+  num_workers: 2                    # local PC: 16 GB RAM, keep it usable
+                                    # per study, so the loader is the binding constraint
+  val_num_workers: 2
+
+  prefetch_factor: 2                # batches queued per worker
+  pin_memory: false                 # local: no page-locked memory
+  persistent_workers: true          # don't respawn workers every epoch
+  drop_last: false                  # keep the ragged final batch
+
+modal:
+  gpu: "A100-80GB"                  # 192 images is ~54 GB, so the 80 GB card fits it with
+                                    # room. NOT the A100-40GB: that would be over the card.
+                                    # At 24 passes per study this run is I/O bound anyway,
+                                    # so the faster H200 would idle.
+  cpu: 14.0                         # one core per dataloader worker, decoding npz is
+                                    # CPU-bound and matters more than ever here
+  memory_gb: 64                     # 26 workers x prefetch 6 x ~32 MB per queued batch
+
+# inherits resume: "last" from shared_config - the preemption-safe setting.
+
+evaluation:
+  # OFF. Every val and audit study is in the training set now, so a validation
+  # would be scoring what it just learned. Checkpoints fall back to the step
+  # counter, and the bundler has a step-based staleness check for exactly this.
+  enable: false
+
+output:
+  # local disk: with evaluation off the engine rewrites best.pt + last.pt (~1 GB each) at every
+  # would-be validation, plus one rolling step checkpoint per epoch (550 steps), last 2 kept;
+  # step files are copied to the knee-runs upload volume (<run>/results/checkpoints).
+  keep_last_n: 2
+  keep_top_k: 0
+  checkpoint_every_steps: 550
+  upload_checkpoints:
+    modal_config: "local"            # path in ~/.knee_upload_modal_config (outside the repo)
+    patterns: ["step*.pt"]

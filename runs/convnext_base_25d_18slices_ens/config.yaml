@@ -7,7 +7,7 @@
 #
 # Trained LOCALLY on the RTX 4060 (8 GB): batch 2 x 4 accumulation steps = the same 8 studies per
 # update, gradient checkpointing, 2 loader workers, no pinned memory. Checkpoints mirrored to
-# workspace 1's knee-runs volume. Compare on audit-58 and the leaderboard.
+# the knee-runs upload volume. Compare on audit-58 and the leaderboard.
 #
 experiment:
   name: "convnext_base_25d_18slices_ens"
@@ -108,11 +108,11 @@ modal:
 output:
   # local disk (13.5 GB free on D): 3 rolling full checkpoints (enough to resume) + the best 3
   # weights-only, a 1 GB write every 500 steps instead of 100, and every new step / top / best
-  # checkpoint copied to workspace 1's knee-runs volume at the path a Modal run uses
+  # checkpoint copied to the knee-runs upload volume at the path a Modal run uses
   # (<run>/results/checkpoints), printed in the console as it lands
   keep_last_n: 3
   keep_top_k: 3
   checkpoint_every_steps: 500
   upload_checkpoints:
-    modal_config: "~/.modal_session1.toml"
+    modal_config: "local"            # path in ~/.knee_upload_modal_config (outside the repo)
     patterns: ["step*.pt", "top_step*.pt", "best.pt"]

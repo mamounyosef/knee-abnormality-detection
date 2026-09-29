@@ -28,6 +28,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run")
     ap.add_argument("--steps", type=int, default=12)
+    ap.add_argument("--chunk", type=int, default=None, help="override training.backbone_chunk")
+    ap.add_argument("--eight-bit", type=int, default=None, help="override optimizer.eight_bit (0/1)")
+    ap.add_argument("--inner-ckpt", type=int, default=None, help="override grad_checkpointing (0/1)")
+    ap.add_argument("--no-val", action="store_true")
     a = ap.parse_args()
     sys.path.insert(0, str(RUNS))
     sys.path.insert(0, str(RUNS / a.run))
@@ -37,6 +41,16 @@ def main():
     sc, cfg = tm.sc, tm.cfg
     assert cfg["experiment"]["name"] == a.run, cfg["experiment"]["name"]
     print(f"run {a.run}: train {cfg['paths']['train_csv']}, val {cfg['paths']['val_csv']}")
+    if a.chunk is not None:
+        cfg["training"]["backbone_chunk"] = a.chunk
+    if a.eight_bit is not None:
+        cfg["training"]["optimizer"]["eight_bit"] = bool(a.eight_bit)
+    if a.inner_ckpt is not None:
+        cfg["training"]["grad_checkpointing"] = bool(a.inner_ckpt)
+        cfg["model"]["grad_checkpointing"] = bool(a.inner_ckpt)
+    ckpt = bool(cfg["training"].get("grad_checkpointing") or cfg["model"].get("grad_checkpointing"))
+    print(f"variant: backbone_chunk {cfg['training'].get('backbone_chunk')}, eight_bit "
+          f"{cfg['training']['optimizer'].get('eight_bit')}, inner grad checkpointing {ckpt}")
     dl = cfg["dataloader"]
     B, ACC, VB = dl["batch_size"], dl.get("accum_steps", 1), dl.get("val_batch_size") or dl["batch_size"]
     dev = torch.device("cuda")
@@ -55,9 +69,10 @@ def main():
     loader = torch.utils.data.DataLoader(ds, batch_size=B, shuffle=False, num_workers=dl["num_workers"], persistent_workers=True, prefetch_factor=dl.get("prefetch_factor", 2))
 
     model = tm.build_model(cfg).to(dev).to(memory_format=torch.channels_last)
-    if cfg["training"].get("grad_checkpointing"):
-        getattr(model, "backbone", model).set_grad_checkpointing(True)
-    opt = torch.optim.AdamW(model.parameters(), lr=cfg["training"]["optimizer"]["lr"])
+    getattr(model, "backbone", model).set_grad_checkpointing(ckpt)   # build_model may read either key
+    if cfg["training"].get("backbone_chunk"):
+        sc.chunk_backbone(model, int(cfg["training"]["backbone_chunk"]))
+    opt = sc.build_optimizer(model, cfg)                              # the engine's own groups
     scaler = torch.amp.GradScaler("cuda", enabled=cfg["training"]["amp"])
     lossf = torch.nn.BCEWithLogitsLoss()
     torch.cuda.reset_peak_memory_stats()
@@ -90,6 +105,10 @@ def main():
     print(f"TRAIN: {len(times)} timed micro-steps, {step:.2f} s each (GPU only), peak VRAM {peak:.2f} GiB "
           f"of {card:.1f} ({'fits' if peak < card - 0.4 else 'TOO CLOSE / spills to system memory'})")
 
+    print(f"TRAIN seconds per study: {step / B:.2f}; {cfg['training']['epochs']} epochs x {len(df)} "
+          f"studies = {cfg['training']['epochs'] * len(df) * step / B / 3600:.1f} h GPU time")
+    if a.no_val:
+        return
     model.eval()
     vds = sc.KneeShardDataset(sub, cfg, plan, train=False)
     vl = torch.utils.data.DataLoader(vds, batch_size=VB, shuffle=False, num_workers=dl["num_workers"], persistent_workers=True, prefetch_factor=dl.get("prefetch_factor", 2))

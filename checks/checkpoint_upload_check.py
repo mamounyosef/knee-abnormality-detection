@@ -6,7 +6,7 @@ step file straight away (the rolling prune racing the upload), waits for the upl
 the remote folder and compares sizes. last.pt must NOT be uploaded (not in the patterns).
 Cleans the remote test folder afterwards.
 
-    python checks/checkpoint_upload_check.py [~/.modal_session1.toml]
+    python checks/checkpoint_upload_check.py [<modal config path>]
 """
 import os
 import subprocess
@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "runs"))
 import shared_code as sc  # noqa: E402
 
-cfg_path = sys.argv[1] if len(sys.argv) > 1 else "~/.modal_session1.toml"
+cfg_path = sys.argv[1] if len(sys.argv) > 1 else sc.resolve_upload_modal_config("local")
 RUN = "zz_upload_check"
 res = Path(tempfile.mkdtemp()) / "results"
 ck = res / "checkpoints"
