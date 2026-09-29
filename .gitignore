@@ -326,3 +326,4 @@ modal_scripts/pull_final_checkpoint.py
 modal_scripts/relay_shards.py
 modal_scripts/wait_download.py
 modal_scripts/watch_download.py
+checks/scrub_workspace_names.py
