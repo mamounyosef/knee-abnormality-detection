@@ -417,6 +417,42 @@
     "medimageinsight_davit_huge_perslice_480_warm"
    ],
    "notes": "The 0.938 ten with convnext_base_25d_all_knees_same_orientation_fulldata swapped for its local v3-label retrain. Public 0.938, a TIE with the original ten (56489550) even though the swapped member was trained with the frozen-augmentation bug and scored only 0.906 solo. Flat logit average of 10."
+  },
+  {
+   "submission_ref": 56668449,
+   "kernel": "mamounhussam/knee-cb25d18-mgraw-localcheck-submit",
+   "kernel_version": 2,
+   "submitted": "2026-09-29",
+   "public_score": 0.915,
+   "private_score": null,
+   "members": [
+    "convnext_base_25d_18slices_mglabels_raw_localcheck"
+   ],
+   "notes": "Solo. LOCAL replica (RTX 4060, after the augmentation-seed and partial-step fixes) of convnext_base_25d_18slices_mglabels_raw (Modal, 0.916): identical labels, split, settings. top_step3900.pt, val 0.9083 vs Modal 0.9086 at the same step. Public 0.915 vs 0.916: local training now matches Modal within leaderboard rounding."
+  },
+  {
+   "submission_ref": 56701302,
+   "kernel": "mamounhussam/knee-cb25d18-oof-seedfix-submit",
+   "kernel_version": 1,
+   "submitted": "2026-09-30",
+   "public_score": 0.922,
+   "private_score": null,
+   "members": [
+    "convnext_base_25d_18slices_oof_seedfix"
+   ],
+   "notes": "Solo. Out-of-fold labels (18_*: v3 + 30% out-of-fold convnext_base_25d_18slices logits, all 12 findings), retrained LOCALLY after the augmentation-seed fix; otherwise identical to the v3 local replica (0.915). best.pt step 5000, own-label val 0.9372, audit 0.9153 (replica 0.9084). Public 0.922 (+0.007 over v3's 0.915/0.916): the BEST single convnext_base_25d model so far; the old 0.905 was the bug, not the labels."
+  },
+  {
+   "submission_ref": 56716531,
+   "kernel": "mamounhussam/knee-cb25d18-ens-seedfix-submit",
+   "kernel_version": 1,
+   "submitted": "2026-09-30",
+   "public_score": 0.921,
+   "private_score": null,
+   "members": [
+    "convnext_base_25d_18slices_ens_seedfix"
+   ],
+   "notes": "Solo. Ensemble-prediction labels (20_*: v3 + 30% of the 0.938 ensemble's logits, all 12 findings), retrained LOCALLY after the augmentation-seed fix. top_step3900.pt (val peak), own-label val 0.9281, audit 0.9127. Public 0.921 vs out-of-fold labels 0.922 and v3 0.915: both model-prediction label sets beat v3 by ~0.006-0.007; the old 0.903 was the bug."
   }
  ]
 }

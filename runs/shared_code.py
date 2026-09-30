@@ -4336,19 +4336,23 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     print(f"                        {out / cfg['output']['val_log_csv']}")
     print("=" * 70)
 
-    # curves for every run, and a plotting bug must never sink a finished run
-    if cfg["output"].get("make_plots", True):
+    # curves for every run, and a plotting bug must never sink a finished run. make_plots is
+    # off in shared_config for MODAL (a container holds only its own CSV rows); a LOCAL run has
+    # the whole log on disk, so it always plots (local runs had no plots at all until 30 Sep)
+    if cfg["output"].get("make_plots", True) or runtime_side() == "local":
         _safe("make_plots", make_plots, cfg, out,
               cfg["output"].get("plots_dir", "plots"))
-        saver.join()                       # every checkpoint on disk before we flush
-        if saver.error:
-            print(f"  ⚠️  a checkpoint write failed: {saver.error}")
-        persist(blocking=True)             # the run is over: this one has to land
-        if persist.skipped:
-            print(f"  ℹ️  {persist.done} volume flushes, {persist.skipped} "
-                  f"skipped as redundant (one was already in flight)")
-        if persist.last_error:
-            print(f"  ⚠️  last volume flush error: {persist.last_error}")
+    # NOT inside the plot branch: with make_plots off (every Modal run) the final blocking
+    # flush used to be skipped entirely (fixed 30 Sep)
+    saver.join()                           # every checkpoint on disk before we flush
+    if saver.error:
+        print(f"  ⚠️  a checkpoint write failed: {saver.error}")
+    persist(blocking=True)                 # the run is over: this one has to land
+    if persist.skipped:
+        print(f"  ℹ️  {persist.done} volume flushes, {persist.skipped} "
+              f"skipped as redundant (one was already in flight)")
+    if persist.last_error:
+        print(f"  ⚠️  last volume flush error: {persist.last_error}")
     saver.join()                           # the last checkpoint is on disk (and offered)
     if _UPLOADER is not None:
         _UPLOADER.join()                   # ... and every upload has landed

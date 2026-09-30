@@ -331,3 +331,4 @@ checks/scrub_workspace_names.py
 # console logs of Kaggle submissions (local only)
 **/submit_log.txt
 runs/others/ensembling/*_log.txt
+**/submit_log*.txt
