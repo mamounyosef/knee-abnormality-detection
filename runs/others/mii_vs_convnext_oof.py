@@ -3,6 +3,7 @@
 Two 5-fold sets on the same studies (13_fold{k} = 21_fold{k} membership):
   ConvNeXt  convnext_base_25d_18slices_f{k}       (trained on v2 labels)
   MII       medimageinsight_davit_huge_336_v3_f{k} (trained on v3 labels)
+  ViT       dinov2_vits14_25d_f{k}                 (DINOv2 ViT-S/14, v2 labels)
 Each at its own best-val checkpoint.
 
 1. audit-58 (panel labels, in no fold, so every fold's audit prediction is blind), the judge
@@ -28,7 +29,8 @@ import sweep_new_runs as sw  # noqa: E402
 
 T = ["ACL", "MCL", "Medial Meniscus", "Lateral Meniscus", "Medial OA", "Lateral OA",
      "PF OA", "Effusion", "Synovitis", "Baker's", "Contusion", "Fracture"]
-FAM = {"ConvNeXt": "convnext_base_25d_18slices_f{}", "MII": "medimageinsight_davit_huge_336_v3_f{}"}
+FAM = {"ConvNeXt": "convnext_base_25d_18slices_f{}", "MII": "medimageinsight_davit_huge_336_v3_f{}",
+       "ViT": "dinov2_vits14_25d_f{}"}
 W = 0.3
 
 
@@ -88,13 +90,21 @@ def main():
         blend[fam] = sig((1 - W) * lg(c) + W * m)
         print(f"   {fam:22s} {min(per):.4f}-{max(per):.4f} ({np.mean(per):.4f} {np.mean(per) - base:+.4f})"
               f"   {mac(Y, blend[fam]):.4f} ({mac(Y, blend[fam]) - base:+.4f})   {mac(Y, m):.4f}")
-    both = np.mean(A["ConvNeXt"], 0) / 2 + np.mean(A["MII"], 0) / 2
-    blend["both"] = sig((1 - W) * lg(c) + W * both)
-    print(f"   {'both (half each)':22s} {'':34s} {mac(Y, blend['both']):.4f} ({mac(Y, blend['both']) - base:+.4f})"
-          f"   {mac(Y, both):.4f}")
+    # every combination of two or more families, equal weight per family
+    from itertools import combinations
+    for n in range(2, len(FAM) + 1):
+        for combo in combinations(FAM, n):
+            m = np.mean([np.mean(A[f], 0) for f in combo], 0)
+            key = " + ".join(combo)
+            blend[key] = sig((1 - W) * lg(c) + W * m)
+            print(f"   {key:30s} {'':26s} {mac(Y, blend[key]):.4f} ({mac(Y, blend[key]) - base:+.4f})"
+                  f"   {mac(Y, m):.4f}")
 
     rng = np.random.default_rng(0)
-    for x, y in (("MII", "ConvNeXt"), ("both", "ConvNeXt"), ("both", "MII")):
+    pairs = [("MII", "ConvNeXt"), ("ConvNeXt + MII", "ConvNeXt"), ("ConvNeXt + MII", "MII")]
+    if "ViT" in FAM:
+        pairs += [("ConvNeXt + MII + ViT", "ConvNeXt + MII"), ("ConvNeXt + MII + ViT", "ConvNeXt")]
+    for x, y in pairs:
         d = []
         for _ in range(2000):
             i = rng.integers(0, len(u), len(u))
@@ -110,7 +120,7 @@ def main():
     for name, lab in (("v2 labels (ConvNeXt's)", v2), ("v3 labels (MII's)", v3)):
         Yl = (lab.loc[ids, T].values >= 0.5).astype(int)
         r = {f: mac(Yl, O[f].loc[ids].values) for f in FAM}
-        r["both"] = mac(Yl, (O["MII"].loc[ids].values + O["ConvNeXt"].loc[ids].values) / 2)
+        r["all"] = mac(Yl, np.mean([O[f].loc[ids].values for f in FAM], 0))
         print(f"   vs {name:24s} " + "  ".join(f"{k} {v:.4f}" for k, v in r.items()))
 
 

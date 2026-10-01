@@ -140,7 +140,15 @@ NOTE         = ("THE 0.938 TEN WITH ONE MEMBER ON V3 LABELS. "
                 "medimageinsight_davit_huge_336_fulldata, "
                 "medimageinsight_davit_huge_perslice_480_warm. | Built with DINOv3")
 
+# where the bundle is built. "kaggle" is a junction to the C drive temp folder (ensembling_kaggle).
+OUT_DIR      = Path(__file__).resolve().parent / "kaggle"
+
 # ===========================================================================
+# A config file given on the command line overrides the block above (MEMBERS, SLUG, NOTE,
+# OUT_DIR, ...), so a second ensemble does not overwrite this one's record:
+#     python runs/others/ensembling/submit_ensemble.py runs/others/ensembling/configs/<name>.py
+if len(sys.argv) > 1:
+    exec(Path(sys.argv[1]).read_text(encoding="utf-8"), globals())
 
 PKG_ROOT = Path(__file__).resolve().parent.parent.parent      # <repo>/runs
 sys.path.insert(0, str(PKG_ROOT))
@@ -186,7 +194,7 @@ def main():
 
     sc._banner(f"ENSEMBLE SUBMISSION ({len(members)} members)", "\U0001F9E9")
     out = sc.build_kaggle_ensemble_assets(
-        members, Path(__file__).resolve().parent / "kaggle", KAGGLE_USER,
+        members, OUT_DIR, KAGGLE_USER,
         # The title must be UNIQUE per slug: Kaggle refuses to create a second dataset
         # under a title that already exists, so "knee ensemble 9" blocked every later
         # nine-member submission from getting its own dataset. Derive it from the slug,

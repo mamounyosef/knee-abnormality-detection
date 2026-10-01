@@ -332,3 +332,4 @@ checks/scrub_workspace_names.py
 **/submit_log.txt
 runs/others/ensembling/*_log.txt
 **/submit_log*.txt
+runs/others/ensembling/kaggle_*/

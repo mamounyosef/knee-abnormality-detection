@@ -477,6 +477,46 @@
     "medimageinsight_davit_huge_336_fulldata"
    ],
    "notes": "Solo, first time scored alone. Full data (train+val+audit), v2 labels, final step 4400, no val. Public 0.927 vs its split-data parent medimageinsight_davit_huge_336 0.929: full data gave no gain (-0.002, within the +/-0.007 single-score noise). Kernel 13.2 min."
+  },
+  {
+   "submission_ref": 56747511,
+   "kernel": "mamounhussam/knee-mii-336-v3-5folds-submit",
+   "kernel_version": 1,
+   "submitted": "2026-10-01",
+   "public_score": 0.936,
+   "private_score": null,
+   "members": [
+    "medimageinsight_davit_huge_336_v3_f0",
+    "medimageinsight_davit_huge_336_v3_f1",
+    "medimageinsight_davit_huge_336_v3_f2",
+    "medimageinsight_davit_huge_336_v3_f3",
+    "medimageinsight_davit_huge_336_v3_f4"
+   ],
+   "notes": "The 5 MedImageInsight v3-label fold models (best-val steps 2700/3500/3400/2700/3200), flat logit mean, one architecture. Public 0.936: +0.007 over the single split MII (0.929), +0.009 over the full-data MII (0.927), +0.018 over the ConvNeXt 5-fold ensemble (0.918), and only 0.002 below the 10-member 0.938 ensemble. Audit-58 of the fold mean 0.9252. Kernel 28.4 min. Built with submit_ensemble.py configs/mii_v3_folds.py."
+  },
+  {
+   "submission_ref": 56749586,
+   "kernel": "mamounhussam/knee-cb25d18-oof-convnext-mii-w30-submit",
+   "kernel_version": 1,
+   "submitted": "2026-10-01",
+   "public_score": 0.922,
+   "private_score": null,
+   "members": [
+    "convnext_base_25d_18slices_oof_convnext_mii_labels_w30"
+   ],
+   "notes": "Solo. Modal H100. Labels 22_*-w30: v3 70% + ConvNeXt folds 15% + MII folds 15% (label audit 0.9414). top_step3900 (val peak), val 0.9360 own labels, audit 0.9172. Public 0.922, a TIE with the ConvNeXt-only-teacher twin convnext_base_25d_18slices_oof_seedfix (0.922, audit 0.9153). Kernel 15.2 min."
+  },
+  {
+   "submission_ref": 56749747,
+   "kernel": "mamounhussam/knee-cb25d18-oof-convnext-mii-w50-submit",
+   "kernel_version": 1,
+   "submitted": "2026-10-01",
+   "public_score": 0.927,
+   "private_score": null,
+   "members": [
+    "convnext_base_25d_18slices_oof_convnext_mii_labels_w50"
+   ],
+   "notes": "Solo. Modal H100. Labels 22_*-w50: v3 50% + ConvNeXt folds 25% + MII folds 25% (label audit 0.9453). top_step5000 (val peak), val 0.9598 own labels, audit 0.9201. Public 0.927: BEST convnext_base_25d single, +0.005 over its w30 twin and the ConvNeXt-only-teacher twin (both 0.922), +0.011 over v3 labels (0.916). Kernel 10.1 min."
   }
  ]
 }

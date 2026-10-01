@@ -55,6 +55,39 @@
   "knee-ensemble-6-mae-flat-submit": {
    "observed_rerun_hours": 5.7,
    "public_score": "0.931"
+  },
+  "knee-mii-336-v3-5folds-submit@3": {
+   "n_studies_measured": 3,
+   "gpu": "Tesla T4",
+   "slug": "knee-mii-336-v3-5folds-submit",
+   "stress": false,
+   "decode_s_per_study": 5.6455220493332945,
+   "members": {
+    "medimageinsight_davit_huge_336_v3_f0": 1.5661108860000847,
+    "medimageinsight_davit_huge_336_v3_f1": 1.5210962776666292,
+    "medimageinsight_davit_huge_336_v3_f2": 0.5640112806665911,
+    "medimageinsight_davit_huge_336_v3_f3": 0.551344666333307,
+    "medimageinsight_davit_huge_336_v3_f4": 0.5698281593333832
+   }
+  },
+  "knee-ten-v3-labels-25d-submit@3": {
+   "n_studies_measured": 3,
+   "gpu": "Tesla T4",
+   "slug": "knee-ten-v3-labels-25d-submit",
+   "stress": false,
+   "decode_s_per_study": 4.870334506999825,
+   "members": {
+    "convnext_base_full_all_knees_same_orientation": 3.6583680196667956,
+    "mricore_vitb_cross_attention": 1.4883114846664587,
+    "mricore_vitb_mae_cross_attention_fulldata_flip": 1.8586327666666875,
+    "dinov3_convnext_base": 3.138747881000048,
+    "convnext_base_25d_all_knees_same_orientation_fulldata_v3_labels": 1.8771950543332423,
+    "swinv2_base_in22k": 4.266282031000022,
+    "convnext_base_25d_poolattn_fulldata_flip": 2.099565061333427,
+    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip": 1.950750189333121,
+    "medimageinsight_davit_huge_336_fulldata": 1.1500736836666572,
+    "medimageinsight_davit_huge_perslice_480_warm": 3.980018142000214
+   }
   }
  },
  "n_test_studies": 946.1028604134741,
