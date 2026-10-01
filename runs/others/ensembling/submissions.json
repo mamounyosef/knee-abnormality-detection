@@ -453,6 +453,30 @@
     "convnext_base_25d_18slices_ens_seedfix"
    ],
    "notes": "Solo. Ensemble-prediction labels (20_*: v3 + 30% of the 0.938 ensemble's logits, all 12 findings), retrained LOCALLY after the augmentation-seed fix. top_step3900.pt (val peak), own-label val 0.9281, audit 0.9127. Public 0.921 vs out-of-fold labels 0.922 and v3 0.915: both model-prediction label sets beat v3 by ~0.006-0.007; the old 0.903 was the bug."
+  },
+  {
+   "submission_ref": 56717588,
+   "kernel": "mamounhussam/knee-cb25d18-ens-seedfix-submit",
+   "kernel_version": 2,
+   "submitted": "2026-09-30",
+   "public_score": 0.922,
+   "private_score": null,
+   "members": [
+    "convnext_base_25d_18slices_ens_seedfix"
+   ],
+   "notes": "Solo, same run as 56716531 but step5000.pt: the audit peak (0.9169) at val 0.9278 vs step 3900's 0.9281 / 0.9127. Public 0.922 vs 0.921: audit picked the better checkpoint, by 0.001 (noise level). Backup at C:\\temp1\\checkpoint_backups."
+  },
+  {
+   "submission_ref": 56718464,
+   "kernel": "mamounhussam/medimageinsight-davit-huge-336-fulldata-submit",
+   "kernel_version": 1,
+   "submitted": "2026-09-30",
+   "public_score": 0.927,
+   "private_score": null,
+   "members": [
+    "medimageinsight_davit_huge_336_fulldata"
+   ],
+   "notes": "Solo, first time scored alone. Full data (train+val+audit), v2 labels, final step 4400, no val. Public 0.927 vs its split-data parent medimageinsight_davit_huge_336 0.929: full data gave no gain (-0.002, within the +/-0.007 single-score noise). Kernel 13.2 min."
   }
  ]
 }

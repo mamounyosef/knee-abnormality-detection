@@ -13,21 +13,24 @@ RUN_LOCAL=False does the work on Modal (the checkpoints and the raw DICOM zip bo
 live there). Set it True to do it on this PC — useful when a workspace is out of
 credit, and it needs the checkpoint already synced locally.
 
-    python -m modal run runs/convnext_base_25d_18slices/submit.py       # RUN_LOCAL = False
-    python runs/convnext_base_25d_18slices/submit.py                    # RUN_LOCAL = True
+    python -m modal run runs/medimageinsight_davit_huge_336_fulldata/submit.py       # RUN_LOCAL = False
+    python runs/medimageinsight_davit_huge_336_fulldata/submit.py                    # RUN_LOCAL = True
 """
 
 import sys
 from pathlib import Path
 
-RUN_LOCAL = False              # True = do it here, False = do it on Modal
+RUN_LOCAL = True               # True = do it here, False = do it on Modal
 PUBLISH = True                 # after building: push the dataset + notebook and submit
 WAIT_FOR_RUN = True            # poll until the notebook finishes, then submit
 KAGGLE_USER = "mamounhussam"   # owner slug for the dataset and the notebook
 CHECKPOINT = "best"            # best | last | top1.. | <step> | path
+MESSAGE = "medimageinsight_davit_huge_336_fulldata SOLO | full data (train+val+audit), v2 labels | final step 4400 | no val"
 VERIFY_STUDIES = 3             # DICOM-vs-shard check; 0 skips it
 
 EXP_NAME = "medimageinsight_davit_huge_336_fulldata"
+KAGGLE_NAME = EXP_NAME   # Kaggle names cap at 50; the full name gets cut
+                                             # to its parent's names (engine refuses that)
 
 
 def _pkg_root() -> Path:
@@ -75,7 +78,7 @@ def build(cfg, exp_dir, out_dir, ckpt_dir, data_zip=None):
     if ck is None:
         raise SystemExit(f"no checkpoint {CHECKPOINT!r} in {ckpt_dir}")
     print(f"\n📦 packaging {ck}")
-    return sc.build_kaggle_assets(cfg, exp_dir, out_dir, ck, KAGGLE_USER)
+    return sc.build_kaggle_assets(cfg, exp_dir, out_dir, ck, KAGGLE_USER, kaggle_name=KAGGLE_NAME)
 
 
 def _publish(out):
@@ -83,10 +86,10 @@ def _publish(out):
     if not PUBLISH:
         print("PUBLISH is False — assets built, nothing uploaded")
         return
-    slug = f"knee-{EXP_NAME.replace('_', '-')}"
+    slug = f"knee-{KAGGLE_NAME.replace('_', '-')}"
     cfg = sc.load_config(EXP_DIR, verbose=False)
     sc.kaggle_publish(out, KAGGLE_USER, slug, f"{slug}-submit",
-                      message=sc.submission_message(cfg, EXP_DIR), wait=WAIT_FOR_RUN)
+                      message=MESSAGE or sc.submission_message(cfg, EXP_DIR), wait=WAIT_FOR_RUN)
 
 
 def run_local():
