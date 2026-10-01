@@ -147,3 +147,6 @@ output:
   upload_checkpoints:
     modal_config: "local"            # path in ~/.knee_upload_modal_config (outside the repo)
     patterns: ["top_step*.pt", "best.pt"]
+
+evaluation:
+  eval_every_steps_before: 800            # epochs 1..4: validate half as often (user, 1 Oct); the best step comes late

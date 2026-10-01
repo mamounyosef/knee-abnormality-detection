@@ -25,6 +25,7 @@ sys.path.insert(0, str(RUNS))
 T = ["ACL", "MCL", "Medial Meniscus", "Lateral Meniscus", "Medial OA", "Lateral OA", "PF OA",
      "Effusion", "Synovitis", "Baker's", "Contusion", "Fracture"]
 COMMON = {"experiment.name", "paths.train_csv", "paths.val_csv", "input.laterality_flip",
+          "evaluation.eval_every_steps_before",
           "training.early_stopping.patience"}
 LOCAL_KEYS = {"training.grad_checkpointing", "dataloader.batch_size", "dataloader.accum_steps",
               "dataloader.val_batch_size", "dataloader.num_workers", "dataloader.val_num_workers",
@@ -75,6 +76,7 @@ for k in range(5):
     check(diff <= allowed and COMMON <= diff, f"3. differs from {donor} only in expected keys: {sorted(diff)}")
     check(cfg["input"].get("laterality_flip") == "left", "3. knee flip on (left knees mirrored)")
     check(cfg["training"]["early_stopping"]["patience"] == 7, "3. patience 7")
+    check(cfg["evaluation"]["eval_every_steps_before"] == 800, "3. validates every 800 steps in epochs 1-4")
     eff = cfg["dataloader"]["batch_size"] * cfg["dataloader"]["accum_steps"]
     check(eff == dcfg["dataloader"]["batch_size"] * dcfg["dataloader"]["accum_steps"] == 8,
           f"3. {eff} studies per update, same as the donor")

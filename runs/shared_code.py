@@ -6115,6 +6115,14 @@ if not hits:
                      + str(sorted(glob.glob('/kaggle/input/**/*', recursive=True))[:200]))
 W = Path(hits[0]).parent
 sys.path.insert(0, str(W))
+# Kaggle sometimes mounts the PREVIOUS dataset version right after an upload (cost a 43 min
+# stress run on 1 Oct). Stop in seconds instead; the publisher sees this and pushes again.
+import hashlib
+_eng = hashlib.sha1((W / 'shared_code.py').read_bytes()).hexdigest()
+if _eng != '__ENGINE__':
+    Path('engine_mismatch.txt').write_text(_eng)
+    raise RuntimeError('ENGINE MISMATCH: mounted %s, expected __ENGINE__' % _eng)
+print('engine', _eng)
 subs = sorted(glob.glob('/kaggle/input/**/sample_submission.csv', recursive=True))
 if not subs:
     raise SystemExit('competition data not found under /kaggle/input')
@@ -6260,7 +6268,8 @@ except Exception:
     bail('inference failed')
 pd.read_csv('submission.csv').head()""",
     ]
-    cells = [c.replace("__STRESS__", str(int(stress))) for c in cells]
+    _eng = _code_sha(w / "shared_code.py")
+    cells = [c.replace("__STRESS__", str(int(stress))).replace("__ENGINE__", _eng) for c in cells]
     _cells = [{"cell_type": "code", "metadata": {}, "source": c.splitlines(True),
                "outputs": [], "execution_count": None} for c in cells]
     if _notice_cell:                      # first cell, so it is the first thing seen
@@ -6770,7 +6779,7 @@ class _CardProcess:
 
     def __init__(self, dev_str: str, specs: list, build_timeout: float = 1800.0):
         ctx = _mp.get_context("spawn")       # fork after CUDA init is undefined behaviour
-        self.dev_str, self.n = dev_str, len(specs)
+        self.dev_str, self.n, self.specs = dev_str, len(specs), list(specs)
         self.task_q, self.res_q = ctx.Queue(), ctx.Queue()
         self.p = ctx.Process(target=_proc_worker,
                              args=(dev_str, specs, self.task_q, self.res_q), daemon=True)
@@ -6853,6 +6862,32 @@ def _get_card_processes(devices: list, assign: list, model_specs: list):
             _CARD_PROCS[key] = cp
         cards.append(cp)
     return cards
+
+
+def _child_resident_gb() -> float:
+    """Weights (GB, from the bundle's m<i>_model.pt sizes) that all live children keep on their
+    cards. Each geometry group has its own child, and they all share the second card."""
+    tot = 0
+    for cp in _CARD_PROCS.values():
+        for sp in getattr(cp, "specs", []) or []:
+            try:
+                tot += (Path(sp["dir"]) / ("m%d_model.pt" % int(sp["i"]))).stat().st_size
+            except (OSError, KeyError, TypeError, ValueError):
+                pass
+    return tot / 1e9
+
+
+def _trim_host_memory() -> None:
+    """Give freed host memory back to the system. Moving weights between the card and host
+    memory every chunk leaves glibc's heap fragmented, and resident memory then creeps up a
+    few hundred MB per chunk (1 Oct stress run: 20.8, 23.1, 23.5, 23.7 GB). Linux only."""
+    import gc
+    gc.collect()
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
 
 
 def shutdown_card_processes() -> None:
@@ -7440,7 +7475,14 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
         # out of memory (the 480 px MII, a one-member group) always lands on card 0, which
         # this process drives, and offloading the children too parked another ~4 GB in host
         # RAM: the 1 Oct stress run reached 32.7 of 33.7 GB and the kernel killed a loader.
-        if (cfg0.get("inference", {}) or {}).get("offload_children", False):
+        # "auto" (the default) offloads them only once the weights every child keeps on the
+        # second card pass card_weight_budget_gb, so a bigger ensemble cannot fill that card
+        # either, while one that fits keeps its weights resident and costs no host RAM.
+        _oc = (cfg0.get("inference", {}) or {}).get("offload_children", "auto")
+        if _oc == "auto":
+            _budget = float((cfg0.get("inference", {}) or {}).get("card_weight_budget_gb", 6.0))
+            _oc = _child_resident_gb() > _budget
+        if _oc:
             for _di, cp in enumerate(cards, start=1):
                 if cp is not None and _di not in _dead_cards:
                     try:
@@ -7450,6 +7492,7 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
         for _m in _fallback_models.values():
             _m.to("cpu")
         torch.cuda.empty_cache()
+        _trim_host_memory()
     notes.append(_ram_note("group end"))
     timing["notes"] = list(notes)
     # member-logit batches are (n_members, k, n_tasks), so studies live on axis 1
@@ -7826,8 +7869,8 @@ def _kaggle(*args, check=True, quiet=False, cwd=None):
     return out
 
 
-def _wait_for_dataset(user: str, slug: str, tries: int = 20, secs: int = 30,
-                      expect_models: int = 0):
+def _wait_for_dataset(user: str, slug: str, tries: int = 40, secs: int = 30,
+                      expect_models: int = 0, local_dir=None):
     """Block until kaggle finishes processing the upload, and check EVERY member landed.
 
     Push the notebook too early and the dataset is not mounted — the kernel dies with
@@ -7854,9 +7897,20 @@ def _wait_for_dataset(user: str, slug: str, tries: int = 20, secs: int = 30,
         if "error" in out.lower():
             continue
         missing = [w for w in want if w not in out]
+        if not missing and local_dir is not None:
+            # Same names are not enough: the OLD version lists them too (1 Oct, stress run 3
+            # ran the previous engine). Every file's size must match what was just uploaded.
+            try:
+                have = kaggle_dataset_files(f"{user}/{slug}")
+            except SystemExit:
+                continue
+            loc = {f.name: f.stat().st_size for f in Path(local_dir).iterdir()
+                   if f.is_file() and f.name != "dataset-metadata.json"}
+            missing = sorted(k for k in set(loc) | set(have) if loc.get(k) != have.get(k))
         if not missing:
             print(f"      ✅ dataset ready after {(i + 1) * secs}s "
-                  f"({len(want)} model file(s) confirmed)")
+                  f"({len(want)} model file(s) confirmed"
+                  f"{', every file size matches the upload' if local_dir is not None else ''})")
             return
     raise SystemExit(
         "❌ kaggle never listed %d of the %d model files after %ds: %s\n"
@@ -7942,6 +7996,8 @@ def bundle_fingerprint(assets_dir) -> str:
 
 
 STRESS_PASSES = Path(__file__).resolve().parent / "others" / "ensembling" / "stress_passes"
+HIDDEN_TEST_STUDIES = 946          # solved from observed rerun wall times (runtime_budget.py)
+HIDDEN_RUNTIME_LIMIT_H = 8.0       # margin under the 9 h cap: Kaggle's machines vary
 
 
 def _code_sha(path) -> str:
@@ -8002,6 +8058,34 @@ def verify_stress_output(user: str, notebook_slug: str, n_members: int, n_studie
             if peak > 0.85:
                 problems.append("host RAM peaked at %.0f%% of the machine; the limit is 85%% "
                                 "(the 946-study rerun runs ~8x more chunks)" % (peak * 100))
+            # RAM GROWTH projected to the hidden set: resident memory creeps between chunks,
+            # so the last chunk-to-chunk rise, carried across the hidden set's chunk count,
+            # must still leave 10% of the machine free.
+            ends = [(int(c), float(a), float(b)) for c, a, b in re.findall(
+                r"chunk at (\d+): group end \[[^\]]*\]: RAM used ([\d.]+) / ([\d.]+) GB", txt)]
+            per_chunk = {}
+            for c, a, b in ends:                      # the last group's figure in each chunk
+                per_chunk[c] = (a, b)
+            seq = [per_chunk[c] for c in sorted(per_chunk)]
+            if len(seq) >= 3:
+                rise = max(0.0, seq[-1][0] - seq[-2][0])
+                more = max(0, -(-HIDDEN_TEST_STUDIES // max(1, n_studies // len(seq))) - len(seq))
+                proj = seq[-1][0] + rise * more
+                if proj / seq[-1][1] > 0.90:
+                    problems.append("host RAM is still rising %.1f GB per chunk: over the hidden set's "
+                                    "%d more chunks it would reach %.1f of %.1f GB (limit 90%%)"
+                                    % (rise, more, proj, seq[-1][1]))
+        # WALL CLOCK projected to the hidden set, against the 9 h cap with a margin
+        wm = re.search(r"scored \d+ studies with \d+/\d+ members in ((?:\d+h)?(?:\d+m)?(?:\d+s)?)", txt)
+        if wm:
+            secs = sum(int(v) * {"h": 3600, "m": 60, "s": 1}[u]
+                       for v, u in re.findall(r"(\d+)([hms])", wm.group(1)))
+            proj_h = (secs / max(n_studies, 1)) * HIDDEN_TEST_STUDIES / 3600 + 0.25
+            if proj_h > HIDDEN_RUNTIME_LIMIT_H:
+                problems.append("projected %.1f h on the %d hidden studies (%.1f s/study + 15 min "
+                                "fixed) - over the %.1f h safety limit under the 9 h cap"
+                                % (proj_h, HIDDEN_TEST_STUDIES, secs / max(n_studies, 1),
+                                   HIDDEN_RUNTIME_LIMIT_H))
         ch = re.search(r"decode chunks (\d+)", txt)
         if not ch or int(ch.group(1)) < 2:
             problems.append("the run used %s decode chunk(s); a stress run must cross at least 2"
@@ -8081,6 +8165,73 @@ def verify_kernel_output(user: str, notebook_slug: str, n_members: int,
     return problems
 
 
+def _kernel_engine_mismatch(user: str, notebook_slug: str) -> str | None:
+    """The engine sha a finished kernel refused (it wrote engine_mismatch.txt), else None."""
+    import tempfile
+    d = Path(tempfile.mkdtemp(prefix="knee_engine_"))
+    _kaggle("kernels", "output", "%s/%s" % (user, notebook_slug), "-p", str(d),
+            quiet=True, check=False)
+    f = d / "engine_mismatch.txt"
+    if f.exists():
+        return f.read_text(errors="replace").strip() or "?"
+    for p in d.glob("*.log"):                  # the file can be missing from a failed run
+        m = re.search(r"ENGINE MISMATCH: mounted ([0-9a-f]+)", p.read_text(errors="replace"))
+        if m:
+            return m.group(1)
+    return None
+
+
+def _push_and_wait(user, notebook_slug, nb_dir, wait, poll_secs, engine_guard=False,
+                   retries: int = 4, retry_wait_s: int = 180):
+    """Push the notebook and wait. Returns (version, ok); ok False = error or cancel.
+
+    With engine_guard the notebook stops in seconds when Kaggle mounted a PREVIOUS dataset
+    version (it checks the engine sha it was built with). Then wait and push again, up to
+    `retries` times, instead of losing a whole run to the old code."""
+    version = None
+    for attempt in range(1, retries + 1):
+        print(f"\n  2/4 notebook {user}/{notebook_slug}"
+              + (f"  (attempt {attempt}/{retries})" if attempt > 1 else ""))
+        out = _kaggle("kernels", "push", "-p", str(nb_dir))
+        m = re.search(r"version\s+(\d+)", out, re.I)
+        version = m.group(1) if m else None
+        print(f"      pushed version {version or '?'}")
+        if not wait:
+            return version, True
+        print("\n  3/4 waiting for the kernel to finish")
+        # wall clock from "pushed" to "complete". Not the same as the kernel's own runtime
+        # (kaggle queues before it starts), but it is the only figure visible from here, and
+        # it upper-bounds the 9h cap. The notebook prints the real s/study inside its log.
+        wait_t0 = time.time()
+        while True:
+            st = _kaggle("kernels", "status", f"{user}/{notebook_slug}", quiet=True)
+            low = st.lower()
+            if "complete" in low or "error" in low or "cancel" in low:
+                break
+            print(f"      … {st.strip()[:90]}")
+            time.sleep(poll_secs)
+        el = time.time() - wait_t0
+        bad_engine = _kernel_engine_mismatch(user, notebook_slug) if engine_guard else None
+        if bad_engine:
+            print(f"      ⚠️ Kaggle mounted an OLD dataset version (engine {bad_engine[:10]}); "
+                  f"the kernel stopped after {el / 60:.1f} min")
+            if attempt < retries:
+                print(f"      waiting {retry_wait_s}s, then pushing again")
+                time.sleep(retry_wait_s)
+                continue
+            print("      ❌ still the old version after %d pushes: re-upload the dataset" % retries)
+            return version, False
+        if "complete" in low:
+            print(f"      ✅ complete in {el / 60:.1f} min "
+                  f"({el / 3600:.2f} h of the 9 h cap, queue included)")
+            return version, True
+        print(f"      ❌ {st.strip()}")
+        print("      fetch the log with: kaggle kernels output "
+              f"{user}/{notebook_slug} -p .")
+        return version, False
+    return version, False
+
+
 def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
                    message: str, wait: bool = True, poll_secs: int = 60,
                    submit: bool = True, n_members: int | None = None,
@@ -8140,7 +8291,8 @@ def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
         # burn its full 600s timeout before reporting "kaggle never listed model.pt",
         # which hides the real message (e.g. "title must be between 6 and 50 characters").
         raise SystemExit("❌ dataset upload failed: %s" % out.strip()[:500])
-    _wait_for_dataset(user, dataset_slug, expect_models=len(list(w.glob("m*_model.pt"))))
+    _wait_for_dataset(user, dataset_slug, expect_models=len(list(w.glob("m*_model.pt"))),
+                      local_dir=w if ensemble else None)
 
     # the assets are the source of truth: build_kaggle_assets may have had to change the
     # slug to keep it consistent with a title Kaggle would otherwise have re-slugified
@@ -8152,33 +8304,10 @@ def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
             notebook_slug = _id
     except Exception:
         pass
-    print(f"\n  2/4 notebook {user}/{notebook_slug}")
-    out = _kaggle("kernels", "push", "-p", str(assets / "notebook"))
-    m = re.search(r"version\s+(\d+)", out, re.I)
-    version = m.group(1) if m else None
-    print(f"      pushed version {version or '?'}")
-
-    if not wait:
+    version, ok = _push_and_wait(user, notebook_slug, assets / "notebook", wait, poll_secs,
+                                 engine_guard=ensemble)
+    if not ok or not wait:
         return version
-    print("\n  3/4 waiting for the kernel to finish")
-    # wall clock from "pushed" to "complete". Not the same as the kernel's own runtime
-    # (kaggle queues before it starts), but it is the only figure visible from here, and
-    # it upper-bounds the 9h cap. The notebook prints the real s/study inside its log.
-    wait_t0 = time.time()
-    while True:
-        st = _kaggle("kernels", "status", f"{user}/{notebook_slug}", quiet=True)
-        low = st.lower()
-        if "complete" in low:
-            el = time.time() - wait_t0
-            print(f"      ✅ complete in {el / 60:.1f} min "
-                  f"({el / 3600:.2f} h of the 9 h cap, queue included)"); break
-        if "error" in low or "cancel" in low:
-            print(f"      ❌ {st.strip()}")
-            print("      fetch the log with: kaggle kernels output "
-                  f"{user}/{notebook_slug} -p .")
-            return version
-        print(f"      … {st.strip()[:90]}")
-        time.sleep(poll_secs)
 
     if stress and ensemble:
         print("\n  4/4 STRESS run: checking every chunk, group and member")
@@ -8189,10 +8318,21 @@ def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
                 print("         - %s" % b)
             return version
         STRESS_PASSES.mkdir(parents=True, exist_ok=True)
+        # Keep what a later submission needs WITHOUT the weights: the notebook folder and the
+        # exact file list (name -> bytes) of the dataset version this run used. A bundle can be
+        # bigger than this PC's free disk; submit_from_stress_stamp reuses the dataset already
+        # on Kaggle after proving it is byte-for-byte this list.
+        nb_keep = STRESS_PASSES / ("%s_notebook" % fp)
+        if nb_keep.exists():
+            shutil.rmtree(nb_keep)
+        shutil.copytree(assets / "notebook", nb_keep)
+        manifest = {f.name: f.stat().st_size for f in sorted(w.iterdir()) if f.is_file()
+                    and f.name != "dataset-metadata.json"}
         stamp.write_text(json.dumps({"fingerprint": fp, "engine_sha1": code_sha,
                                      "notebook": "%s/%s" % (user, notebook_slug),
+                                     "dataset": "%s/%s" % (user, dataset_slug),
                                      "version": version, "n_members": n_members,
-                                     "stress_studies": stress,
+                                     "stress_studies": stress, "manifest": manifest,
                                      "passed": datetime.now().isoformat(timespec="seconds")},
                                     indent=1), encoding="utf-8")
         print("      ✅ STRESS RUN PASSED: %d studies, every member scored in every chunk."
@@ -8218,6 +8358,92 @@ def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
     print("\n  4/4 submitting")
     args = ["competitions", "submit", "-c", "rsna-knee-abnormality-detection",
             "-f", "submission.csv", "-k", f"{user}/{notebook_slug}", "-m", message]
+    if version:
+        args += ["-v", version]
+    _kaggle(*args)
+    return version
+
+
+def kaggle_dataset_files(user_slug: str) -> dict:
+    """{file name: bytes} of a Kaggle dataset's CURRENT version (follows every page)."""
+    import csv as _csv
+    import io as _io
+    out, token = {}, None
+    for _ in range(50):
+        args = ["datasets", "files", user_slug, "--csv", "--page-size", "200"]
+        if token:
+            args += ["--page-token", token]
+        txt = _kaggle(*args, quiet=True)
+        m = re.search(r"Next Page Token = (\S+)", txt)
+        token = m.group(1) if m else None
+        body = txt[txt.find("name,size"):] if "name,size" in txt else ""
+        for row in _csv.DictReader(_io.StringIO(body)):
+            try:
+                out[row["name"]] = int(row["size"])
+            except (KeyError, ValueError, TypeError):
+                pass
+        if not token:
+            break
+    return out
+
+
+def submit_from_stress_stamp(fingerprint: str, message: str, poll_secs: int = 60,
+                             submit: bool = True) -> str | None:
+    """Submit an ensemble that passed its STRESS run, WITHOUT rebuilding it or holding its
+    weights on this PC: the dataset version that STRESS run used is already on Kaggle.
+
+    Refuses unless (1) a stamp exists for this fingerprint, (2) the Kaggle dataset's current
+    version is byte-for-byte the stamped file list, then pushes the stamped notebook with
+    STRESS = 0, and finally (3) demands the kernel ran the stamped engine (code sha1) and passed
+    the usual output checks before spending an attempt."""
+    stamps = [p for p in STRESS_PASSES.glob("*.json") if p.stem.startswith(fingerprint)]
+    if len(stamps) != 1:
+        raise SystemExit("❌ no unique stress stamp for %r (found %d)" % (fingerprint, len(stamps)))
+    st = json.loads(stamps[0].read_text(encoding="utf-8"))
+    fp = st["fingerprint"]
+    nb_saved = STRESS_PASSES / ("%s_notebook" % fp)
+    if "manifest" not in st or "dataset" not in st or not nb_saved.exists():
+        raise SystemExit("❌ stamp %s predates notebook/manifest keeping: rebuild and "
+                         "run a new STRESS build" % fp[:12])
+    _banner("SUBMIT FROM STRESS STAMP %s" % fp[:12], "\U0001F680")
+    print("  1/4 the Kaggle dataset must be exactly the stress-tested one")
+    have = kaggle_dataset_files(st["dataset"])
+    want = st["manifest"]
+    diff = sorted(set(have) ^ set(want)) + sorted(k for k in set(have) & set(want) if have[k] != want[k])
+    if diff:
+        raise SystemExit("❌ %s is not the stress-tested version: %d file(s) differ, e.g. %s"
+                         % (st["dataset"], len(diff), diff[:5]))
+    print("      ✅ %d files, every size matches the stamp" % len(want))
+    import tempfile
+    nb = Path(tempfile.mkdtemp(prefix="knee_stamp_nb_")) / "notebook"
+    shutil.copytree(nb_saved, nb)
+    ipynb = nb / "submit.ipynb"
+    src = ipynb.read_text(encoding="utf-8")
+    new, k = re.subn(r"STRESS = \d+", "STRESS = 0", src)
+    if k != 1:
+        raise SystemExit("❌ expected exactly one STRESS line in the saved notebook, found %d" % k)
+    if "ENGINE MISMATCH" not in new or st["engine_sha1"] not in new:
+        raise SystemExit("❌ the saved notebook has no engine guard for %s: rebuild and run a "
+                         "new STRESS build" % st["engine_sha1"][:10])
+    ipynb.write_text(new, encoding="utf-8")
+    user, notebook_slug = st["notebook"].split("/", 1)
+    print("      (STRESS = 0)")
+    version, ok = _push_and_wait(user, notebook_slug, nb, True, poll_secs, engine_guard=True)
+    if not ok:
+        return version
+    print("\n  4/4 checking the kernel's own output before submitting")
+    bad = verify_kernel_output(user, notebook_slug, n_members=int(st["n_members"]),
+                               code_sha=st["engine_sha1"])
+    if bad:
+        print("      ❌ NOT SUBMITTING:")
+        for b in bad:
+            print("         - %s" % b)
+        return version
+    print("      ✅ output looks sound, and the kernel ran the stress-tested engine")
+    if not submit:
+        return version
+    args = ["competitions", "submit", "-c", "rsna-knee-abnormality-detection",
+            "-f", "submission.csv", "-k", st["notebook"], "-m", message]
     if version:
         args += ["-v", version]
     _kaggle(*args)

@@ -138,3 +138,6 @@ modal:
 
 reproducibility:
   seed: 1042                          # this fold's own seed: adds trajectory diversity
+
+evaluation:
+  eval_every_steps_before: 800            # epochs 1..4: validate half as often (user, 1 Oct); the best step comes late

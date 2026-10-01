@@ -1,0 +1,65 @@
+scored 128 studies with 14/14 members in 33m01s over 5 decode pass(es)
+members: convnext_base_full_all_knees_same_orientation, mricore_vitb_cross_attention, mricore_vitb_mae_cross_attention_fulldata_flip, dinov3_convnext_base, convnext_base_25d_all_knees_same_orientation_fulldata, swinv2_base_in22k, convnext_base_25d_poolattn_fulldata_flip, convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip, medimageinsight_davit_huge_perslice_480_warm, medimageinsight_davit_huge_336_v3_f0, medimageinsight_davit_huge_336_v3_f1, medimageinsight_davit_huge_336_v3_f2, medimageinsight_davit_huge_336_v3_f3, medimageinsight_davit_huge_336_v3_f4
+gpus used: 2
+code sha1 97eb16209321d135ba76cc187ad0db1eecde3aea
+decode chunks 4 of up to 32 studies
+group 0 chunk at 0: group start [convnext_base_full_all_knees_s, mricore_vitb_mae_cross_attenti]: RAM used 16.3 / 33.7 GB; cuda:0 free 15.1 GB, cuda:1 free 15.0 GB
+group 0 chunk at 0: group end [convnext_base_full_all_knees_s, mricore_vitb_mae_cross_attenti]: RAM used 17.2 / 33.7 GB; cuda:0 free 15.5 GB, cuda:1 free 14.9 GB
+group 1 chunk at 0: group start [mricore_vitb_cross_attention, dinov3_convnext_base, swinv2_base_in22k]: RAM used 17.9 / 33.7 GB; cuda:0 free 15.1 GB, cuda:1 free 14.0 GB
+group 1 chunk at 0: group end [mricore_vitb_cross_attention, dinov3_convnext_base, swinv2_base_in22k]: RAM used 17.9 / 33.7 GB; cuda:0 free 15.5 GB, cuda:1 free 14.0 GB
+group 2 chunk at 0: group start [convnext_base_25d_all_knees_sa, convnext_base_25d_poolattn_ful, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336]: RAM used 17.3 / 33.7 GB; cuda:0 free 10.8 GB, cuda:1 free 10.7 GB
+group 2 chunk at 0: group end [convnext_base_25d_all_knees_sa, convnext_base_25d_poolattn_ful, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336]: RAM used 20.0 / 33.7 GB; cuda:0 free 15.5 GB, cuda:1 free 10.6 GB
+group 3 chunk at 0: group start [convnext_base_25d_perfinding_s]: RAM used 20.0 / 33.7 GB; cuda:0 free 15.1 GB, cuda:1 free 10.6 GB
+group 3 chunk at 0: group end [convnext_base_25d_perfinding_s]: RAM used 20.2 / 33.7 GB; cuda:0 free 15.5 GB, cuda:1 free 10.6 GB
+group 4 chunk at 0: group start [medimageinsight_davit_huge_per]: RAM used 19.8 / 33.7 GB; cuda:0 free 14.0 GB, cuda:1 free 10.6 GB
+group 4 chunk at 0: group end [medimageinsight_davit_huge_per]: RAM used 20.8 / 33.7 GB; cuda:0 free 15.5 GB, cuda:1 free 10.6 GB
+group 0 chunk at 32: group start [convnext_base_full_all_knees_s, mricore_vitb_mae_cross_attenti]: RAM used 21.0 / 33.7 GB; cuda:0 free 15.1 GB, cuda:1 free 10.6 GB
+group 0 chunk at 32: group end [convnext_base_full_all_knees_s, mricore_vitb_mae_cross_attenti]: RAM used 21.1 / 33.7 GB; cuda:0 free 15.5 GB, cuda:1 free 10.6 GB
+group 1 chunk at 32: group start [mricore_vitb_cross_attention, dinov3_convnext_base, swinv2_base_in22k]: RAM used 21.1 / 33.7 GB; cuda:0 free 15.1 GB, cuda:1 free 10.6 GB
+group 1 chunk at 32: group end [mricore_vitb_cross_attention, dinov3_convnext_base, swinv2_base_in22k]: RAM used 21.1 / 33.7 GB; cuda:0 free 15.5 GB, cuda:1 free 10.6 GB
+group 2 chunk at 32: group start [convnext_base_25d_all_knees_sa, convnext_base_25d_poolattn_ful, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336]: RAM used 19.9 / 33.7 GB; cuda:0 free 10.8 GB, cuda:1 free 10.6 GB
+group 2 chunk at 32: group end [convnext_base_25d_all_knees_sa, convnext_base_25d_poolattn_ful, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336]: RAM used 22.9 / 33.7 GB; cuda:0 free 15.5 GB, cuda:1 free 10.6 GB
+group 3 chunk at 32: group start [convnext_base_25d_perfinding_s]: RAM used 22.9 / 33.7 GB; cuda:0 free 15.1 GB, cuda:1 free 10.6 GB
+group 3 chunk at 32: group end [convnext_base_25d_perfinding_s]: RAM used 23.3 / 33.7 GB; cuda:0 free 15.5 GB, cuda:1 free 10.6 GB
+group 4 chunk at 32: group start [medimageinsight_davit_huge_per]: RAM used 22.9 / 33.7 GB; cuda:0 free 14.0 GB, cuda:1 free 10.6 GB
+group 4 chunk at 32: group end [medimageinsight_davit_huge_per]: RAM used 23.1 / 33.7 GB; cuda:0 free 15.5 GB, cuda:1 free 10.6 GB
+group 0 chunk at 64: group start [convnext_base_full_all_knees_s, mricore_vitb_mae_cross_attenti]: RAM used 23.3 / 33.7 GB; cuda:0 free 15.1 GB, cuda:1 free 10.6 GB
+group 0 chunk at 64: group end [convnext_base_full_all_knees_s, mricore_vitb_mae_cross_attenti]: RAM used 23.1 / 33.7 GB; cuda:0 free 15.5 GB, cuda:1 free 10.6 GB
+group 1 chunk at 64: group start [mricore_vitb_cross_attention, dinov3_convnext_base, swinv2_base_in22k]: RAM used 23.1 / 33.7 GB; cuda:0 free 15.1 GB, cuda:1 free 10.6 GB
+group 1 chunk at 64: group end [mricore_vitb_cross_attention, dinov3_convnext_base, swinv2_base_in22k]: RAM used 23.0 / 33.7 GB; cuda:0 free 15.5 GB, cuda:1 free 10.6 GB
+group 2 chunk at 64: group start [convnext_base_25d_all_knees_sa, convnext_base_25d_poolattn_ful, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336]: RAM used 21.6 / 33.7 GB; cuda:0 free 10.8 GB, cuda:1 free 10.6 GB
+group 2 chunk at 64: group end [convnext_base_25d_all_knees_sa, convnext_base_25d_poolattn_ful, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336]: RAM used 23.5 / 33.7 GB; cuda:0 free 15.5 GB, cuda:1 free 10.6 GB
+group 3 chunk at 64: group start [convnext_base_25d_perfinding_s]: RAM used 23.5 / 33.7 GB; cuda:0 free 15.1 GB, cuda:1 free 10.6 GB
+group 3 chunk at 64: group end [convnext_base_25d_perfinding_s]: RAM used 24.0 / 33.7 GB; cuda:0 free 15.5 GB, cuda:1 free 10.6 GB
+group 4 chunk at 64: group start [medimageinsight_davit_huge_per]: RAM used 23.5 / 33.7 GB; cuda:0 free 14.0 GB, cuda:1 free 10.6 GB
+group 4 chunk at 64: group end [medimageinsight_davit_huge_per]: RAM used 23.5 / 33.7 GB; cuda:0 free 15.5 GB, cuda:1 free 10.6 GB
+group 0 chunk at 96: group start [convnext_base_full_all_knees_s, mricore_vitb_mae_cross_attenti]: RAM used 23.6 / 33.7 GB; cuda:0 free 15.1 GB, cuda:1 free 10.6 GB
+group 0 chunk at 96: group end [convnext_base_full_all_knees_s, mricore_vitb_mae_cross_attenti]: RAM used 23.5 / 33.7 GB; cuda:0 free 15.5 GB, cuda:1 free 10.6 GB
+group 1 chunk at 96: group start [mricore_vitb_cross_attention, dinov3_convnext_base, swinv2_base_in22k]: RAM used 23.5 / 33.7 GB; cuda:0 free 15.1 GB, cuda:1 free 10.6 GB
+group 1 chunk at 96: group end [mricore_vitb_cross_attention, dinov3_convnext_base, swinv2_base_in22k]: RAM used 23.4 / 33.7 GB; cuda:0 free 15.5 GB, cuda:1 free 10.6 GB
+group 2 chunk at 96: group start [convnext_base_25d_all_knees_sa, convnext_base_25d_poolattn_ful, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336]: RAM used 22.1 / 33.7 GB; cuda:0 free 10.8 GB, cuda:1 free 10.6 GB
+group 2 chunk at 96: group end [convnext_base_25d_all_knees_sa, convnext_base_25d_poolattn_ful, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336, medimageinsight_davit_huge_336]: RAM used 23.6 / 33.7 GB; cuda:0 free 15.5 GB, cuda:1 free 10.6 GB
+group 3 chunk at 96: group start [convnext_base_25d_perfinding_s]: RAM used 23.6 / 33.7 GB; cuda:0 free 15.1 GB, cuda:1 free 10.6 GB
+group 3 chunk at 96: group end [convnext_base_25d_perfinding_s]: RAM used 23.9 / 33.7 GB; cuda:0 free 15.5 GB, cuda:1 free 10.6 GB
+group 4 chunk at 96: group start [medimageinsight_davit_huge_per]: RAM used 23.6 / 33.7 GB; cuda:0 free 14.0 GB, cuda:1 free 10.6 GB
+group 4 chunk at 96: group end [medimageinsight_davit_huge_per]: RAM used 23.7 / 33.7 GB; cuda:0 free 15.5 GB, cuda:1 free 10.6 GB
+member logit range -3.820 .. 5.016 (a healthy ensemble spans several units; near zero means members are voting 0.5)
+
+runtime breakdown (seconds per study)
+  decode     0.472   paid once per study, however many members
+  gpu        1.884   convnext_base_full_all_knees_same_orientation
+  gpu        1.818   mricore_vitb_cross_attention
+  gpu        1.784   mricore_vitb_mae_cross_attention_fulldata_flip
+  gpu        2.023   dinov3_convnext_base
+  gpu        0.242   convnext_base_25d_all_knees_same_orientation_fulldata
+  gpu        4.752   swinv2_base_in22k
+  gpu        0.248   convnext_base_25d_poolattn_fulldata_flip
+  gpu        0.353   convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip
+  gpu        4.376   medimageinsight_davit_huge_perslice_480_warm
+  gpu        0.718   medimageinsight_davit_huge_336_v3_f0
+  gpu        0.756   medimageinsight_davit_huge_336_v3_f1
+  gpu        0.703   medimageinsight_davit_huge_336_v3_f2
+  gpu        0.744   medimageinsight_davit_huge_336_v3_f3
+  gpu        0.703   medimageinsight_davit_huge_336_v3_f4
+  ---
+  total     21.577   (2% decode)

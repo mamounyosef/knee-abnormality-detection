@@ -19,6 +19,8 @@ BLEND_WEIGHTS = None
 SUBMIT = True
 WAIT_FOR_RUN = True
 SLUG = "knee-ten-mii-5folds"
-OUT_DIR = Path(__file__).resolve().parent / "kaggle_ten_mii5"   # D: ~11.5 GB; C has too little room
+OUT_DIR = Path("C:/temp1/ten_mii5")   # ~11.5 GB: D holds the local training runs
 NOTE = ("THE 0.938 TEN WITH THE FULL-DATA MEDIMAGEINSIGHT REPLACED BY ITS 5 V3-LABEL FOLDS "
         "(alone LB 0.936). Members: " + ", ".join(n for n, _ in MEMBERS) + ". | Built with DINOv3")
+# After a STRESS build of this config passes, submit WITHOUT rebuilding (no weights needed here):
+#     SUBMIT_FROM_STAMP = "<fingerprint prefix printed by the stress run>"

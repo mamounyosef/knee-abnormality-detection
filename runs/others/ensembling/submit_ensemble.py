@@ -156,6 +156,12 @@ import shared_code as sc  # noqa: E402
 
 
 def main():
+    # A bundle that already PASSED its STRESS run is submitted from its stamp: nothing is rebuilt
+    # and no weights are needed on this PC, because the stress-tested dataset version is already
+    # on Kaggle (submit_from_stress_stamp proves it file by file before pushing the notebook).
+    if globals().get("SUBMIT_FROM_STAMP"):
+        sc.submit_from_stress_stamp(SUBMIT_FROM_STAMP, NOTE, submit=SUBMIT)
+        return
     members, missing = [], []
     for name, ckpt in MEMBERS:
         exp_dir = PKG_ROOT / name
@@ -238,6 +244,42 @@ def main():
             if all(abs(row.get(name, 0.0)) < 1e-12 for row in blend.values()):
                 problems.append("%s carries ZERO weight on every finding - why ship it?"
                                 % name)
+
+    # CAPACITY, before anything uploads: where each member will sit on Kaggle's two T4s and how
+    # much weight each card / the host must hold. The STRESS run is the hard test; this catches
+    # a plainly impossible ensemble before spending one.
+    try:
+        cfgs_b = [json.loads((out / "weights" / ("m%d_config.json" % i)).read_text(encoding="utf-8"))
+                  for i in range(len(built))]
+        size = [(out / "weights" / ("m%d_model.pt" % i)).stat().st_size / 1e9 for i in range(len(built))]
+        groups = {}
+        for i, c in enumerate(cfgs_b):
+            groups.setdefault(sc.loader_geometry(c), []).append(i)
+        card0_peak, child_total, parent_total, c1_groups = 0.0, 0.0, 0.0, []
+        print("  capacity (weights, GB) on 2 x T4, per geometry group:")
+        for gi, idx in enumerate(groups.values()):
+            assign, _ = sc._assign_members([cfgs_b[i] for i in idx], 2)
+            c0 = sum(size[idx[j]] for j in assign[0])
+            c1 = sum(size[idx[j]] for j in assign[1])
+            card0_peak, child_total, parent_total = max(card0_peak, c0), child_total + c1, parent_total + c0
+            c1_groups.append(c1)
+            print("     group %d: card 0 %.2f (%d member(s)) | card 1 %.2f (%d member(s))"
+                  % (gi, c0, len(assign[0]), c1, len(assign[1])))
+        budget = 6.0
+        # children keep their weights resident until they pass the engine's budget, then offload
+        card1 = child_total if child_total <= budget else max(c1_groups)
+        host = parent_total + (child_total if child_total > budget else 0.0)
+        print("     card 0 holds at most %.2f (one group at a time); card 1 holds %.2f (%s); "
+              "host RAM keeps ~%.1f of weights"
+              % (card0_peak, card1, "children offload" if child_total > budget else "children resident",
+                 host))
+        if card0_peak > 9.0 or card1 > 9.0:
+            problems.append("a card would hold %.1f GB of weights before any activations"
+                            % max(card0_peak, card1))
+        if host > 20.0:
+            problems.append("host RAM would carry %.1f GB of weights on a 33.7 GB machine" % host)
+    except Exception as e:                                          # noqa: BLE001
+        print("  capacity report unavailable: %s: %s" % (type(e).__name__, e))
 
     if problems:
         raise SystemExit("preflight failed:\n  - " + "\n  - ".join(problems))

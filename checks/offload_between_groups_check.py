@@ -142,8 +142,9 @@ def main():
     ck("the grouped run copies each group's notes into the log", 'gtiming.get("notes", [])' in grp)
     wk = src[src.find("def _proc_worker"):src.find("class _CardProcess")]
     ck("the child moves its members back to the card before a batch", "models[i].to(dev)" in wk)
-    ck("children offload only when asked (offload_children, default False)",
-       'get("offload_children", False)' in blk)
+    ck("children offload automatically past their card budget (offload_children 'auto')",
+       'get("offload_children", "auto")' in blk and "_child_resident_gb() > _budget" in blk)
+    ck("freed host memory is handed back after an offload", "_trim_host_memory()" in blk)
     ck("this process frees its copies of the children's members",
        'to_empty(device="meta")' in ens)
     ck("a freed member is rebuilt from the bundle before a one-card fallback scores it",
@@ -160,6 +161,27 @@ def main():
         same = torch.equal(rebuilt(sc.prepare_batch(torch.from_numpy(x), CFG, torch.device("cpu"))),
                            ref(sc.prepare_batch(torch.from_numpy(x), CFG, torch.device("cpu"))))
     ck("a member rebuilt from the bundle gives the original's logits", same)
+
+    print(chr(10) + "6. the children's resident weights are counted from the bundle files")
+    sc.shutdown_card_processes()
+
+    class _FakeCard:
+        def __init__(self, specs):
+            self.specs = specs
+
+        def close(self):
+            pass
+    big = bundle / "m1_model.pt"
+    big.write_bytes(b"0" * 3_000_000)
+    sc._CARD_PROCS["a"] = _FakeCard([dict(spec)])
+    sc._CARD_PROCS["b"] = _FakeCard([dict(spec, i=1)])
+    got = sc._child_resident_gb()
+    want = ((bundle / "m0_model.pt").stat().st_size + 3_000_000) / 1e9
+    ck("_child_resident_gb sums every live child's weight files", abs(got - want) < 1e-9,
+       "%.4f GB vs %.4f" % (got, want))
+    sc._CARD_PROCS.clear()
+    sc._trim_host_memory()
+    ck("_trim_host_memory runs (a no-op off Linux)", True)
 
     sc.shutdown_card_processes()
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
