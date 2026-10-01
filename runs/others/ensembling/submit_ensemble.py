@@ -248,7 +248,7 @@ def main():
         print("PUBLISH is False - assets built, nothing uploaded")
         return
     sc.kaggle_publish(out, KAGGLE_USER, SLUG, f"{SLUG}-submit",
-                      message=NOTE, wait=WAIT_FOR_RUN, submit=SUBMIT)
+                      message=NOTE, wait=WAIT_FOR_RUN, submit=SUBMIT, stress=STRESS)
     if not SUBMIT:
         print("  SUBMIT is False - the kernel ran, nothing was submitted. Fetch its "
               "submission.csv and inference_log.txt before flipping it True.")

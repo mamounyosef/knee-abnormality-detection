@@ -38,7 +38,7 @@ T = ["ACL", "MCL", "Medial Meniscus", "Lateral Meniscus", "Medial OA", "Lateral 
 B5 = ["Effusion", "Synovitis", "Baker's", "Lateral Meniscus", "Lateral OA"]
 DONOR = "convnext_base_25d_18slices_mglabels_raw"
 RUN = "convnext_base_25d_18slices_oof_convnext_mii_labels_{}"
-WEIGHTS = {"w30": 0.3, "w50": 0.5}
+WEIGHTS = {"w30": 0.3, "w50": 0.5, "w60": 0.6}
 EXPECTED_DIFF = {"experiment.name", "paths.train_csv", "paths.val_csv", "training.early_stopping.patience",
                  "modal.gpu", "modal.cpu"}   # H100 + 16 cpu instead of A100-80GB + 14: hardware only
 bad = 0

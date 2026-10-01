@@ -517,6 +517,43 @@
     "convnext_base_25d_18slices_oof_convnext_mii_labels_w50"
    ],
    "notes": "Solo. Modal H100. Labels 22_*-w50: v3 50% + ConvNeXt folds 25% + MII folds 25% (label audit 0.9453). top_step5000 (val peak), val 0.9598 own labels, audit 0.9201. Public 0.927: BEST convnext_base_25d single, +0.005 over its w30 twin and the ConvNeXt-only-teacher twin (both 0.922), +0.011 over v3 labels (0.916). Kernel 10.1 min."
+  },
+  {
+   "submission_ref": 56753549,
+   "kernel": "mamounhussam/knee-ten-mii-5folds-submit",
+   "kernel_version": null,
+   "submitted": "2026-10-01",
+   "public_score": 0.5,
+   "private_score": null,
+   "members": [
+    "convnext_base_full_all_knees_same_orientation",
+    "mricore_vitb_cross_attention",
+    "mricore_vitb_mae_cross_attention_fulldata_flip",
+    "dinov3_convnext_base",
+    "convnext_base_25d_all_knees_same_orientation_fulldata",
+    "swinv2_base_in22k",
+    "convnext_base_25d_poolattn_fulldata_flip",
+    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+    "medimageinsight_davit_huge_perslice_480_warm",
+    "medimageinsight_davit_huge_336_v3_f0",
+    "medimageinsight_davit_huge_336_v3_f1",
+    "medimageinsight_davit_huge_336_v3_f2",
+    "medimageinsight_davit_huge_336_v3_f3",
+    "medimageinsight_davit_huge_336_v3_f4"
+   ],
+   "notes": "FAILED: public 0.500 = every hidden-test prediction fell back to neutral. The ten with the full-data MII replaced by the 5 MII v3 folds (14 flat). The commit run (3 studies, ONE chunk) passed the gate, but the new offload-between-groups code only reloads weights from the SECOND chunk on, which 3 studies never reach; the 946-study rerun (~30 chunks) ended in ~1h20m instead of ~5h. A wasted attempt: no multi-chunk (STRESS) run was done before submitting."
+  },
+  {
+   "submission_ref": 56754762,
+   "kernel": "mamounhussam/knee-cb25d18-oof-convnext-mii-w60-submit",
+   "kernel_version": 1,
+   "submitted": "2026-10-01",
+   "public_score": 0.928,
+   "private_score": null,
+   "members": [
+    "convnext_base_25d_18slices_oof_convnext_mii_labels_w60"
+   ],
+   "notes": "Solo. Modal H100. Labels 22_*-w60: v3 40% + ConvNeXt folds 30% + MII folds 30% (label audit 0.9458). top_step5300 (val peak), val 0.9722 own labels, audit 0.9191. Public 0.928 vs w50 0.927: +0.001, a tie within leaderboard noise (audit had w60 -0.0010). By the rule fixed before submitting (a tie within ~0.003 keeps the more conservative weight), the label set stays w50. Unflipped, like w30/w50. Kernel 12.2 min."
   }
  ]
 }

@@ -6655,6 +6655,14 @@ def _member_costs(cfgs: list) -> list:
 # ~16 s of GPU it unblocks.
 # ==========================================================================================
 
+def _is_meta(m) -> bool:
+    """True for a member whose weights were released (moved to the storage-less meta device)."""
+    try:
+        return m is not None and next(m.parameters()).device.type == "meta"
+    except StopIteration:
+        return False
+
+
 def build_member_from_bundle(spec: dict):
     """Rebuild ONE member inside a worker process, from the bundle's own files.
 
@@ -6707,7 +6715,25 @@ def _proc_worker(dev_str: str, specs: list, task_q, res_q):
         msg = task_q.get()
         if msg is None:
             return
+        if msg == ("offload",):
+            # Between geometry groups: park this child's weights in host memory so the next
+            # group's members have the card. Moving them back is exact, and costs ~0.1 s/GB.
+            try:
+                for i in models:
+                    models[i].to("cpu")
+                if dev.type == "cuda":
+                    torch.cuda.empty_cache()
+                # what this child still holds on its card, for the log and the check
+                res_q.put(("ok", torch.cuda.memory_allocated(dev) if dev.type == "cuda" else 0))
+            except Exception as e:
+                res_q.put(("error", "worker %s could not offload: %r\n%s"
+                           % (dev_str, e, traceback.format_exc())))
+                return
+            continue
         try:
+            for i in models:                 # back on the card if a previous offload parked them
+                if next(models[i].parameters()).device != dev:
+                    models[i].to(dev)
             shape, dtype, buf = msg
             x = torch.from_numpy(
                 np.frombuffer(buf, dtype=np.dtype(dtype)).reshape(shape).copy())
@@ -6757,6 +6783,12 @@ class _CardProcess:
 
     def submit(self, x_np) -> None:
         self.task_q.put((tuple(x_np.shape), x_np.dtype.str, x_np.tobytes()))
+
+    def offload(self, timeout: float = 600.0) -> None:
+        """Move this child's weights to host memory and wait until the card is free.
+        Returns the bytes the child still has allocated on its card afterwards."""
+        self.task_q.put(("offload",))
+        return self.result(timeout=timeout)
 
     def result(self, timeout: float = 1800.0):
         """Wait in short slices, and give up the moment the child is gone.
@@ -7012,6 +7044,16 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
             _placed = [None] * len(models)
             for _i in assign[0]:
                 _placed[_i] = models[_i].eval().to(devices[0])
+            # FREE THIS PROCESS'S COPIES OF THE CHILDREN'S MEMBERS. The notebook builds every
+            # member here on the CPU, and each child then rebuilds its own from the bundle, so
+            # these copies were never used again yet sat in host RAM for the whole run: ~4.3 GB
+            # in the ten + 5 MII folds, which helped push a 33.7 GB machine to 32.7 GB until
+            # the kernel killed a data loader and its studies fell back to 0.5 (1 Oct). A card
+            # that dies rebuilds its members from the bundle (_run_here), never from these.
+            for _d in range(1, len(assign)):
+                for _i in assign[_d]:
+                    if not _is_meta(models[_i]):
+                        models[_i].to_empty(device="meta")
             models = _placed
             if not _BANNERS.get("shard"):
                 _BANNERS["shard"] = True
@@ -7029,6 +7071,11 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
             shutdown_card_processes()
             cards, assign, devices, _proc_mode = [], None, [device], False
     if assign is None:
+      # a member whose copy was freed for a child (to_empty on "meta") is rebuilt from the
+      # bundle before this process has to score it itself
+      if model_specs and any(_is_meta(m) for m in models if m is not None):
+          models = [build_member_from_bundle(dict(model_specs[_i], local=_i)) if _is_meta(_m)
+                    else _m for _i, _m in enumerate(models)]
       try:
         models, assign = _shard_models(models, cfgs, devices)
       except torch.cuda.OutOfMemoryError:
@@ -7060,6 +7107,24 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
 
     out, done, t0, failed = [], 0, time.time(), 0
     notes = []
+
+    def _ram_note(tag: str) -> str:
+        # host RAM and the cards' free memory, so a group that dies on Kaggle names the
+        # resource it ran out of in inference_log.txt (stdout is not downloadable)
+        try:
+            import psutil
+            vm = psutil.virtual_memory()
+            r = "RAM used %.1f / %.1f GB" % ((vm.total - vm.available) / 1e9, vm.total / 1e9)
+        except Exception:
+            r = "RAM unknown"
+        if device.type == "cuda":
+            try:
+                r += "; " + ", ".join("cuda:%d free %.1f GB" % (d, torch.cuda.mem_get_info(d)[0] / 1e9)
+                                      for d in range(torch.cuda.device_count()))
+            except Exception:
+                pass
+        return "%s [%s]: %s" % (tag, ", ".join(c["experiment"]["name"][:30] for c in cfgs), r)
+    notes.append(_ram_note("group start"))
     # Runtime accounting, because the 9h cap is the binding constraint as the ensemble
     # grows. Two costs behave completely differently and must never be lumped together:
     # DECODE is paid once per study no matter how many members ride along, while GPU is
@@ -7098,6 +7163,9 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
             left = n - done
             print(f"  ❌ loader died at study {done} ({type(e).__name__}: {e}); "
                   f"remaining {left} score 0.5")
+            # this path used to be the one failure that reached no log file
+            notes.append("LOADER DIED at study %d (%s: %s) -> %d studies 0.5; %s"
+                         % (done, type(e).__name__, str(e)[:300], left, _ram_note("at death")))
             out.append(_neutral(left))
             failed += left
             break
@@ -7357,6 +7425,33 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
             el = time.time() - t0
             print(f"  … {done}/{n} studies  {el / max(done, 1):.1f}s each  "
                   f"eta {fmt(el / max(done, 1) * (n - done))}", flush=True)
+    # OFFLOAD THIS GROUP'S WEIGHTS before the next group runs. Every member used to stay on
+    # its card once loaded, so the cards ended up holding EVERY group's weights at once: in
+    # the ten + 5 MII folds, card 0 carried 7.17 GB of weights when the 480 px member's group
+    # came up, against 4.28 GB in the ten, and that member's batches ran out of memory and
+    # fell back to zeros. Parking weights in host memory between groups is exact (the same
+    # tensors move back), so at any moment a card holds only the group being scored.
+    if (device.type == "cuda"
+            and (cfg0.get("inference", {}) or {}).get("offload_between_groups", True)):
+        for _i, _m in enumerate(models):
+            if _m is not None:
+                _m.to("cpu")
+        # The CHILDREN keep their weights on their own card by default. The member that ran
+        # out of memory (the 480 px MII, a one-member group) always lands on card 0, which
+        # this process drives, and offloading the children too parked another ~4 GB in host
+        # RAM: the 1 Oct stress run reached 32.7 of 33.7 GB and the kernel killed a loader.
+        if (cfg0.get("inference", {}) or {}).get("offload_children", False):
+            for _di, cp in enumerate(cards, start=1):
+                if cp is not None and _di not in _dead_cards:
+                    try:
+                        cp.offload()
+                    except Exception as _e:
+                        notes.append("card %s could not offload (%s)" % (devices[_di], str(_e)[:150]))
+        for _m in _fallback_models.values():
+            _m.to("cpu")
+        torch.cuda.empty_cache()
+    notes.append(_ram_note("group end"))
+    timing["notes"] = list(notes)
     # member-logit batches are (n_members, k, n_tasks), so studies live on axis 1
     if return_member_logits:
         probs = (np.concatenate(out, axis=1) if out
@@ -7528,6 +7623,10 @@ def predict_dicom_ensemble_grouped(cfgs: list, models: list, studies_df: pd.Data
                 timing["gpu_s"] += gtiming["gpu_s"]
                 for slot, i in enumerate(idx):
                     timing["member_s"][i] += gtiming["member_s"][slot]
+                # a group's own failures (out of memory, a dead card) used to be printed and
+                # lost: the kernel's stdout is not downloadable, so they go in the log file
+                for _nt in gtiming.get("notes", []):
+                    notes_g.append("group %d chunk at %d: %s" % (gi, c0, _nt))
                 if lg.shape[1] != k:
                     # A short group used to be zero-padded in silence. Zeros are logits, so
                     # they sigmoid to 0.5 and look like real predictions.
@@ -7587,7 +7686,13 @@ def predict_dicom_ensemble_grouped(cfgs: list, models: list, studies_df: pd.Data
         print(f"  ⚠️  MEMBERS THAT NEVER SCORED: {', '.join(missing)}")
     try:
         _diag = [summary, f"members: {', '.join(scored)}",
-                 f"gpus used: {timing.get('n_gpus')}"]
+                 f"gpus used: {timing.get('n_gpus')}",
+                 # which engine actually ran: Kaggle can start a kernel on the PREVIOUS
+                 # dataset version right after an upload, and that is invisible otherwise
+                 f"code sha1 {_code_sha(__file__)}",
+                 # how many chunks the studies were scored in: the reload-after-offload path
+                 # only runs from the second chunk on, and 3 public studies never get there
+                 f"decode chunks {-(-n // chunk) if n else 0} of up to {chunk} studies"]
         # a member whose logits are all-zero or all-NaN contributes a flat 0.5 and drags
         # the whole blend towards the middle. It must be named in the log, not inferred
         # later from a suspiciously narrow submission.csv.
@@ -7818,8 +7923,96 @@ def _kaggle_title(exp: str, suffix: str) -> str:
     return ("%s %s" % (exp[:50 - len(suffix) - 1], suffix))[:50]
 
 
+def bundle_fingerprint(assets_dir) -> str:
+    """One hash for everything that decides what an ensemble notebook computes: the engine
+    code, the notebook (with its STRESS line normalised away, so a STRESS build and the real
+    build of the same bundle match), and every member's def, config and weight file size."""
+    import hashlib
+    a = Path(assets_dir)
+    h = hashlib.sha1()
+    h.update((a / "weights" / "shared_code.py").read_bytes())
+    nb = (a / "notebook" / "submit.ipynb").read_text(encoding="utf-8")
+    h.update(re.sub(r"STRESS = \d+", "STRESS = N", nb).encode("utf-8"))
+    for f in sorted((a / "weights").glob("m*_*")):
+        if f.name.endswith("_model.pt"):
+            h.update(("%s %d" % (f.name, f.stat().st_size)).encode())
+        else:
+            h.update(f.name.encode() + f.read_bytes())
+    return h.hexdigest()
+
+
+STRESS_PASSES = Path(__file__).resolve().parent / "others" / "ensembling" / "stress_passes"
+
+
+def _code_sha(path) -> str:
+    import hashlib
+    return hashlib.sha1(Path(path).read_bytes()).hexdigest()
+
+
+def verify_stress_output(user: str, notebook_slug: str, n_members: int, n_studies: int,
+                         code_sha: str) -> list:
+    """Reasons a STRESS commit run does NOT clear its bundle for submission. Empty = cleared.
+
+    The normal commit run scores 3 public studies in ONE decode chunk, so anything that only
+    happens between chunks never runs before the hidden 946-study rerun. That is how the ten +
+    5 MII folds ensemble scored 0.500 on 1 Oct: the reload path after an offload was never
+    exercised. A STRESS run repeats the public studies across several chunks; this reads what
+    it wrote and demands that every chunk, every group and every member actually scored."""
+    import tempfile
+    problems, d = [], Path(tempfile.mkdtemp(prefix="knee_stress_"))
+    _kaggle("kernels", "output", "%s/%s" % (user, notebook_slug), "-p", str(d),
+            quiet=True, check=False)
+    log = d / "inference_log.txt"
+    if not log.exists():
+        problems.append("no inference_log.txt: inference died before writing it")
+    else:
+        txt = log.read_text(encoding="utf-8", errors="replace")
+        m = re.search(r"scored (\d+) studies with (\d+)/(\d+) members", txt)
+        if not m:
+            problems.append("the log has no 'scored N studies with k/k members' line")
+        else:
+            if int(m.group(1)) != n_studies:
+                problems.append("scored %s studies, the stress run asked for %d" % (m.group(1), n_studies))
+            if int(m.group(2)) != n_members or int(m.group(3)) != n_members:
+                problems.append("scored %s/%s members, expected %d" % (m.group(2), m.group(3), n_members))
+        for bad, why in (("CONTRIBUTING NOTHING", "a member contributed nothing"),
+                         ("NEVER SCORED", "a member never scored"),
+                         ("LOADER DIED", "a data loader died"),
+                         ("failed (", "batches failed"), ("-> 0.5", "studies fell back to 0.5"),
+                         ("padded with", "a group returned short and was padded"),
+                         ("could not offload", "a card could not offload")):
+            if bad in txt:
+                problems.append("%s: %s" % (why, [l for l in txt.splitlines() if bad in l][0][:200]))
+        idle = [nm for sec, nm in re.findall(r"gpu\s+(\d+\.\d+)\s+(\S+)", txt) if float(sec) == 0.0]
+        if idle:
+            problems.append("member(s) took 0.000 s: %s" % ", ".join(idle))
+        cm = re.search(r"code sha1 ([0-9a-f]{40})", txt)
+        if not cm:
+            problems.append("the log does not name its engine code: an old dataset version ran")
+        elif cm.group(1) != code_sha:
+            problems.append("the kernel ran engine code %s, not this bundle's %s (Kaggle used a "
+                            "previous dataset version)" % (cm.group(1)[:10], code_sha[:10]))
+        # HOST RAM HEADROOM. The hidden rerun has ~30 chunks where a stress run has 4, so a
+        # run that already brushes the ceiling here will cross it there.
+        ram = [(float(a), float(b)) for a, b in re.findall(r"RAM used ([\d.]+) / ([\d.]+) GB", txt)]
+        if not ram:
+            problems.append("the log records no host RAM figures")
+        else:
+            peak = max(a / b for a, b in ram)
+            if peak > 0.85:
+                problems.append("host RAM peaked at %.0f%% of the machine; the limit is 85%% "
+                                "(the 946-study rerun runs ~8x more chunks)" % (peak * 100))
+        ch = re.search(r"decode chunks (\d+)", txt)
+        if not ch or int(ch.group(1)) < 2:
+            problems.append("the run used %s decode chunk(s); a stress run must cross at least 2"
+                            % (ch.group(1) if ch else "an unknown number of"))
+    import shutil as _sh
+    _sh.rmtree(d, ignore_errors=True)
+    return problems
+
+
 def verify_kernel_output(user: str, notebook_slug: str, n_members: int,
-                         expect_rows: int | None = None) -> list:
+                         expect_rows: int | None = None, code_sha: str | None = None) -> list:
     """Return the reasons this kernel's output must NOT be submitted. Empty means good.
 
     Reads what the notebook itself wrote: inference_log.txt for the member accounting and
@@ -7860,6 +8053,13 @@ def verify_kernel_output(user: str, notebook_slug: str, n_members: int,
             problems.append("member(s) took 0.000 s, so they never ran: %s" % ", ".join(idle))
         if "failed (" in txt or "-> 0.5" in txt:
             problems.append("the log reports failed batches that fell back to 0.5")
+        if "LOADER DIED" in txt:
+            problems.append("a data loader died and its studies fell back to 0.5")
+        if code_sha:
+            cm = _re.search(r"code sha1 ([0-9a-f]{40})", txt)
+            if not cm or cm.group(1) != code_sha:
+                problems.append("the kernel did not run this bundle's engine code (%s): Kaggle "
+                                "used a previous dataset version" % (cm.group(1)[:10] if cm else "unnamed"))
     if not sub.exists():
         problems.append("no submission.csv in the kernel output%s"
                         % (" and no inference_log.txt either" if missing_log else ""))
@@ -7883,7 +8083,8 @@ def verify_kernel_output(user: str, notebook_slug: str, n_members: int,
 
 def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
                    message: str, wait: bool = True, poll_secs: int = 60,
-                   submit: bool = True, n_members: int | None = None) -> str | None:
+                   submit: bool = True, n_members: int | None = None,
+                   stress: int = 0) -> str | None:
     """Dataset -> notebook -> wait for the run -> submit. Returns the kernel version.
 
     The weights go up as a dataset because a code-competition notebook has no
@@ -7901,6 +8102,25 @@ def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
             dataset_slug = _did
     except (OSError, ValueError):
         pass
+
+    # THE STRESS GATE. An ensemble is submitted only if a STRESS commit run of this EXACT
+    # bundle (same engine code, notebook, member defs, configs and weight files) has already
+    # passed verify_stress_output. The plain commit run scores 3 studies in one chunk and
+    # cannot see anything that happens between chunks: the ten + 5 MII folds ensemble passed
+    # it and then scored 0.500 on the hidden set (1 Oct). Checked BEFORE anything uploads.
+    ensemble = n_members > 1
+    fp = bundle_fingerprint(assets) if ensemble else None
+    code_sha = _code_sha(assets / "weights" / "shared_code.py") if ensemble else None
+    stamp = (STRESS_PASSES / ("%s.json" % fp)) if ensemble else None
+    if ensemble:
+        print("      bundle fingerprint %s  engine %s" % (fp[:12], code_sha[:12]))
+    if submit and ensemble and not stress and not stamp.exists():
+        raise SystemExit(
+            "❌ REFUSING TO SUBMIT: no passing STRESS run for this exact bundle (%s). "
+            "Build it again with STRESS = 128 and SUBMIT = False, let it pass, then submit."
+            % fp[:12])
+    if submit and stress:
+        raise SystemExit("❌ a STRESS build writes no submission.csv: set SUBMIT = False")
 
     print(f"  1/4 dataset {user}/{dataset_slug}")
     # kaggle CLI 2.2.4 mangles -p on windows (weights/config.json -> weights_config.json),
@@ -7960,6 +8180,25 @@ def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
         print(f"      … {st.strip()[:90]}")
         time.sleep(poll_secs)
 
+    if stress and ensemble:
+        print("\n  4/4 STRESS run: checking every chunk, group and member")
+        bad = verify_stress_output(user, notebook_slug, n_members, stress, code_sha)
+        if bad:
+            print("      ❌ STRESS RUN FAILED - this bundle may NOT be submitted:")
+            for b in bad:
+                print("         - %s" % b)
+            return version
+        STRESS_PASSES.mkdir(parents=True, exist_ok=True)
+        stamp.write_text(json.dumps({"fingerprint": fp, "engine_sha1": code_sha,
+                                     "notebook": "%s/%s" % (user, notebook_slug),
+                                     "version": version, "n_members": n_members,
+                                     "stress_studies": stress,
+                                     "passed": datetime.now().isoformat(timespec="seconds")},
+                                    indent=1), encoding="utf-8")
+        print("      ✅ STRESS RUN PASSED: %d studies, every member scored in every chunk."
+              % stress)
+        print("      this exact bundle may now be submitted (stamp %s)" % stamp.name)
+        return version
     if not submit:
         return version
 
@@ -7968,7 +8207,7 @@ def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
     # 0.5 for two of three studies. The kernel writes down everything needed to catch that,
     # so read it before spending an attempt.
     print("\n  4/4 checking the kernel's own output before submitting")
-    bad = verify_kernel_output(user, notebook_slug, n_members=n_members)
+    bad = verify_kernel_output(user, notebook_slug, n_members=n_members, code_sha=code_sha)
     if bad:
         print("      \u274c NOT SUBMITTING - the kernel completed but its output is bad:")
         for b in bad:

@@ -17,6 +17,7 @@ runs/others/teacher_blend_search.py found no tuned setting that beats them out o
 
     python data_code/22_make_convnext_mii_labels.py --w 0.3   # 22_*-w30: v3 70%, teachers 15% each
     python data_code/22_make_convnext_mii_labels.py --w 0.5   # 22_*-w50: v3 50%, teachers 25% each
+    python data_code/22_make_convnext_mii_labels.py --w 0.6   # 22_*-w60: v3 40%, teachers 30% each (top of the label curve)
 (audit-58: w=0.3 0.9414, w=0.5 0.9453 in sample; both trained so the leaderboard decides)
 """
 import sys
@@ -37,7 +38,7 @@ import argparse  # noqa: E402
 _ap = argparse.ArgumentParser()
 _ap.add_argument("--w", type=float, required=True)
 W = _ap.parse_args().w
-EXPECTED = {0.3: 0.9414, 0.5: 0.9453}[W]   # audit-58 of the blended labels
+EXPECTED = {0.3: 0.9414, 0.5: 0.9453, 0.6: 0.9458}[W]   # audit-58 of the blended labels
 _SUF = f"w{round(W * 100)}"
 TEACHERS = {"ConvNeXt": ("convnext_base_25d_18slices_f{}", "13_fold{}_val.csv"),
             "MII": ("medimageinsight_davit_huge_336_v3_f{}", "21_fold{}_val.csv")}
