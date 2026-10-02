@@ -1,9 +1,13 @@
 # convnext_base_25d_18slices_v3_flip_f1
 #
-# NEW CONVNEXT TEACHER FOLD 1, trained LOCALLY on the RTX 4060. Copy of convnext_base_25d_18slices_f1 (LB of the 5-fold block 0.918),
+# MOVED TO MODAL (2 Oct): trained locally to step 3500 (epoch 9, best 0.9105 @ 3300), then stopped
+# and resumed here from that last.pt. Same 8 studies per update, same 435 steps/epoch and the same
+# seed (42), so the sampler order, the lr schedule and the mid-epoch skip carry over exactly.
+#
+# NEW CONVNEXT TEACHER FOLD 1, trained on Modal H100. Copy of convnext_base_25d_18slices_f1 (LB of the 5-fold block 0.918),
 # with three changes: labels v2 -> v3 (21_fold1_*: Qwen + MedGemma on the five MedGemma findings,
 # the labels the MII folds trained on; same studies and order as 13_fold1), knee flip on (left knees
-# mirrored, per plane), patience 6 -> 7. v3 holds no model predictions, so the out-of-fold
+# mirrored, per plane), patience 6 (was 7 until 2 Oct). v3 holds no model predictions, so the out-of-fold
 # predictions stay clean for the next label build.
 #
 # ---- the donor's notes follow ----
@@ -75,7 +79,6 @@ input:
   laterality_flip: "left"          # mirror the MINORITY side (1,938 left vs 2,469 right)
 
 training:
-  grad_checkpointing: true          # local 8 GB GPU: recompute activations (exact)
   epochs: 12
   grad_clip: 3.0                    # 3.0, NEVER 1.0. 1.0 clips every step and silently
                                     # throttles the effective learning rate.
@@ -100,38 +103,38 @@ training:
     enable: true
     monitor: "val_macro_auroc"
     mode: "max"
-    patience: 7                     # VALIDATIONS without improvement
+    patience: 6                     # VALIDATIONS without improvement (7 -> 6 for the Modal finish, user 2 Oct)
 
 # CPU-side loading; decoding shards is the bottleneck and stays one here, though 18 slices
 # is a quarter less to decode per study than 24.
 dataloader:
-  batch_size: 2                     # LOCAL: 2 x accum_steps 4 = the same 8 studies per update
+  batch_size: 8                     # 8 studies x 4 slots x 6 images = 192 images @336.
                                     # MEASURED basis: convnext_base_25d_group3 peaked at
                                     # 71.02 GB on 256 images, i.e. ~0.273 GB/image, so 192
                                     # images is ~54 GB of the A100-80GB. Comfortable.
-  accum_steps: 4                    # effective 8 studies per update
+  accum_steps: 1                    # effective 8 studies per update - IDENTICAL to every
                                     # other run, so step counts and the lr schedule compare
                                     # directly against convnext_base_25d_group3
-  val_batch_size: 4                 # local
+  val_batch_size: 16                # 16 studies x 24 images = 384 images, but with no
                                     # backward pass there are no stored activations, so this
                                     # is far cheaper than the training batch despite being
                                     # twice the studies. Speeds the validations up.
 
-  num_workers: 1                    # local PC: 16 GB RAM ran out with 2 (30 Sep); results do not depend on it
+  num_workers: 26                   # the GPU does a quarter of convnext_base_336px's work
                                     # per study, so the loader is the binding constraint
-  val_num_workers: 1
+  val_num_workers: null             # null = same as num_workers
 
-  prefetch_factor: 2                # batches queued per worker
-  pin_memory: false                 # local: no page-locked memory
+  prefetch_factor: 6                # batches queued per worker
+  pin_memory: true                  # page-locked memory, faster CPU -> GPU copies
   persistent_workers: true          # don't respawn workers every epoch
   drop_last: false                  # keep the ragged final batch
 
 modal:
-  gpu: "A100-80GB"                  # 192 images is ~54 GB, so the 80 GB card fits it with
+  gpu: "H100"                     # same model 1.7x faster than the A100-80GB for 1.58x the price
                                     # room. NOT the A100-40GB: that would be over the card.
                                     # At 24 passes per study this run is I/O bound anyway,
                                     # so the faster H200 would idle.
-  cpu: 14.0                         # one core per dataloader worker, decoding npz is
+  cpu: 16.0                         # raised with the GPU so the loader keeps up
                                     # CPU-bound and matters more than ever here
   memory_gb: 64                     # 26 workers x prefetch 6 x ~32 MB per queued batch
 
@@ -139,14 +142,6 @@ modal:
 
 reproducibility:
   seed: 42                          # shared with folds 0-2: their spread measures the SPLIT alone
-
-output:
-  keep_last_n: 1                    # local disk: last.pt covers resume
-  keep_top_k: 1
-  checkpoint_every_steps: 100       # a crash loses at most 100 steps
-  upload_checkpoints:
-    modal_config: "local"            # path in ~/.knee_upload_modal_config (outside the repo)
-    patterns: ["top_step*.pt", "best.pt"]
 
 evaluation:
   eval_every_steps_before: 800            # epochs 1..4: validate half as often (user, 1 Oct); the best step comes late

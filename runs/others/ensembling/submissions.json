@@ -554,6 +554,35 @@
     "convnext_base_25d_18slices_oof_convnext_mii_labels_w60"
    ],
    "notes": "Solo. Modal H100. Labels 22_*-w60: v3 40% + ConvNeXt folds 30% + MII folds 30% (label audit 0.9458). top_step5300 (val peak), val 0.9722 own labels, audit 0.9191. Public 0.928 vs w50 0.927: +0.001, a tie within leaderboard noise (audit had w60 -0.0010). By the rule fixed before submitting (a tie within ~0.003 keeps the more conservative weight), the label set stays w50. Unflipped, like w30/w50. Kernel 12.2 min."
+  },
+  {
+   "members": [
+    "convnext_base_full_all_knees_same_orientation",
+    "mricore_vitb_cross_attention",
+    "mricore_vitb_mae_cross_attention_fulldata_flip",
+    "dinov3_convnext_base",
+    "convnext_base_25d_all_knees_same_orientation_fulldata",
+    "swinv2_base_in22k",
+    "convnext_base_25d_poolattn_fulldata_flip",
+    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+    "medimageinsight_davit_huge_perslice_480_warm",
+    "medimageinsight_davit_huge_336_v3_f0",
+    "medimageinsight_davit_huge_336_v3_f1",
+    "medimageinsight_davit_huge_336_v3_f2",
+    "medimageinsight_davit_huge_336_v3_f3",
+    "medimageinsight_davit_huge_336_v3_f4"
+   ],
+   "submitted": "2026-10-02 08:31 UTC",
+   "public_score": null,
+   "private_score": null,
+   "val": null,
+   "audit58": 0.9268,
+   "kernel": "mamounhussam/knee-ten-mii-5folds-submit",
+   "kernel_version": null,
+   "submission_ref": 56769791,
+   "runtime_seconds": null,
+   "runtime": "stress run 4: 17.1 s/study over 128 studies, projected ~4.7 h on the 946 hidden studies; RAM peak 53%",
+   "notes": "Second attempt at the 14-member ensemble (the first, 56753549, scored 0.500 from a host-RAM crash). Submitted from stress stamp 63014019c018 without rebuilding: Kaggle dataset matched the stamp's 49 files, kernel ran the stress-tested engine 0fb97a22e13f, output checks passed. Flat logit mean; audit58 0.9268 is the flat ten+5-fold audit (ten_mii_folds_audit.py). To beat: 0.938."
   }
  ]
 }

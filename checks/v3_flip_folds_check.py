@@ -5,7 +5,7 @@ For runs/convnext_base_25d_18slices_v3_flip_f0..f4 against their donors convnext
   2. train / val CSVs are 21_fold{k}_*: labels equal the v3 file (17_train_full_qwen-mg-raw) cell by cell,
      same studies in the same order as the donor's 13_fold{k}_*, train and val disjoint, no audit study
   3. laterality_flip "left", patience 7, everything else equal to the donor except the expected keys:
-     the local recipe (f0-f2: same 8 studies per update) or the Modal H100 recipe (f3-f4)
+     the local recipe (f0: same 8 studies per update) or the Modal H100 recipe (f1-f4)
   4. local runs: every training and validation study's shard is on this PC
   5. the 5 validation sets are disjoint and together cover all 4,342 non-audit studies
 
@@ -65,17 +65,19 @@ shards = {p.stem for p in (D / "shards").glob("*.npz")}
 vals = []
 for k in range(5):
     run, donor = f"convnext_base_25d_18slices_v3_flip_f{k}", f"convnext_base_25d_18slices_f{k}"
-    local = k <= 2
+    local = k == 0                     # f1, f2 moved to Modal H100 on 2 Oct (f1 resumes from local step 3500)
     print(f"\n{run}  ({'LOCAL' if local else 'Modal H100'})")
     cfg, sc = load(run)
     dcfg, _ = load(donor)
     check(cfg["experiment"]["name"] == run, "1. loads its own config")
     f, fd = flat(cfg), flat(dcfg)
     diff = {x for x in set(f) | set(fd) if f.get(x) != fd.get(x)}
-    allowed = COMMON | (LOCAL_KEYS if local else MODAL_KEYS)
-    check(diff <= allowed and COMMON <= diff, f"3. differs from {donor} only in expected keys: {sorted(diff)}")
+    pat = 6 if k in (1, 2) else 7          # f1, f2: 6 for the Modal finish (user, 2 Oct) = the donor's
+    common = COMMON - {"training.early_stopping.patience"} if pat == 6 else COMMON
+    allowed = common | (LOCAL_KEYS if local else MODAL_KEYS)
+    check(diff <= allowed and common <= diff, f"3. differs from {donor} only in expected keys: {sorted(diff)}")
     check(cfg["input"].get("laterality_flip") == "left", "3. knee flip on (left knees mirrored)")
-    check(cfg["training"]["early_stopping"]["patience"] == 7, "3. patience 7")
+    check(cfg["training"]["early_stopping"]["patience"] == pat, f"3. patience {pat}")
     check(cfg["evaluation"]["eval_every_steps_before"] == 800, "3. validates every 800 steps in epochs 1-4")
     eff = cfg["dataloader"]["batch_size"] * cfg["dataloader"]["accum_steps"]
     check(eff == dcfg["dataloader"]["batch_size"] * dcfg["dataloader"]["accum_steps"] == 8,
