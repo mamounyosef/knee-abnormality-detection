@@ -583,6 +583,36 @@
    "runtime_seconds": null,
    "runtime": "stress run 4: 17.1 s/study over 128 studies, projected ~4.7 h on the 946 hidden studies; RAM peak 53%",
    "notes": "Second attempt at the 14-member ensemble (the first, 56753549, scored 0.500 from a host-RAM crash). Submitted from stress stamp 63014019c018 without rebuilding: Kaggle dataset matched the stamp's 49 files, kernel ran the stress-tested engine 0fb97a22e13f, output checks passed. Flat logit mean; audit58 0.9268 is the flat ten+5-fold audit (ten_mii_folds_audit.py). To beat: 0.938. SCORED 0.942: NEW BEST, +0.004 over the 0.938 ten."
+  },
+  {
+   "members": [
+    "convnext_base_25d_warm_v5"
+   ],
+   "submitted": "2026-10-03 11:21 UTC",
+   "public_score": 0.928,
+   "private_score": null,
+   "val": null,
+   "audit58": 0.9215,
+   "kernel": "mamounhussam/knee-cb25d-warm-v5-submit",
+   "kernel_version": null,
+   "submission_ref": 56796592,
+   "runtime_seconds": null,
+   "notes": "Warm-start test: old v2 model fine-tuned 4 epochs on v4 labels (v5 split, flipped), last step 2000. Paired with convnext_base_25d_18slices_v5_aug_base (from scratch). Val leaky, audit 0.9215 vs 0.9209."
+  },
+  {
+   "members": [
+    "convnext_base_25d_18slices_v5_aug_base"
+   ],
+   "submitted": "2026-10-03",
+   "public_score": 0.93,
+   "private_score": null,
+   "val": 0.9174,
+   "audit58": 0.9209,
+   "kernel": "mamounhussam/knee-cb25d18-v5-aug-base-submit",
+   "kernel_version": null,
+   "submission_ref": 56796715,
+   "runtime_seconds": null,
+   "notes": "From-scratch twin of convnext_base_25d_warm_v5: v4 labels, v5 split, flipped, step 5900 (val peak)."
   }
  ]
 }

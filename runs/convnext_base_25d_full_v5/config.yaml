@@ -1,0 +1,174 @@
+# convnext_base_25d_full_v5
+#
+# FULL-DATA RELABEL (v4 labels, the "v5" generation), trained LOCALLY (2-3 Oct). Copy of convnext_base_25d_all_knees_same_orientation_fulldata
+# (the shipped member) with ONLY the labels changed to v4 (22_train_full_qwen-mg-convnext-mii-w50.csv: all
+# 4,400 studies, the 58 audit on panel labels) plus the local 8 GB recipe (same 8 studies per update).
+# Fixed 12 epochs, no validation (nothing held out): its v5 twin convnext_base_25d_18slices_v5_aug_base
+# peaked at the END of the same 12-epoch schedule (0.9174 @ 5900 of 6000) with a flat end.
+#
+# ---- the donor's notes follow ----
+#
+# Our best single run on the leaderboard (0.919), refitted on 20.9% more data. Already mirrored, so full data is the only change.
+# convnext_base_25d_18slices with every knee turned to face the same way - ON THE RIGHT AXIS.
+#
+# THE ONE VARIABLE. Byte-identical to convnext_base_25d_18slices (val 0.9010) except
+# input.laterality_flip: "left". Any difference from 0.9010 is the normalisation.
+#
+# WHY THIS RUN EXISTS RATHER THAN THE FIRST ONE. convnext_base_25d_left_knees_mirrored asked
+# the same question and answered it wrongly, because it mirrored every slot horizontally.
+# Measured from ImageOrientationPatient, the share of the patient left-right axis lying along
+# each image axis is:
+#
+#     axial     horizontal 0.989   vertical 0.113   slice 0.021
+#     coronal   horizontal 0.987   vertical 0.026   slice 0.139
+#     sagittal  horizontal 0.097   vertical 0.031   slice 0.991
+#
+# For coronal and axial a left/right mirror IS a horizontal flip. For SAGITTAL the
+# medial-lateral direction is not in the image plane at all - it is the slice axis - so a
+# horizontal flip there reverses ANTERIOR-POSTERIOR. That is anatomical corruption, not
+# normalisation, and two of the four slots are sagittal. Its -0.0015, and the -0.0289 from
+# the inference-time flip diagnostic, both measured the wrong transform. The diagnostic's
+# largest losses were ACL -0.0677 and PF OA -0.0528, read on exactly the planes being
+# corrupted, which was read at the time as evidence that laterality did not matter.
+#
+# shared_code._mirror_slot now reverses the SLICE ORDER for sagittal and the WIDTH for
+# coronal and axial. checks/laterality_axis_check.py derives that rule from the DICOM
+# orientation rather than asserting it, so it cannot silently regress.
+#
+# WHAT IS BEING ASKED. "Medial" means the inner side of the leg. A left knee and a right knee
+# are mirror images, so medial sits on opposite sides of the frame depending on the leg, and
+# four findings are named for that axis: Medial and Lateral Meniscus, Medial and Lateral OA.
+# Two more are anatomically one-sided (MCL is a band on the inner edge, a Baker's cyst sits
+# at the back toward the inner side). Without normalisation the model learns each of those
+# twice, from a corpus split 2,469 right / 1,938 left.
+#
+# Medically the flip is free: a mirrored left knee is indistinguishable from a right knee, so
+# every label stays exactly as valid.
+#
+# DIRECTION. Left is the MINORITY side (1,938 against 2,469), so mirroring it leaves the
+# larger group untouched and ends with everything facing like a right knee. That also makes
+# the inference failure mode benign: a test study whose side cannot be read from its DICOM
+# headers is left unflipped, and unflipped is right-facing, correct 56% of the time.
+#
+# hflip augmentation stays at p: 0.0. A random horizontal flip would undo the whole run.
+#
+# Beat: convnext_base_25d_18slices, val 0.9010.
+
+experiment:
+  name: "convnext_base_25d_full_v5"
+
+paths:
+  # Byte-identical split MEMBERSHIP to convnext_base_25d_group3 and convnext_base_336px.
+  train_csv: "22_train_full_qwen-mg-convnext-mii-w50.csv"   # v4 labels, all 4,400 studies
+  val_csv:   "05_val_qwen24t-med.csv"
+  # audit_csv stays 05_audit58.csv - the panel labels never change, so it is the one
+  # honest cross-label-set comparison.
+
+model:
+  name: "convnext_base.fb_in22k_ft_in1k"   # timm id: ConvNeXt-Base pretrained on ImageNet-22k
+  pretrained: true
+  pool: "mean"                      # how the 24 image features collapse per study: mean | max | attn
+  drop_rate: 0.1                    # dropout in the head, mild regularization
+
+input:
+  # THE ONE VARIABLE. Mirror every LEFT knee so the corpus faces one way and "medial" is
+  # always the same side of the frame. The axis is chosen PER PLANE by
+  # shared_code._mirror_slot: sagittal reverses slice order, coronal and axial reverse width.
+  # Sides come from data/12_laterality.csv while training and straight from the DICOM headers
+  # at submission, both by the sign of x in ImagePositionPatient (+x is the patient's left).
+  laterality_flip: "left"
+
+  # 336 x 0.40 = 134 mm of frame, unchanged. mm_per_px stays 0.40, the value every run in
+  # this project has used: it is the knob that controls interpolation, and at 0.40 exactly
+  # 24.4% of series are upsampled (median 1.17x).
+  size: 336
+
+  # 18 real slices per slot, down from the shared default of 24. This is the ONLY difference
+  # from convnext_base_25d_group3.
+  n_slices: 18
+
+  # 6 IMAGES PER SLOT, each holding 3 consecutive slices in its 3 channels.
+  # prepare_batch reshapes (B, 4, 18, H, W) -> (B*4*6, 3, H, W). The slice axis splits with
+  # the GROUP as the outer index and the CHANNEL as the inner one, so the groups are
+  # contiguous and non-overlapping: (0,1,2), (3,4,5), ... (15,16,17).
+  # 18 / 6 = 3 means train.py builds the backbone with in_chans=3, i.e. the pretrained stem
+  # exactly as shipped. No filter tiling, no rescaling, no adaptation.
+  slices_as_channels: 6
+
+training:
+  # FIXED at the donor's peak epoch (12): nothing is held out, so the epoch
+  # count is the only guard against overfitting.
+  grad_checkpointing: true          # local 8 GB GPU: recompute activations (exact)
+  epochs: 12
+  grad_clip: 3.0                    # 3.0, NEVER 1.0. 1.0 clips every step and silently
+                                    # throttles the effective learning rate.
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-5                      # BACKBONE lr, identical to convnext_base_25d_group3 so
+                                    # the slice count is the only variable
+    backbone_lr_mult: 0.5           # head = lr / 0.5 = 1.0e-4, twice the trunk
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05
+    min_lr_mult: 0.01               # floor: ends at 1% of the base learning rate
+  loss:
+    name: "bce"                     # bce = binary cross-entropy | focal = focuses on hard cases
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  early_stopping:
+    enable: false
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 12                     # VALIDATIONS without improvement, not epochs.
+
+# CPU-side loading; decoding shards is the bottleneck and stays one here, though 18 slices
+# is a quarter less to decode per study than 24.
+dataloader:
+  batch_size: 2   # local recipe
+                                    # MEASURED basis: convnext_base_25d_group3 peaked at
+                                    # 71.02 GB on 256 images, i.e. ~0.273 GB/image, so 192
+                                    # images is ~54 GB of the A100-80GB. Comfortable.
+  accum_steps: 4   # local: 2 x 4 = 8 studies per update
+                                    # other run, so step counts and the lr schedule compare
+                                    # directly against convnext_base_25d_group3
+  val_batch_size: 4   # local recipe
+                                    # backward pass there are no stored activations, so this
+                                    # is far cheaper than the training batch despite being
+                                    # twice the studies. Speeds the validations up.
+
+  num_workers: 1   # local recipe
+                                    # per study, so the loader is the binding constraint
+  val_num_workers: 1   # local recipe
+
+  prefetch_factor: 2   # local recipe
+  pin_memory: false   # local recipe
+  persistent_workers: true          # don't respawn workers every epoch
+  drop_last: false                  # keep the ragged final batch
+
+modal:
+  gpu: "H100"                     # 53.5 GB peak, 67% of the card. H100 measured
+                                    # ~2.2x the A100-80GB on ConvNeXt-Base @336
+                                    # for 1.58x the price: ~35% more images per
+                                    # dollar. These runs are compute bound
+                                    # (data_wait_pct 4.6%%), so the speed is real.
+  cpu: 16.0                         # raised with the GPU so the loader keeps up.
+                                    # A reservation, not a cap.
+  memory_gb: 64                     # 26 workers x prefetch 6 x ~32 MB per queued batch
+
+# inherits resume: "last" from shared_config - the preemption-safe setting.
+
+evaluation:
+  # OFF: every val and audit study is in the training set now.
+  enable: false
+
+output:
+  keep_last_n: 1                    # local disk: last.pt covers resume
+  keep_top_k: 1
+  checkpoint_every_steps: 100       # a crash loses at most 100 steps
+  upload_checkpoints:
+    modal_config: "local"            # path in ~/.knee_upload_modal_config (outside the repo)
+    patterns: ["best.pt"]

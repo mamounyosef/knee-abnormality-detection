@@ -24,9 +24,9 @@ RUN_LOCAL = True               # True = do it here, False = do it on Modal
 PUBLISH = True                 # after building: push the dataset + notebook and submit
 WAIT_FOR_RUN = True            # poll until the notebook finishes, then submit
 KAGGLE_USER = "mamounhussam"   # owner slug for the dataset and the notebook
-CHECKPOINT = "best"   # set to the chosen top_step*.pt before submitting
+CHECKPOINT = str(Path(__file__).resolve().parent / "results/checkpoints/top_step5900.pt")
                                # best-val step 5000, pulled from the Modal volume (weights only)
-MESSAGE = None   # written from the finished run
+MESSAGE = 'convnext_base_25d_18slices_v5_aug_base | from scratch, v4 labels, v5 split, flipped | step 5900 (val peak) | val 0.9174 | audit58 0.9209'
 VERIFY_STUDIES = 3             # DICOM-vs-shard check; 0 skips it
 
 EXP_NAME = "convnext_base_25d_18slices_v5_aug_base"

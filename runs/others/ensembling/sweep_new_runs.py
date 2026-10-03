@@ -59,7 +59,7 @@ SHIPPED = ["convnext_base_relabel", "mricore_vitb_cross_attention",
 # (its "full" means full cross-slice fusion, and it trains on the normal split), while a
 # future full-data run named anything else would slip straight through. The fold runs stay
 # a name rule because their split is encoded only in the suffix.
-FULL_CSVS = ("08_train_full",)
+FULL_CSVS = ("train_full",)   # 08_train_full and every relabelled NN_train_full_* (e.g. 22_*-w50)
 LEAKY = re.compile(r"_f[0-4]$")
 
 
