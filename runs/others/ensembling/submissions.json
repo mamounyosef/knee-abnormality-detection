@@ -573,7 +573,7 @@
     "medimageinsight_davit_huge_336_v3_f4"
    ],
    "submitted": "2026-10-02 08:31 UTC",
-   "public_score": null,
+   "public_score": 0.942,
    "private_score": null,
    "val": null,
    "audit58": 0.9268,
@@ -582,7 +582,7 @@
    "submission_ref": 56769791,
    "runtime_seconds": null,
    "runtime": "stress run 4: 17.1 s/study over 128 studies, projected ~4.7 h on the 946 hidden studies; RAM peak 53%",
-   "notes": "Second attempt at the 14-member ensemble (the first, 56753549, scored 0.500 from a host-RAM crash). Submitted from stress stamp 63014019c018 without rebuilding: Kaggle dataset matched the stamp's 49 files, kernel ran the stress-tested engine 0fb97a22e13f, output checks passed. Flat logit mean; audit58 0.9268 is the flat ten+5-fold audit (ten_mii_folds_audit.py). To beat: 0.938."
+   "notes": "Second attempt at the 14-member ensemble (the first, 56753549, scored 0.500 from a host-RAM crash). Submitted from stress stamp 63014019c018 without rebuilding: Kaggle dataset matched the stamp's 49 files, kernel ran the stress-tested engine 0fb97a22e13f, output checks passed. Flat logit mean; audit58 0.9268 is the flat ten+5-fold audit (ten_mii_folds_audit.py). To beat: 0.938. SCORED 0.942: NEW BEST, +0.004 over the 0.938 ten."
   }
  ]
 }

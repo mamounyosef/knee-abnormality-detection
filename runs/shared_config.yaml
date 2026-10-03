@@ -83,6 +83,11 @@ augmentation:
   contrast:   {p: 0.3, factor: 0.15}
   hflip:      {p: 0.0}              # would swap medial <-> lateral
   slice_dropout: {p: 0.1, frac: 0.1}  # blank a few slices, mimics gaps and artifacts
+  # extra types, OFF (p 0) unless a run turns them on; an off type changes nothing at all
+  gamma:  {p: 0.0, range: [0.7, 1.5]}    # non-linear brightness curve
+  noise:  {p: 0.0, std: 0.03}            # Gaussian noise, up to 3% of the intensity range
+  blur:   {p: 0.0, sigma: [0.3, 1.0]}    # Gaussian blur, sigma in pixels
+  cutout: {p: 0.0, n: 1, frac: 0.15}     # n square holes of 15% of the side, through every slice
 
 # labels are probabilities from a language model reading the reports, not 0/1 truth
 target:

@@ -51,6 +51,24 @@ def smooth(x, w):
     return pd.Series(x).rolling(w, center=True, min_periods=1).mean().values if w > 1 else np.asarray(x)
 
 
+def online(a, ep, patience=6, min_epoch=6):
+    """The rule as it would RUN: checkpoint j is graded when check j+1 arrives (centred 3-check mean),
+    best.pt moves to j if its grade beats the best so far, and training stops after `patience` graded
+    checks without a new best, never before `min_epoch`. Returns the index of the kept checkpoint."""
+    best, bj, bad = -np.inf, 0, 0
+    n = len(a)
+    for i in range(1, n + 1):
+        j = i - 1                                   # checkpoint being graded now
+        g = np.nanmean(a[max(0, j - 1):min(n, j + 2)])
+        if g > best:
+            best, bj, bad = g, j, 0
+        else:
+            bad += 1
+        if bad >= patience and ep[min(i, n - 1)] >= min_epoch:
+            break
+    return bj
+
+
 rows = []
 for vl in sorted(RUNS.glob("*/results/val_log.csv")):
     run = vl.parent.parent.name
@@ -90,15 +108,21 @@ for vl in sorted(RUNS.glob("*/results/val_log.csv")):
         r[f"regret_a{w}"] = best - val[i]
         r[f"dstep_a{w}"] = (steps[i] - r["val_peak_step"]) / spe
     r["regret_last"] = best - val[-1]
+    ep = vv.epoch.values if "epoch" in vv else np.array(steps) / spe
+    io = online(a_full, ep)
+    r["regret_online"] = best - val[io]
+    r["dstep_online"] = (steps[io] - r["val_peak_step"]) / spe
     i85 = int(np.argmin(np.abs(np.array(steps) - 0.85 * steps[-1])))
     r["regret_85pct"] = best - val[i85]
     # bootstrap the 58: where would a noisy audit have stopped?
-    regs, dst = [], []
+    regs, dst, oregs = [], [], []
     for b in range(B):
         ab = np.array([macro(P, BOOT[b]) for P in A])
         i = int(np.nanargmax(smooth(ab, 3)))
         regs.append(best - val[i])
         dst.append((steps[i] - r["val_peak_step"]) / spe)
+        oregs.append(best - val[online(ab, ep)])
+    r["boot_online_med"], r["boot_online_p90"] = np.median(oregs), np.percentile(oregs, 90)
     r["boot_regret_med"], r["boot_regret_p90"] = np.median(regs), np.percentile(regs, 90)
     r["boot_dstep_iqr"] = np.percentile(dst, 75) - np.percentile(dst, 25)
     rows.append(r)
@@ -112,7 +136,10 @@ for c, lab in (("regret_a1", "audit-58 raw peak"), ("regret_a3", "audit-58, 3-pt
                ("regret_a5", "audit-58, 5-pt smoothed peak"), ("regret_85pct", "fixed: 85% of the run's steps"),
                ("regret_last", "fixed: last validation"),
                ("boot_regret_med", "audit-58 3-pt, resampled (median)"),
-               ("boot_regret_p90", "audit-58 3-pt, resampled (p90)")):
+               ("boot_regret_p90", "audit-58 3-pt, resampled (p90)"),
+               ("regret_online", "ONLINE rule (as it would run)"),
+               ("boot_online_med", "ONLINE rule, resampled (median)"),
+               ("boot_online_p90", "ONLINE rule, resampled (p90)")):
     x = df[c]
     print(f"{lab:34s} {x.mean():7.4f} {x.median():7.4f} {x.quantile(.9):7.4f} {x.max():7.4f}  {(x <= 0.002).mean():12.0%}")
 print(f"\naudit 3-pt peak vs val peak, in epochs: median {df.dstep_a3.median():+.2f}, "

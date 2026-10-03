@@ -1025,6 +1025,27 @@ class KneeShardDataset(Dataset):
             drop = rng.choice(n_sl, k, replace=False)
             for d0 in drop:                           # zero every channel of that slice
                 vol[d0 * self.ctx:(d0 + 1) * self.ctx] = 0
+        # EXTRA TYPES (2 Oct, augmentation-strength test). Each is OFF unless its p > 0, and an
+        # off type draws NOTHING from rng: the same rng goes on to pick the next slot's slices,
+        # so one extra draw would silently change every run trained before these existed.
+        g = a.get("gamma") or {}
+        if g.get("p", 0) > 0 and rng.random() < g["p"]:
+            lo, hi = g["range"]                       # <1 brightens the darks, >1 darkens them
+            vol = 255.0 * (np.clip(vol, 0, 255) / 255.0) ** rng.uniform(lo, hi)
+        nz = a.get("noise") or {}
+        if nz.get("p", 0) > 0 and rng.random() < nz["p"]:
+            sd = rng.uniform(0, nz["std"]) * 255      # scanner noise, fresh per voxel
+            vol = vol + rng.normal(0, sd, vol.shape).astype(np.float32)
+        bl = a.get("blur") or {}
+        if bl.get("p", 0) > 0 and rng.random() < bl["p"]:
+            sig = rng.uniform(*bl["sigma"])           # softer images, like a lower-resolution scan
+            vol = np.stack([cv2.GaussianBlur(sl, (0, 0), sig) for sl in vol])
+        co = a.get("cutout") or {}
+        if co.get("p", 0) > 0 and rng.random() < co["p"]:
+            side = max(1, int(co["frac"] * s))        # square holes, the same through every slice
+            for _ in range(int(co.get("n", 1))):
+                y0, x0 = rng.integers(0, s - side + 1, 2)
+                vol[:, y0:y0 + side, x0:x0 + side] = 0
         return np.clip(vol, 0, 255)
 
     def __getitem__(self, i: int):
