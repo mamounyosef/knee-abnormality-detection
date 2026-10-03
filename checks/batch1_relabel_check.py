@@ -53,6 +53,10 @@ RUNS_EXPECTED = {
          "dataloader.accum_steps", "dataloader.val_batch_size", "dataloader.num_workers", "dataloader.val_num_workers",
          "dataloader.prefetch_factor", "dataloader.pin_memory", "output.keep_last_n", "output.keep_top_k",
          "output.upload_checkpoints.modal_config", "output.upload_checkpoints.patterns"}),
+    "mricore_vitb_mae_cross_attention_v5": ("mricore_vitb_mae_cross_attention",            # batch 2
+        V5 | {"input.laterality_flip", "training.early_stopping.patience", "modal.gpu"}),
+    "mricore_vitb_cross_attention_v5": ("mricore_vitb_cross_attention",                    # batch 2
+        V5 | {"input.laterality_flip", "training.early_stopping.patience", "modal.gpu"}),
 }
 bad = 0
 

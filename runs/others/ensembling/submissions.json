@@ -613,6 +613,35 @@
    "submission_ref": 56796715,
    "runtime_seconds": null,
    "notes": "From-scratch twin of convnext_base_25d_warm_v5: v4 labels, v5 split, flipped, step 5900 (val peak)."
+  },
+  {
+   "members": [
+    "convnext_base_v5",
+    "mricore_vitb_cross_attention",
+    "mricore_vitb_mae_cross_attention_fulldata_flip",
+    "dinov3_convnext_base_v5",
+    "convnext_base_25d_18slices_v5_aug_base",
+    "swinv2_base_in22k",
+    "convnext_base_25d_poolattn_v5",
+    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+    "medimageinsight_davit_huge_perslice_480_warm",
+    "medimageinsight_davit_huge_336_v3_f0",
+    "medimageinsight_davit_huge_336_v3_f1",
+    "medimageinsight_davit_huge_336_v3_f2",
+    "medimageinsight_davit_huge_336_v3_f3",
+    "medimageinsight_davit_huge_336_v3_f4"
+   ],
+   "submitted": "2026-10-03",
+   "public_score": null,
+   "private_score": null,
+   "val": null,
+   "audit58": 0.9289,
+   "kernel": "mamounhussam/knee-relabel-b1-submit",
+   "kernel_version": null,
+   "submission_ref": 56805570,
+   "runtime_seconds": null,
+   "runtime": "stress: 17.6 s/study over 128 studies, ~4.9 h projected on 946; RAM peak 17.6/33.7 GB",
+   "notes": "Relabel batch 1: the 0.942 fourteen with dinov3_convnext_base_v5, convnext_base_v5, convnext_base_25d_18slices_v5_aug_base, convnext_base_25d_poolattn_v5 (step 3700) swapped in. From stress stamp 6ccdad5d92bb. audit58 0.9289 = split-analogue estimate. To beat 0.942."
   }
  ]
 }
