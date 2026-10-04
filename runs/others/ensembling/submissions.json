@@ -632,7 +632,7 @@
     "medimageinsight_davit_huge_336_v3_f4"
    ],
    "submitted": "2026-10-03",
-   "public_score": null,
+   "public_score": 0.942,
    "private_score": null,
    "val": null,
    "audit58": 0.9289,
@@ -641,7 +641,7 @@
    "submission_ref": 56805570,
    "runtime_seconds": null,
    "runtime": "stress: 17.6 s/study over 128 studies, ~4.9 h projected on 946; RAM peak 17.6/33.7 GB",
-   "notes": "Relabel batch 1: the 0.942 fourteen with dinov3_convnext_base_v5, convnext_base_v5, convnext_base_25d_18slices_v5_aug_base, convnext_base_25d_poolattn_v5 (step 3700) swapped in. From stress stamp 6ccdad5d92bb. audit58 0.9289 = split-analogue estimate. To beat 0.942."
+   "notes": "Relabel batch 1: the 0.942 fourteen with dinov3_convnext_base_v5, convnext_base_v5, convnext_base_25d_18slices_v5_aug_base, convnext_base_25d_poolattn_v5 (step 3700) swapped in. From stress stamp 6ccdad5d92bb. audit58 0.9289 = split-analogue estimate. Scored 0.942: tie with the 0.942 fourteen."
   }
  ]
 }

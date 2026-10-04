@@ -168,7 +168,8 @@ evaluation:
 output:
   keep_last_n: 1                    # local disk: last.pt covers resume
   keep_top_k: 1
-  checkpoint_every_steps: 100       # a crash loses at most 100 steps
+  checkpoint_every_steps: 50        # user stops it often: a stop loses at most 50 steps (~3 min)
   upload_checkpoints:
     modal_config: "local"            # path in ~/.knee_upload_modal_config (outside the repo)
-    patterns: ["best.pt"]
+    volume: "knee-ckpt-backup"       # the backup volume
+    patterns: ["step*000.pt", "step*500.pt", "last.pt"]   # every 500 steps + each epoch end; local keeps only last.pt + newest step

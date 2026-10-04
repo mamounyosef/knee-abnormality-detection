@@ -17,7 +17,8 @@ PROTOCOL (no number is picked after seeing it): nested cross-validation on the 3
 4/5 of val (per label for the per-label variant). The 58 audit: setting chosen by 5-fold CV on all 346, fit on train +
 all 346, scored once. Every variant gets a paired bootstrap against the original head (val 346 and audit 58).
 
-    python runs/others/head_refit_study.py
+    python runs/others/head_refit_study.py               # everything
+    python runs/others/head_refit_study.py --only mlp    # just the MLP heads
 """
 import argparse
 import itertools
@@ -36,21 +37,23 @@ T = ["ACL", "MCL", "Medial Meniscus", "Lateral Meniscus", "Medial OA", "Lateral 
 ap = argparse.ArgumentParser()
 ap.add_argument("--run", default="convnext_base_25d_18slices_v5_aug_base")
 ap.add_argument("--step", default="5900")
+ap.add_argument("--only", default="all", choices=("all", "linear", "mlp"), help="which head family to study")
 a = ap.parse_args()
 torch.set_num_threads(8)
+DEV = torch.device("cuda" if torch.cuda.is_available() else "cpu")   # the features are tiny: a fit is milliseconds on a GPU
 
 z = np.load(RUNS / a.run / "results" / f"features_s{a.step}.npz", allow_pickle=True)
 ids, split = z["study_ids"].astype(str), z["split"].astype(str)
-F = torch.tensor(z["feats"], dtype=torch.float32)
-W0, B0 = torch.tensor(z["head_w"]), torch.tensor(z["head_b"])
+F = torch.tensor(z["feats"], dtype=torch.float32, device=DEV)
+W0, B0 = torch.tensor(z["head_w"], device=DEV), torch.tensor(z["head_b"], device=DEV)
 v4 = pd.read_csv(D / "22_train_full_qwen-mg-convnext-mii-w50.csv").set_index("StudyInstanceUID")
 tgt = pd.read_csv(D / "23_val_v3_audit.csv").set_index("StudyInstanceUID")
-Ytr = torch.tensor(v4.loc[ids, T].values, dtype=torch.float32)
+Ytr = torch.tensor(v4.loc[ids, T].values, dtype=torch.float32, device=DEV)
 tr, va, au = (split == "train"), (split == "val"), (split == "audit")
 Ybin = np.zeros((len(ids), 12), int)
 Ybin[va | au] = (tgt.loc[ids[va | au], T].values > 0.5).astype(int)
 vi, ai = np.where(va)[0], np.where(au)[0]
-print(f"{F.shape[0]} studies x {F.shape[1]} features: train {tr.sum()}, val {va.sum()}, audit {au.sum()}")
+print(f"{F.shape[0]} studies x {F.shape[1]} features: train {tr.sum()}, val {va.sum()}, audit {au.sum()} | device {DEV}")
 
 
 def auc_cols(Y, P):
@@ -58,7 +61,7 @@ def auc_cols(Y, P):
 
 
 def orig(rows):
-    return (F[rows] @ W0.T + B0).numpy()
+    return (F[rows] @ W0.T + B0).cpu().numpy()
 
 
 # ---------------- models ----------------
@@ -73,7 +76,7 @@ def fit_linear(rows, steps, pull, seed=0):
         loss.backward()
         opt.step()
     W, B = W.detach(), B.detach()
-    return lambda r: (F[r] @ W.T + B).numpy()
+    return lambda r: (F[r] @ W.T + B).cpu().numpy()
 
 
 class MLP(torch.nn.Module):
@@ -93,7 +96,7 @@ class MLP(torch.nn.Module):
 
 def fit_mlp(rows, hidden, drop, wd, steps, residual, seed=0):
     torch.manual_seed(seed)
-    net = MLP(hidden, drop, residual)
+    net = MLP(hidden, drop, residual).to(DEV)
     opt = torch.optim.AdamW(net.parameters(), lr=1e-3, weight_decay=wd)
     X, Y = F[rows], Ytr[rows]
     net.train()
@@ -105,7 +108,7 @@ def fit_mlp(rows, hidden, drop, wd, steps, residual, seed=0):
 
     def pred(r):
         with torch.no_grad():
-            return net(F[r]).numpy()
+            return net(F[r]).cpu().numpy()
     return pred
 
 
@@ -116,8 +119,15 @@ MLPS = ([("mlp_residual", dict(hidden=h, drop=0.3, wd=w, steps=s, residual=True)
            for w, s in itertools.product((1e-3, 1e-2), (300, 1000))])
 
 
+_CACHE = {}
+
+
 def make(kind, kw, rows):
-    return fit_linear(rows, **kw) if kind == "linear" else fit_mlp(rows, **kw)
+    """each (setting, training rows) is fitted ONCE: the shared-setting and per-label variants reuse every fit"""
+    key = (kind, tuple(sorted(kw.items())), np.packbits(rows).tobytes())
+    if key not in _CACHE:
+        _CACHE[key] = fit_linear(rows, **kw) if kind == "linear" else fit_mlp(rows, **kw)
+    return _CACHE[key]
 
 
 # ---------------- nested CV ----------------
@@ -182,8 +192,10 @@ A_val, A_au = auc_cols(Ybin[vi], A[vi]), auc_cols(Ybin[ai], A[ai])
 print(f"original head: val346 {np.nanmean(A_val):.4f}  audit58 {np.nanmean(A_au):.4f}")
 
 # ---- 0. the first test's best settings, with their uncertainty ----
+if a.only != "all":
+    print("(section 0 skipped: --only %s)" % a.only)
 print("\n0. IS THE FIRST TEST'S AUDIT GAIN REAL? (paired bootstrap, 2,000 resamples)")
-for name, kw in (("train only, 50 steps, no pull (B)", dict(steps=50, pull=0.0)),):
+for name, kw in ((("train only, 50 steps, no pull (B)", dict(steps=50, pull=0.0)),) if a.only == "all" else ()):
     p = fit_linear(tr, **kw)
     P = np.zeros((len(ids), 12)); P[va | au] = p(np.where(va | au)[0])
     for lab, rows in (("val346", vi), ("audit58", ai)):
@@ -197,6 +209,8 @@ for label, configs, per_label in (("linear, one setting for all labels", LIN, Fa
                                   ("linear, each label its own setting (12 heads)", LIN, True),
                                   ("MLP 1024->hidden->12, residual + fresh", MLPS, False),
                                   ("MLP, each label its own setting", MLPS, True)):
+    if (a.only == "linear" and configs is MLPS) or (a.only == "mlp" and configs is LIN):
+        continue
     t0 = time.time()
     Pval, Pau, picks, choice = nested(configs, per_label)
     pv, pa = auc_cols(Ybin[vi], Pval[vi]), auc_cols(Ybin[ai], Pau[ai])
@@ -211,6 +225,7 @@ for label, configs, per_label in (("linear, one setting for all labels", LIN, Fa
 
 print("\nPER LABEL, val346 nested CV (original | linear one setting | linear per label | MLP | MLP per label):")
 names = list(results)
+print("   columns:", " | ".join(names))
 for j, t in enumerate(T):
     row = " | ".join(f"{results[n][0][j]:.4f} ({results[n][0][j] - A_val[j]:+.4f})" for n in names)
     print(f"  {t:17s} {A_val[j]:.4f} | {row}")

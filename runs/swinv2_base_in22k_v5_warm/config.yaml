@@ -1,0 +1,114 @@
+# swinv2_base_in22k_v5_warm
+#
+# RELABEL BATCH 3, SwinV2 (user, 4 Oct). WARM START from swinv2_base_in22k's best.pt (old Qwen labels,
+# old 05 split, NO knee flip, val 0.9053 @ epoch 10) instead of a 12-epoch retrain from scratch (~$78).
+# Weights only: a fresh 6-epoch cosine at 40% of the learning rate, as convnext_base_25d_warm_v5 (warm LB
+# 0.928 vs 0.930 from scratch). Knee flip ON now: the donor saw left and right knees unmirrored, so an
+# all-right-knee view is a subset of what it already reads.
+# Data: data/24_* (data_code/24_make_clean121_split.py). Train 4,279 on v4 labels (97% of the data);
+# val = the 121 studies the donor never saw (63 v5 val on v3 labels + the 58 audit on panel labels).
+# The v5 val would be leaky: the donor trained on 283 of its 346. Validate every 100 steps; early stopping on the 121, patience 7
+# validations (2 epochs: the 121 are noisy). Final model: average of the top checkpoints around the peak.
+#
+# ---- the donor's notes follow ----
+#
+# SwinV2-Base on ImageNet-22k. Not a medical model - this run buys ARCHITECTURE diversity.
+#
+# The ensemble table says different architecture is what pays: our best pairs were the ones
+# that crossed families (ConvNeXt + ViT = +0.0022), while a second ConvNeXt added almost
+# nothing and a different LOSS added exactly 0.0000. Our current stack is four ConvNeXts,
+# one plain ViT and one ResNet - no hierarchical transformer anywhere.
+#
+# Why SwinV2 rather than a plain ViT at this size: Swin attends inside local windows and
+# shifts them between layers, so cost grows LINEARLY with image size instead of
+# quadratically. At our 512px that is the difference between affordable and not.
+#
+# A dedicated search for a Swin pretrained on medical images came back empty - nothing on
+# knee, musculoskeletal, OAI or MRNet is publicly released, RadImageNet has not published
+# its Swin weights, and the one MRI-pretrained Swin (SwinBrain) is brain-only with no
+# stated license. So ImageNet-22k is the honest best available starting point.
+#
+# Beat: convnext_base_relabel val 0.9050. Expect below that - decorrelation is the point.
+# Relaunch 7 Sep: cut on 3 Sep for OOM, never scored. See runs_timeline.md #26.
+
+experiment:
+  name: "swinv2_base_in22k_v5_warm"
+
+paths:
+  train_csv: "24_train_w50_minus_clean121.csv"   # 4,279 studies, v4 labels
+  val_csv:   "24_val_clean121.csv"              # 121 studies the donor never saw (63 v3 + 58 audit)
+
+model:
+  name: "swinv2_base_window12to16_192to256.ms_in22k_ft_in1k"
+  pretrained: true
+  init_from: "swinv2_base_in22k"        # donor's best.pt (epoch 10, val 0.9053), weights only
+  create_kwargs:
+    img_size: 512                       # pretrained at 256; verified locally that a 512
+                                        # forward pass builds and runs
+    window_size: 16                     # 512/4 = 128 tokens across at stage 1, then 64, 32,
+                                        # 16 - all divisible by 16, so no ragged windows.
+                                        # SwinV2's log-CPB position bias is what makes
+                                        # growing the window past its pretrained size work
+  pool: "mean"
+  drop_rate: 0.1
+  infer_chunk: 24                       # encode 96 images 24 at a time at INFERENCE:
+                                        # 16.8 GB in one go, 4.5 GB chunked, and Kaggle
+                                        # gives 15. Exact, not approximate - see forward().
+  drop_path_rate: 0.2                   # Swin's own recipe uses heavier stochastic depth
+                                        # than a ConvNeXt of the same size
+
+input:
+  laterality_flip: "left"               # mirror left knees, per plane (new for this model)
+
+training:
+  epochs: 6                             # short fine-tune, fresh cosine; early stopping picks the end
+  grad_clip: 3.0                    # matches shared_config; transformers run hot early
+  grad_checkpointing: false         # ON, batch 1 peaked at only 34 of the B200's 178 GB
+                                    # but ETA was 13h24m. Off should fit and run ~35% faster.
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 2.0e-5                          # 40% of the from-scratch 5e-5: fine-tuning, not relearning
+    backbone_lr_mult: 0.5               # head = 1.0e-4
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05                   # short warmup: the trunk is already trained
+    min_lr_mult: 0.01
+  loss:
+    name: "bce"
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 7                         # VALIDATIONS (700 steps, ~1.3 epochs; user, 4 Oct)
+
+dataloader:
+  batch_size: 1                         # the floor: 1 study is 4 slots x 24 slices = 96
+                                        # images. 192 OOMed on a 140 GB H200, so raw cost is
+                                        # >0.73 GB/image; 96 fits the B200 under 1.86.
+  accum_steps: 8                        # effective 8 studies, same as every run before it
+  val_batch_size: 2
+  num_workers: 26
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+modal:
+  gpu: "B200"                           # 180 GB, and fast enough to offset checkpointing.
+                                        # Check gpu_peak_gb - batch 2 may fit and be faster.
+  cpu: 12.0
+  memory_gb: 64
+  timeout_hours: 10                     # ~1.1 h/epoch on 4,279 studies (donor: 11h16m for 12 on 3,638)
+
+evaluation:
+  eval_every_steps_before: 100          # every 100 steps (user, 4 Oct): ~5 checks per epoch (535 steps)
+  eval_every_steps_mid: 100
+  eval_every_steps_after: 100
+  validate_before_training: true        # step 0 = the donor on the 121, the starting point
