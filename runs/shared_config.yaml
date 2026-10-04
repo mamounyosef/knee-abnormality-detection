@@ -31,6 +31,12 @@ input:
   slots: ["sag_plain", "sag_fluid", "cor_fluid", "ax_fluid"]
   fallback_same_plane: true         # covers the 12.6% missing a slot
   duplicate_rule: "coverage"        # which series wins when several fit one slot
+  # TRAINING ONLY (4 Oct): show the duplicates duplicate_rule discards (2,136 series in 1,464 studies) on a fixed
+  # schedule: the best series on odd epochs and the last best_last_epochs, the duplicates in turn on even epochs.
+  # Validation and inference always use the best series. shared_code.scheduled_series.
+  series_schedule:
+    enable: false
+    best_last_epochs: 2
                                     # coverage | resolution | slices | series_number | random
 
   # Laterality normalisation. "Medial" means the inner side of the leg, which is the LEFT
@@ -150,6 +156,15 @@ training:
                                     # and 32 MB of npz is not on that ignore list.
     weight: 0.3                     # relative to the BCE term. Untested; the first run
                                     # should treat this as the main thing being tuned.
+
+  # GRADED REPORT ATTRIBUTES as extra targets (4 Oct): ~45 finding-relevant facts per report (cartilage grade per
+  # compartment, osteophytes, meniscus tear type, effusion size, synovial thickening, bruise location...), extracted
+  # by data_code/25_extract_report_attributes.py. Masked BCE on grade/max; silent cells count for nothing. Same model
+  # contract as aux_report: the head returns (logits, aux) in training mode only. Logged as aux_attr_bce / _shuf / _gap.
+  aux_attributes:
+    enable: false
+    path: "25_report_attributes.csv"
+    weight: 0.3
 
   # log10(update / weight) per weight tensor, written to ud_ratio.csv and plotted with
   # the rest. It measures whether each layer is ACTUALLY moving, instead of trusting that

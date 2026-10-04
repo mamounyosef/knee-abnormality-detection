@@ -642,6 +642,53 @@ def plan_slots(index: pd.DataFrame, cfg: dict) -> dict[str, dict[str, str]]:
     return plan
 
 
+def plan_slot_candidates(index: pd.DataFrame, cfg: dict) -> dict[str, dict[str, list]]:
+    """Every series competing for each slot, ranked exactly as plan_slots ranks them -> {study: {slot: [series...]}}.
+
+    Element 0 is the series plan_slots picks (inference always uses it). The rest are the duplicates plan_slots
+    discards: 2,136 series in 1,464 of 4,407 studies for the 4 standard slots. input.series_schedule shows them in
+    training (scheduled_series)."""
+    slots, rule = cfg["input"]["slots"], cfg["input"]["duplicate_rule"]
+    _fb = cfg["input"]["fallback_same_plane"]
+    fallback_slots = set(_fb) if isinstance(_fb, (list, tuple, set)) else (set(slots) if _fb else set())
+    sort_by, asc = {
+        "coverage":      (["depth_mm", "pixel_spacing_c"], [False, True]),
+        "resolution":    (["pixel_spacing_c", "depth_mm"], [True, False]),
+        "slices":        (["n_slices", "depth_mm"], [False, False]),
+        "series_number": (["series", "depth_mm"], [True, False]),
+        "random":        (["series"], [True]),
+    }[rule]
+    out: dict[str, dict[str, list]] = {}
+    for study, g in index.groupby("study", sort=False):
+        c = {}
+        for slot in slots:
+            cand = g[g.slot == slot]
+            if cand.empty and slot in fallback_slots:
+                cand = g[g.plane == PLANE_OF[slot]]
+            if cand.empty:
+                continue
+            ranked = list(cand.sort_values(sort_by, ascending=asc)["series"])
+            k = min(int(cfg["input"].get("slot_variant", 0)), len(ranked) - 1)
+            c[slot] = [ranked[k]] + [s for j, s in enumerate(ranked) if j != k]   # plan_slots' pick first
+        out[study] = c
+    return out
+
+
+def scheduled_series(cands: list, epoch: int, epochs: int, best_last: int, key: str):
+    """Which of a slot's ranked series to show in this epoch (input.series_schedule).
+
+    STRUCTURED, not random (user, 4 Oct): odd epochs and the last `best_last` epochs use the best series (the one
+    inference sees); even epochs rotate through the duplicates in a fixed round-robin, so over the run each duplicate
+    is seen equally often. A per-study/slot offset keeps the studies from all switching to the same rank at once.
+    With 12 epochs and best_last 2: best on epochs 1,3,5,7,9,11,12; duplicates on 2,4,6,8,10."""
+    n = len(cands)
+    if n == 1 or epoch < 1 or epoch > epochs - best_last or epoch % 2 == 1:
+        return cands[0]
+    import zlib
+    off = zlib.crc32(key.encode()) % (n - 1)
+    return cands[1 + (epoch // 2 - 1 + off) % (n - 1)]
+
+
 def pick_slices(n_available: int, n_want: int, mode: str, rng,
                 margin: float = 0.0, offset: float = 0.0,
                 reverse: bool = False) -> np.ndarray:
@@ -698,6 +745,43 @@ _EPOCH = _mp.Value("q", 0)         # current epoch, so train augmentation varies
 def _retr_snapshot():
     """(imgs, bytes, ns) totals so far - cheap lock-free read."""
     return _RETR_IMGS.value, _RETR_BYTES.value, _RETR_NS.value
+
+
+def _load_attribute_targets(cfg: dict):
+    """{study_id: [mask(K), value(K)]} for the auxiliary ATTRIBUTE loss, or None when off.
+
+    training.aux_attributes: {enable, path, weight}. The csv (data_code/25_extract_report_attributes.py) holds K graded
+    report attributes per study as integers or empty ("the report does not say"). Each is scaled to [0, 1] by its own
+    maximum over the file and trained with binary cross-entropy against a sigmoid output; empty cells get mask 0 and
+    contribute nothing. Unlike aux_report (the whole report embedding, -0.0049 on 13 Sep), these are finding-relevant
+    graded facts only. The head is the run's, dropped under eval(), so inference never sees it.
+    """
+    ax = (cfg.get("training", {}).get("aux_attributes") or {})
+    if not ax.get("enable"):
+        return None
+    path = resolve(ax.get("path", "25_report_attributes.csv"), cfg)
+    if not Path(path).exists():
+        raise SystemExit(f"[aux] aux_attributes.enable is true but {path} is missing. Build it with\n"
+                         f"      python data_code/25_extract_report_attributes.py --build")
+    df = pd.read_csv(path).set_index("StudyInstanceUID")
+    cols = [c for c in df.columns if c not in ("model", "bad")]
+    V = df[cols].astype(float)
+    V = V / V.max().replace(0, 1.0)                     # each attribute to [0, 1] by its own top grade
+    M = V.notna().astype(np.float32).values
+    X = np.nan_to_num(V.values.astype(np.float32))
+    print(f"  \U0001F9E9 aux attribute target: {len(df)} studies x {len(cols)} attributes, "
+          f"{M.mean():.0%} of cells reported")
+    return {s: torch.from_numpy(np.concatenate([M[i], X[i]])) for i, s in enumerate(df.index.astype(str))}
+
+
+def aux_attribute_count(cfg: dict) -> int:
+    """K, the number of attribute columns, so a run's model can size its head before the dataset exists."""
+    ax = (cfg.get("training", {}).get("aux_attributes") or {})
+    if not ax.get("enable"):
+        return 0
+    path = resolve(ax.get("path", "25_report_attributes.csv"), cfg)
+    cols = pd.read_csv(path, nrows=1).columns
+    return len([c for c in cols if c not in ("StudyInstanceUID", "model", "bad")])
 
 
 def _load_report_targets(cfg: dict):
@@ -902,9 +986,15 @@ class KneeShardDataset(Dataset):
         # Auxiliary report-embedding target. Loaded ONLY for training splits and only when
         # asked for: at submission time there are no reports, and the auxiliary head is
         # dropped anyway, so inference must never depend on this.
-        self.aux = None
+        self.aux, self.aux_kind = None, None
         if train and dicom is None:
             self.aux = _load_report_targets(cfg)
+            self.aux_kind = "report" if self.aux is not None else None
+            att = _load_attribute_targets(cfg)
+            if att is not None:
+                if self.aux is not None:
+                    raise SystemExit("[aux] aux_report and aux_attributes are both enabled; pick one")
+                self.aux, self.aux_kind = att, "attributes"
         if dicom is not None:
             dicom_index, self.dicom_files = dicom
             self.geo = dicom_index.set_index("series")[["pixel_spacing_c", "pixel_spacing_r"]]
@@ -1058,6 +1148,12 @@ class KneeShardDataset(Dataset):
         rng = np.random.default_rng([self.seed, int(self._epoch.value), i] if self.train
                                     else [self.seed, hash(study) & 0xFFFFFFFF])
         chosen = self.plan.get(study, {})               # {slot: series} picked by plan_slots
+        if self.train and getattr(self, "cands", None):
+            # input.series_schedule: this epoch's series per slot (the best one, or a duplicate in turn)
+            _ss = self.cfg["input"]["series_schedule"]
+            _ep, _E = int(self._epoch.value), int(self.cfg["training"]["epochs"])
+            chosen = {sl: scheduled_series(c, _ep, _E, int(_ss.get("best_last_epochs", 2)), f"{study}|{sl}")
+                      for sl, c in self.cands.get(study, {}).items()}
         # mirror this study if it is the side we normalise away. Unknown side = leave it.
         mirror = bool(self.flip_side) and self.sides.get(study) == self.flip_side
 
@@ -1122,6 +1218,12 @@ class KneeShardDataset(Dataset):
             y = (y > thr).float() * (1 - ls) + ls / 2
         if self.aux is None:
             return x, y                                  # unchanged for every existing run
+        if self.aux_kind == "attributes":
+            # [mask(K), value(K)]; a study with no extracted attributes gets an all-zero mask
+            a = self.aux.get(study)
+            if a is None:
+                a = torch.zeros(next(iter(self.aux.values())).shape, dtype=torch.float32)
+            return x, y, a
         # a study with no report gets a zero vector and a 0 weight, so it contributes
         # nothing to the auxiliary loss instead of being trained toward the origin
         a = self.aux.get(study)
@@ -1271,6 +1373,12 @@ def make_loaders(cfg: dict):
     for split, key, train in [("train", "train_csv", True), ("val", "val_csv", False)]:
         df = pd.read_csv(resolve(cfg["paths"][key], cfg))
         ds = KneeShardDataset(df, cfg, plan, train)
+        if train and (cfg["input"].get("series_schedule") or {}).get("enable"):
+            ds.cands = plan_slot_candidates(idx, cfg)            # every competing series, ranked
+            _nd = sum(len(v) - 1 for st in ds.df.StudyInstanceUID for v in ds.cands.get(st, {}).values())
+            print(f"  \U0001F501 series schedule ON: {_nd} extra series across the train studies take turns "
+                  f"on even epochs; the best series on odd epochs and the last "
+                  f"{int(cfg['input']['series_schedule'].get('best_last_epochs', 2))}", flush=True)
         nw = dl.get("num_workers", 4) if train else vnw
         # train shuffles through ResumableSampler so a mid-epoch resume can skip
         # exactly the studies it already saw; val keeps its fixed order
@@ -3066,9 +3174,11 @@ def check_aux_wiring(cfg: dict, model: nn.Module):
     """
     ax = (cfg.get("training", {}).get("aux_report") or {})
     if not ax.get("enable"):
+        ax = (cfg.get("training", {}).get("aux_attributes") or {})   # same contract for the attribute head
+    if not ax.get("enable"):
         return
     if not float(ax.get("weight", 0) or 0):
-        raise SystemExit("[aux] aux_report.enable is true but weight is 0 - it would do "
+        raise SystemExit("[aux] an auxiliary target is enabled but its weight is 0 - it would do "
                          "nothing. Set a weight or disable it.")
     m = _uncompiled(model)
     was_training = m.training
@@ -3678,6 +3788,11 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     # is logged on its own rather than hidden inside the total
     _ax = (cfg.get("training", {}).get("aux_report") or {})
     aux_w = float(_ax.get("weight", 0.0) or 0.0) if _ax.get("enable") else 0.0
+    # the graded-attribute variant (training.aux_attributes): masked BCE, same (logits, aux) model contract
+    _axa = (cfg.get("training", {}).get("aux_attributes") or {})
+    aux_attr = bool(_axa.get("enable"))
+    if aux_attr:
+        aux_w = float(_axa.get("weight", 0.0) or 0.0)
     # [aligned loss sum, n, shuffled loss sum, in-batch top-1 sum, n_pairs]
     aux_run = [0.0, 0, 0.0, 0.0, 0]
     clip_vals = deque(maxlen=4000)     # finite gnorms, for the distribution below
@@ -3958,7 +4073,27 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                 # no changes at all and cannot be broken by this feature.
                 logits, aux_p = _fwd if isinstance(_fwd, tuple) else (_fwd, None)
                 loss = loss_fn(logits, y)
-                if aux_p is not None and aux_t is not None:
+                if aux_p is not None and aux_t is not None and aux_attr:
+                    # L = BCE(logits, y) + aux_w * mean over REPORTED cells of BCE(attr_logit, grade/max).
+                    # aux_t = [mask(K), value(K)]; silent cells (mask 0) contribute nothing.
+                    aux_t = aux_t.to(device, non_blocking=True)
+                    K = aux_t.shape[1] // 2
+                    msk, tgt = aux_t[:, :K], aux_t[:, K:]
+                    denom = msk.sum().clamp(min=1.0)
+                    bce = F.binary_cross_entropy_with_logits(aux_p.float(), tgt.float(), reduction="none")
+                    aux_loss = (bce * msk).sum() / denom
+                    loss = loss + aux_w * aux_loss
+                    aux_run[0] += float(aux_loss.detach())
+                    aux_run[1] += 1
+                    # the study-specific check: the same loss against ANOTHER study's attributes. If aligned and
+                    # shuffled are equal, the head learned the average report and is teaching the trunk nothing.
+                    with torch.no_grad():
+                        if tgt.shape[0] > 1:
+                            _mt, _mm = torch.roll(tgt, 1, dims=0), torch.roll(msk, 1, dims=0)
+                            _b = F.binary_cross_entropy_with_logits(aux_p.float(), _mt.float(), reduction="none")
+                            aux_run[2] += float((_b * _mm).sum() / _mm.sum().clamp(min=1.0))
+                            aux_run[4] += 1
+                elif aux_p is not None and aux_t is not None:
                     # Two different multipliers here, deliberately named apart:
                     #   has_report  per-study 0/1 mask, inside the auxiliary mean
                     #   aux_w       the scalar lambda from the config, applied ONCE to the
@@ -4105,7 +4240,15 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                 if _pesg and hasattr(loss_fn, "stats"):
                     # update, not assign: _extra may already hold the gate rows
                     _extra.update(loss_fn.stats(cfg["tasks"]))   # AUC-M duals a / b / alpha
-                if aux_run[1]:
+                if aux_run[1] and aux_attr:
+                    # aux_attr_bce   masked BCE to this study's attributes; aux_attr_shuf the same against another
+                    # study's; aux_attr_gap = shuf - aligned, THE signal (near 0 = the head learned the average)
+                    _extra["aux_attr_bce"] = round(aux_run[0] / aux_run[1], 5)
+                    if aux_run[4]:
+                        _extra["aux_attr_shuf"] = round(aux_run[2] / aux_run[4], 5)
+                        _extra["aux_attr_gap"] = round(aux_run[2] / aux_run[4] - aux_run[0] / aux_run[1], 5)
+                    aux_run[:] = [0.0, 0, 0.0, 0.0, 0]
+                elif aux_run[1]:
                     # aux_cos_loss  1 - cosine to the CORRECT report. 1.0 is orthogonal.
                     # aux_cos_shuf  the same against a MISMATCHED report from the batch.
                     # aux_gap       shuffled minus aligned. THIS is the real signal: it is
@@ -4234,6 +4377,12 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                     print(f"     loss={l:.4f}{d}  {lr_s}  gnorm={gnorm:.2f}{_gs}  "
                           f"elapsed={fmt(el)}  ETA={fmt(eta)}  gpu_mem(peak)={mem:.2f}GB"
                           f"{_since}")
+                    if "aux_attr_bce" in _extra:
+                        _ga = _extra.get("aux_attr_gap")
+                        print(f"     \U0001F9E9 aux attributes: bce={_extra['aux_attr_bce']:.4f}"
+                              f"  shuffled={_extra.get('aux_attr_shuf', float('nan')):.4f}"
+                              f"  gap={_ga if _ga is not None else float('nan'):+.4f}"
+                              + ("  <- study-specific" if (_ga or 0) > 0.02 else "  <- near the average"))
                     if "aux_cos_loss" in _extra:
                         # gap is the one to watch: aligned falling with gap ~0 means the
                         # head learned the AVERAGE report, not this study's. top1 is
