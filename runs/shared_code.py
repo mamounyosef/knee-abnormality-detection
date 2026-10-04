@@ -7131,7 +7131,8 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
                            index: pd.DataFrame, files_by_series: dict, device=None,
                            batch_size: int | None = None, num_workers: int | None = None,
                            report_every: int = 50, weights=None,
-                           return_member_logits: bool = False, model_specs=None):
+                           return_member_logits: bool = False, model_specs=None,
+                           tasks_out: list | None = None):
     """Score several models in ONE pass over the DICOMs and average their logits.
 
     Decoding a study costs ~9s against <1s of GPU, so looping predict_dicom once per
@@ -7153,7 +7154,9 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
     still and must not be believed.
     """
     device = device or torch.device("cuda" if usable_cuda() else "cpu")
-    cfg0, tasks = cfgs[0], cfgs[0]["tasks"]
+    # tasks_out: the caller's column list. The grouped path passes the full 12, so a geometry group made ONLY of
+    # partial-head members (a specialist with its own views) still returns 12 columns: NaN where it has no opinion.
+    cfg0, tasks = cfgs[0], list(tasks_out) if tasks_out is not None else cfgs[0]["tasks"]
     _inf0 = cfg0.get("inference", {}) or {}
     # Studies per forward. Larger amortises kernel-launch overhead, which is CPU work done
     # under the GIL: at two studies the loop is launch-bound, and a second GPU thread
@@ -7177,7 +7180,7 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
         idx = [tasks.index(t) for t in mt]
         COLS.append(torch.as_tensor(idx, device=device, dtype=torch.long))
         PRESENT[i, idx] = 1.0
-    if not torch.all(PRESENT.sum(dim=0) > 0):
+    if tasks_out is None and not torch.all(PRESENT.sum(dim=0) > 0):
         gap = [t for j, t in enumerate(tasks) if PRESENT[:, j].sum() == 0]
         raise ValueError(f"no member predicts {gap} - the ensemble cannot score them")
     partial = [c["experiment"]["name"] for i, c in enumerate(cfgs)
@@ -7795,11 +7798,7 @@ def predict_dicom_ensemble_grouped(cfgs: list, models: list, studies_df: pd.Data
             idx = [idx[j] for j in order]
             sub_cfgs = [cfgs[i] for i in idx]
             sub_models = [models[i] for i in idx]
-            if list(sub_cfgs[0]["tasks"]) != list(tasks):
-                raise ValueError(
-                    f"geometry group {gi} has no full-width member, so its columns cannot be "
-                    f"aligned to the head task list: "
-                    f"{[c['experiment']['name'] for c in sub_cfgs]}")
+            # a group of only partial-head members is fine: tasks_out below aligns its columns to the full list
         group_plan.append((gi, idx, sub_cfgs, sub_models))
 
     # DECODE ONCE. Every group re-read and re-decompressed every DICOM, although
@@ -7830,7 +7829,7 @@ def predict_dicom_ensemble_grouped(cfgs: list, models: list, studies_df: pd.Data
                     sub_cfgs, sub_models, cdf, plan, index, files_by_series, device=device,
                     model_specs=sub_specs,
                     batch_size=batch_size, num_workers=num_workers,
-                    report_every=report_every, return_member_logits=True)
+                    report_every=report_every, return_member_logits=True, tasks_out=list(tasks))
                 # everything ADDS across chunks; assigning would keep only the last chunk
                 timing["decode_s"] += gtiming["decode_s"]
                 timing["gpu_s"] += gtiming["gpu_s"]

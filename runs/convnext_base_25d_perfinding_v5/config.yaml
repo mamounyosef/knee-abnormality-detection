@@ -3,9 +3,9 @@
 # RELABEL BATCH 3 (user, 4 Oct): the shipped per-finding member (convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip:
 # 6 views, each finding pooled only over the views it is read on) moved to the v4 labels and the v5 split
 # (train data/23_train_w50.csv, val data/23_val_v3_audit.csv = 346 v3-labelled + the 58 audit), flip on as before.
-# Up to 12 epochs with early stopping patience 6 (v4 labels converge later than the old ones). LOCAL recipe for the 8 GB
-# card: batch 1 x accum 8 (40 images per study), gradient checkpointing, 1 loader worker; a checkpoint every 50 steps,
-# local disk keeps only the newest, every 500 steps and each epoch end uploaded to the workspace-1 backup volume.
+# Up to 12 epochs with early stopping patience 6 (v4 labels converge later than the old ones). Trained LOCALLY to step
+# 1100 (batch 1 x accum 8), then moved to Modal (user, 4 Oct): the shipped member's own H200 recipe, batch 8 x accum 1
+# = the same 8 studies per update, so the resume continues the same schedule.
 #
 # ---- the shipped member's notes follow ----
 #
@@ -110,7 +110,6 @@ input:
     ax_fluid:  6
 
 training:
-  grad_checkpointing: true          # local 8 GB GPU: recompute activations (exact)
   epochs: 12                        # early stopping on the v5 val picks the end
   grad_clip: 3.0                    # 3.0, NEVER 1.0. 1.0 clips every step and silently
                                     # throttles the effective learning rate.
@@ -140,7 +139,7 @@ training:
 # CPU-side loading; decoding shards is the bottleneck and stays one here, though 18 slices
 # is a quarter less to decode per study than 24.
 dataloader:
-  batch_size: 1                     # local recipe: 40 images @336 per micro-batch
+  batch_size: 8                     # 8 studies x 40 images = 320 images @336, in ONE pass (H200)
                                     # pass rather than two accumulated halves.
                                     # MEASURED BASIS: this run peaked at 45.13 GB on 160
                                     # images. Subtracting ~2 GB of weights and AdamW
@@ -148,21 +147,21 @@ dataloader:
                                     # ~88 GB - over an 80 GB card, which is why this run
                                     # and only this run sits on the 141 GB H200 (63%% of
                                     # the card).
-  accum_steps: 8                    # local: 1 x 8 = 8 studies per update, as every run
+  accum_steps: 1                    # 8 studies per optimizer step, as every run
                                     # count and lr schedule are unchanged. The engine
                                     # divides the loss by accum before stepping, and the
                                     # loss is a mean over studies, so 8x1 and 4x2 produce
                                     # IDENTICAL gradients - this is a speed change, not a
                                     # training change, and it resumes cleanly mid-run.
-  val_batch_size: 2                 # local recipe
+  val_batch_size: 8                 # 8 x 40 = 320 images, no backward pass
                                     # means no stored activations.
 
-  num_workers: 1                    # local recipe
+  num_workers: 26
                                     # per study, so the loader is the binding constraint
-  val_num_workers: 1                # local recipe
+  val_num_workers: null             # null = same as num_workers
 
-  prefetch_factor: 2                # local recipe
-  pin_memory: false                 # local recipe
+  prefetch_factor: 6                # batches queued per worker
+  pin_memory: true
   persistent_workers: true          # don't respawn workers every epoch
   drop_last: false                  # keep the ragged final batch
 
@@ -185,12 +184,3 @@ modal:
 
 evaluation:
   enable: true                      # the v5 val (346 + 58 audit) is held out, so validate and early-stop on it
-
-output:
-  keep_last_n: 1                    # local disk: last.pt covers resume
-  keep_top_k: 3                     # best validations, for the ensemble
-  checkpoint_every_steps: 50        # the user stops local runs often: a stop loses at most 50 steps
-  upload_checkpoints:
-    modal_config: "local"            # path in ~/.knee_upload_modal_config (outside the repo)
-    volume: "knee-ckpt-backup"       # the backup volume
-    patterns: ["step*000.pt", "step*500.pt", "last.pt", "best.pt"]

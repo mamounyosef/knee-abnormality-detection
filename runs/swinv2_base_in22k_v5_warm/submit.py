@@ -20,14 +20,18 @@ credit, and it needs the checkpoint already synced locally.
 import sys
 from pathlib import Path
 
-RUN_LOCAL = False              # True = do it here, False = do it on Modal
+RUN_LOCAL = True               # True = do it here, False = do it on Modal
 PUBLISH = True                 # after building: push the dataset + notebook and submit
 WAIT_FOR_RUN = True            # poll until the notebook finishes, then submit
 KAGGLE_USER = "mamounhussam"   # owner slug for the dataset and the notebook
-CHECKPOINT = "best"            # best | last | top1.. | <step> | path
+CHECKPOINT = str(Path(__file__).resolve().parent / "results/checkpoints/top_step2000.pt")
+                               # best clean-121 step 2000, pulled from the Modal volume (weights only)
+MESSAGE = 'swinv2_base_in22k_v5_warm | warm start from swinv2_base_in22k, v4 labels, 4,279 studies, flipped | step 2000 (clean-121 peak) | val121 0.9152 | audit58 0.9278'
 VERIFY_STUDIES = 3             # DICOM-vs-shard check; 0 skips it
 
 EXP_NAME = "swinv2_base_in22k_v5_warm"
+KAGGLE_NAME = "swinv2_v5_warm"   # Kaggle names cap at 50; the full name gets cut
+                                             # to its parent's names (engine refuses that)
 
 
 def _pkg_root() -> Path:
@@ -75,7 +79,7 @@ def build(cfg, exp_dir, out_dir, ckpt_dir, data_zip=None):
     if ck is None:
         raise SystemExit(f"no checkpoint {CHECKPOINT!r} in {ckpt_dir}")
     print(f"\n📦 packaging {ck}")
-    return sc.build_kaggle_assets(cfg, exp_dir, out_dir, ck, KAGGLE_USER)
+    return sc.build_kaggle_assets(cfg, exp_dir, out_dir, ck, KAGGLE_USER, kaggle_name=KAGGLE_NAME)
 
 
 def _publish(out):
@@ -83,10 +87,10 @@ def _publish(out):
     if not PUBLISH:
         print("PUBLISH is False — assets built, nothing uploaded")
         return
-    slug = f"knee-{EXP_NAME.replace('_', '-')}"
+    slug = f"knee-{KAGGLE_NAME.replace('_', '-')}"
     cfg = sc.load_config(EXP_DIR, verbose=False)
     sc.kaggle_publish(out, KAGGLE_USER, slug, f"{slug}-submit",
-                      message=sc.submission_message(cfg, EXP_DIR), wait=WAIT_FOR_RUN)
+                      message=MESSAGE or sc.submission_message(cfg, EXP_DIR), wait=WAIT_FOR_RUN)
 
 
 def run_local():

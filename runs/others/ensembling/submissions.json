@@ -661,7 +661,7 @@
     "medimageinsight_davit_huge_336_v3_f4"
    ],
    "submitted": "2026-10-04",
-   "public_score": null,
+   "public_score": 0.942,
    "private_score": null,
    "val": null,
    "audit58": 0.93,
@@ -670,7 +670,57 @@
    "submission_ref": 56824782,
    "runtime_seconds": null,
    "runtime": "stress: 17.8 s/study over 128 studies (37m54s), ~4.7 h projected on 946; RAM peak 16.3/33.7 GB",
-   "notes": "Relabel batch 2: the batch-1 fourteen (0.942) with mricore_vitb_cross_attention_v5 (step 6480) and mricore_vitb_mae_cross_attention_v5 (step 3300) swapped in. From stress stamp b4ae8ed14ec0. audit58 0.9300 = split-analogue estimate (+0.0010 over batch 1)."
+   "notes": "Relabel batch 2: the batch-1 fourteen (0.942) with mricore_vitb_cross_attention_v5 (step 6480) and mricore_vitb_mae_cross_attention_v5 (step 3300) swapped in. From stress stamp b4ae8ed14ec0. audit58 0.9300 = split-analogue estimate (+0.0010 over batch 1). Scored 0.942: tie with batches 0 and 1."
+  },
+  {
+   "members": [
+    "swinv2_base_in22k_v5_warm"
+   ],
+   "submitted": "2026-10-04",
+   "public_score": 0.934,
+   "private_score": null,
+   "val": 0.9152,
+   "audit58": 0.9278,
+   "kernel": "mamounhussam/knee-swinv2-v5-warm-submit",
+   "kernel_version": 1,
+   "submission_ref": 56831420,
+   "runtime_seconds": null,
+   "runtime": "commit run 16.3 min (3 visible studies)",
+   "notes": "SwinV2 v5 solo: warm start from swinv2_base_in22k, v4 labels, 4,279 studies, flipped, step 2000 (clean-121 peak 0.9152). Old SwinV2 solo audit 0.9101."
+  },
+  {
+   "members": [
+    "convnext_base_v5",
+    "mricore_vitb_cross_attention_v5",
+    "mricore_vitb_mae_cross_attention_v5",
+    "dinov3_convnext_base_v5",
+    "convnext_base_25d_full_v5",
+    "swinv2_base_in22k_v5_warm",
+    "convnext_base_25d_poolattn_v5",
+    "convnext_base_25d_perfinding_v5",
+    "medimageinsight_davit_huge_perslice_480_warm",
+    "medimageinsight_davit_huge_336_v3_f0",
+    "medimageinsight_davit_huge_336_v3_f1",
+    "medimageinsight_davit_huge_336_v3_f2",
+    "medimageinsight_davit_huge_336_v3_f3",
+    "medimageinsight_davit_huge_336_v3_f4",
+    "convnext_base_25d_v5_spec_trauma",
+    "convnext_base_25d_v5_spec_pfoa",
+    "convnext_base_25d_v5_spec_fluid",
+    "mricore_vitb_cross_attention"
+   ],
+   "submitted": "2026-10-05",
+   "public_score": null,
+   "private_score": null,
+   "val": null,
+   "audit58": null,
+   "kernel": "mamounhussam/knee-relabel-b3-submit",
+   "kernel_version": 3,
+   "submission_ref": 56835355,
+   "runtime_seconds": null,
+   "runtime": "stress #2: 18.9 s/study over 128 studies (40m14s), ~5.0 h projected on 946; RAM peak 16.1/33.7 GB",
+   "blend_weights": "relabel_b3_weights.json (spec_trauma 1 on Fracture/Contusion, spec_pfoa 2 on PF OA, spec_fluid 1 on Effusion/Synovitis/Baker's; others 1)",
+   "notes": "Relabel batch 3: batch-2 fourteen with swinv2_base_in22k_v5_warm (2000), convnext_base_25d_full_v5 (6600), convnext_base_25d_perfinding_v5 (3000); + 3 specialists on their own findings; + old-label mricore_vitb_cross_attention for diversity. From stress stamp f42133575a31 (stress #1 failed on the partial-head-group alignment; engine fixed)."
   }
  ]
 }

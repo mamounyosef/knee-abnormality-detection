@@ -76,15 +76,15 @@
   },
   "elapsed": "5h02m18s",
   "submission": {
-    "submitted": null,
-    "public_score": null,
+    "submitted": "2026-10-04",
+    "public_score": 0.934,
     "private_score": null,
     "runtime_seconds": null,
-    "runtime": null,
-    "kernel": null,
-    "kernel_version": null,
-    "submission_ref": null,
-    "checkpoint": null,
-    "notes": null
+    "runtime": "commit run 16.3 min",
+    "kernel": "mamounhussam/knee-swinv2-v5-warm-submit",
+    "kernel_version": 1,
+    "submission_ref": 56831420,
+    "checkpoint": "top_step2000.pt",
+    "notes": "solo"
   }
 }

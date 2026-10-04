@@ -334,3 +334,6 @@ runs/others/ensembling/*_log.txt
 **/submit_log*.txt
 runs/others/ensembling/kaggle_*/
 runs/others/run_queue_local_state.json
+
+# local-only helpers (they build workspace config paths): never commit
+tools_local/
