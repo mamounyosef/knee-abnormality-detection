@@ -1,0 +1,18 @@
+{
+  "id": "mamounhussam/knee-relabel-b2-submit",
+  "title": "knee relabel b2 submit",
+  "code_file": "submit.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": false,
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": [
+    "mamounhussam/knee-relabel-b2"
+  ],
+  "competition_sources": [
+    "rsna-knee-abnormality-detection"
+  ],
+  "kernel_sources": []
+}
