@@ -165,7 +165,8 @@ def main():
     # and no weights are needed on this PC, because the stress-tested dataset version is already
     # on Kaggle (submit_from_stress_stamp proves it file by file before pushing the notebook).
     if globals().get("SUBMIT_FROM_STAMP"):
-        sc.submit_from_stress_stamp(SUBMIT_FROM_STAMP, NOTE, submit=SUBMIT, public_w=PUBLIC_W_SUBMIT)
+        sc.submit_from_stress_stamp(SUBMIT_FROM_STAMP, NOTE, submit=SUBMIT, public_w=PUBLIC_W_SUBMIT,
+                                    notebook_slug=globals().get("SUBMIT_NOTEBOOK_SLUG"))
         return
     members, missing = [], []
     for name, ckpt in MEMBERS:

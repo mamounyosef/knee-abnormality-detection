@@ -764,6 +764,32 @@
    "runtime": "stress 54cd84fd057c: 9/9 members, public 128/128 in 35.5 min (parallel CoAt readers), projected 6.15 h on 946 (public 4.37 h)",
    "blend_weights": "per finding (1-0.5) rank(ours) + 0.5 rank(public)",
    "note": "COMBINED: batch 2 trimmed to 9 (no SwinV2, no MII-480, MII folds f0-f1) + prize-safe public pipeline."
+  },
+  {
+   "members": [
+    "convnext_base_v5",
+    "mricore_vitb_cross_attention_v5",
+    "dinov3_convnext_base_v5",
+    "convnext_base_25d_18slices_v5_aug_base",
+    "swinv2_base_in22k_v5_warm",
+    "convnext_base_25d_poolattn_v5",
+    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+    "medimageinsight_davit_huge_336_v3_f0",
+    "medimageinsight_davit_huge_336_v3_f1",
+    "+ PUBLIC PIPELINE (prize-safe), rank blend w 0.5"
+   ],
+   "submitted": "2026-10-05",
+   "public_score": null,
+   "private_score": null,
+   "val": null,
+   "audit58": "ours-only offline (scaffold): 0.9311 (+0.0006 vs 14), clean-121 0.9176 (+0.0020)",
+   "kernel": "mamounhussam/knee-seta-submit-b",
+   "kernel_version": 1,
+   "submission_ref": 56857028,
+   "runtime_seconds": null,
+   "runtime": "stress 8db425358c6c: projected 6.93 h (ours 2.24 + public 4.44, sequential)",
+   "blend_weights": "per finding 0.5 rank(ours) + 0.5 rank(public)",
+   "note": "COMBINED SET A (members by leave-one-out value). Original kernel knee-combined-seta-submit errored at start 3x with empty logs; same stamped notebook pushed as a new kernel."
   }
  ]
 }

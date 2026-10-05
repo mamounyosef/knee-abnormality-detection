@@ -71,20 +71,23 @@ nb = {"cells": [{"cell_type": "code", "metadata": {}, "source": MOCK.splitlines(
 (W / "public_pipeline.ipynb").write_text(json.dumps(nb), encoding="utf-8")
 
 
-def run(mode, stress, w=0.5, cap=3.0, ours_neutral=False):
+def run(mode, stress, w=0.5, cap=3.0, ours_neutral=False, overlap=False):
     import os
     os.environ.update(MOCK_MODE=mode, MOCK_COMP=str(COMP), MOCK_WORK=str(WORK))
     for f in WORK.iterdir():
         f.unlink() if f.is_file() else shutil.rmtree(f)
     pub = (consts["_PUBLIC_SIDE_CELL"].replace("/kaggle/working", str(WORK)).replace("__STRESS__", str(stress))
-           .replace("__PUBLIC_W__", repr(w)).replace("__PUBLIC_CAP_H__", repr(cap)).replace("__PUBLIC_ENV__", "{}").replace("+ 600", "+ 2"))
+           .replace("__PUBLIC_W__", repr(w)).replace("__PUBLIC_CAP_H__", repr(cap)).replace("__PUBLIC_ENV__", "{}").replace("__PUBLIC_OVERLAP__", repr(overlap)).replace("+ 600", "+ 2"))
     blend = consts["_PUBLIC_BLEND_CELL"]
     g = {"sys": sys, "json": json, "subprocess": subprocess, "traceback": traceback, "Path": Path,
          "W": W, "COMP": COMP, "pd": pd}
     cwd = os.getcwd()
     os.chdir(WORK)
     try:
+        g["bail"] = lambda why: sub.to_csv("submission.csv", index=False)
+        t_pub = __import__("time").time()
         exec(compile(pub, "public_cell", "exec"), g)
+        g["_t_after_public_cell"] = __import__("time").time() - t_pub
         g["sub"], g["TASKS"] = sub.copy(), T
         rng = np.random.default_rng(1)
         if stress:
@@ -144,6 +147,16 @@ check("hang: timed out and killed", r.get("returncode") == "timeout" and r["seco
 check("hang: ours kept", b["mode"] == "ours only", b)
 leftover = subprocess.run(["pgrep", "-f", "public_pipeline.ipynb"], capture_output=True, text=True).stdout.strip()
 check("hang: no process left", leftover == "", leftover)
+
+r, b, s, g = run("ok", 0, overlap=True)
+check("overlap: public cell returns at once", g["_t_after_public_cell"] < 3, g["_t_after_public_cell"])
+check("overlap: blended after waiting", b["mode"] == "blended" and r["status"] == "ok" and r["overlap"] is True, (b, r))
+
+r, b, s, g = run("hang", 0, cap=0.0005, overlap=True)
+check("overlap hang: killed, ours kept", r.get("returncode") == "timeout" and b["mode"] == "ours only", (r, b))
+
+r, b, s, g = run("ok", 128, overlap=True)
+check("overlap stress: dry run", b["mode"] == "stress dry run" and r["rows"] == 128, (b, r))
 
 r, b, s, g = run("ok", 0, ours_neutral=True)
 check("ours all 0.5: public alone", b["mode"].startswith("public only"), b)

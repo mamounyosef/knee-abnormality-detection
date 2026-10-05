@@ -30,7 +30,7 @@ assert hits, 'public_pipeline.ipynb not mounted'
 W = Path(hits[0]).parent
 COMP = Path(sorted(glob.glob('/kaggle/input/**/sample_submission.csv', recursive=True))[0]).parent
 print('W', W, '| COMP', COMP)"""
-pub = cell.replace("__STRESS__", str(STRESS)).replace("__PUBLIC_W__", "0.5").replace("__PUBLIC_CAP_H__", "3.0").replace("__PUBLIC_ENV__", "{}")
+pub = cell.replace("__STRESS__", str(STRESS)).replace("__PUBLIC_W__", "0.5").replace("__PUBLIC_CAP_H__", "3.0").replace("__PUBLIC_ENV__", "{}").replace("__PUBLIC_OVERLAP__", "False")
 EXTRA_ENV = json.loads(sys.argv[3]) if len(sys.argv) > 3 else {}      # e.g. '{"RSNA_PARALLEL_COAT_READERS": "1"}'
 if EXTRA_ENV:                                   # its own kernel, so it can run beside a plain test
     SLUG += "-env"

@@ -43,7 +43,7 @@ for mm in members:
         m = model if mode == "amp" else sc._HalfInfer(model)
         col = {}
         torch.cuda.synchronize(); t0 = time.perf_counter()
-        y, p, _ = sc._predict_dataframe(cfg, m, df, dev, plan=plan, batch_size=1, num_workers=4, collect=col)
+        y, p, _ = sc._predict_dataframe(cfg, m, df, dev, plan=plan, batch_size=1, num_workers=0, collect=col)
         torch.cuda.synchronize()
         out[mode] = (y, np.asarray(col.get("logits", p)), time.perf_counter() - t0)
     y = out["amp"][0]

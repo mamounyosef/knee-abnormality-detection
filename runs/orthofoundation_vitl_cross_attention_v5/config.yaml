@@ -1,0 +1,93 @@
+# orthofoundation_vitl_cross_attention_v5
+#
+# Copy of mricore_vitb_cross_attention_v5 (our best ViT member) with the trunk swapped for OrthoFoundation-L
+# (user, 5 Oct): the only knee-MRI-pretrained backbone we had not tried.
+#   - OrthoFoundation-L = DINOv3 ViT-L/16 (303 M params) after continued DINO pretraining on ~894k knee MRI slices
+#     (OAI, fastMRI, a hospital's PD fat-suppressed sagittal/coronal/axial series) + ~358k knee radiographs.
+#     Repo MIT; the weights derive from DINOv3, so the DINOv3 licence applies too (same terms as our DINOv3 member).
+#   - each slice copied to 3 channels, exactly as in its pretraining (PIL convert("RGB")), ImageNet normalisation
+#   - 336 px at 0.4 mm/px (134 mm field of view, the 2.5D members' geometry), 4 slots x 18 slices = 72 images/study
+#   - cross-slice attention after blocks 6, 12, 18 of 24 (the donor's 3, 6, 9 of 12)
+# Estimate (FLOPs scaled from the donor's 380 img/s on an H100): ~17-22 min/epoch, 12 epochs ~3.5-4.5 h.
+
+experiment:
+  name: "orthofoundation_vitl_cross_attention_v5"
+
+paths:
+  train_csv: "23_train_w50.csv"   # v5 split, v4 labels
+  val_csv: "23_val_v3_audit.csv"   # 346 on v3 labels + the 58 audit on panel labels
+
+model:
+  name: "vit_large_patch16_dinov3"  # timm skeleton (RoPE, 4 storage tokens); the weights below overwrite it entirely
+  pretrained: false                 # never fetch the generic DINOv3 weights - we load OrthoFoundation instead
+  weights: "OrthoFoundation-L.pth"  # looked up on the runs volume first, then data/pretrained/
+  pool: "mean"
+  global_pool: "token"              # CLS per slice, as the donor (timm's DINOv3 default is avg; on MRI-CORE CLS beat
+                                    # patch averaging 0.8970 vs 0.8871)
+  drop_rate: 0.1
+  drop_path_rate: 0.2               # ViT-L: deeper than the donor's ViT-B, a little more stochastic depth
+  feat_norm: true
+  cross_slice:
+    enable: true
+    after: [6, 12, 18]              # early / middle / late, as the donor's 3, 6, 9 of 12
+    attn_drop: 0.0
+  grad_checkpointing: false         # batch 1 below instead: ~0.42 GB of activations per 336 px image -> ~30 GB a study
+
+input:
+  laterality_flip: "left"          # mirror left knees, per plane (v5 relabel)
+  n_slices: 18
+  size: 336
+  mm_per_px: 0.4
+  norm_mean: [0.485, 0.456, 0.406]  # its pretraining normalised with ImageNet statistics
+  norm_std:  [0.229, 0.224, 0.225]
+
+training:
+  epochs: 12
+  grad_clip: 3.0
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 2.0e-5                      # BACKBONE lr: below the donor's 3e-5 for a 3.5x larger in-domain trunk
+                                    # (its own continued pretraining ran at 1e-5)
+    backbone_lr_mult: 0.5           # head = 4e-5
+    layer_decay: null
+    fresh_lr: 6.0e-5                # the new cross-slice blocks start random
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.10
+    min_lr_mult: 0.01
+  loss:
+    name: "bce"
+    pos_weight: "auto_clamped"
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  extend:
+    enable: false
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 6
+
+dataloader:
+  batch_size: 1                     # 72 images of 336 px in one forward; batch 2 would be ~60 GB plus cross-slice copies
+  accum_steps: 8                    # effective 8 studies per update, as the donor
+  val_batch_size: 2
+  num_workers: 24
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+modal:
+  gpu: "H100"
+  cpu: 14.0
+  memory_gb: 56
+  timeout_hours: 10
+evaluation:
+  validate_before_training: true    # user: score step 0 too (pretrained trunk + random head / cross-slice blocks)
+  eval_every_steps_before: 400
+  eval_every_steps_after: 120
+  eval_every_steps_epoch_threshold: 4

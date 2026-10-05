@@ -6091,6 +6091,7 @@ import os, time, shutil, signal
 STRESS = __STRESS__
 PUBLIC_W = __PUBLIC_W__
 PUBLIC_CAP_H = __PUBLIC_CAP_H__
+PUBLIC_OVERLAP = __PUBLIC_OVERLAP__
 WORK = Path('/kaggle/working')
 PUB_CSV = WORK / 'public_side.csv'
 PUB_OK = False
@@ -6136,55 +6137,80 @@ try:
     _cmd = [sys.executable, '-m', 'jupyter', 'nbconvert', '--to', 'notebook', '--execute', str(_pnb),
             '--output', 'public_pipeline_executed.ipynb', '--output-dir', str(WORK),
             '--ExecutePreprocessor.timeout=-1', '--ExecutePreprocessor.kernel_name=python3']
-    print('PUBLIC SIDE start, cap %.2f h' % PUBLIC_CAP_H, flush=True)
-    with open(WORK / 'public_log.txt', 'w') as _fh:
-        _proc = subprocess.Popen(_cmd, cwd=str(WORK), env=_penv, stdout=_fh, stderr=subprocess.STDOUT,
-                                 start_new_session=True)
+    print('PUBLIC SIDE start, cap %.2f h%s' % (PUBLIC_CAP_H, ', OVERLAPPED with our ensemble' if PUBLIC_OVERLAP else ''), flush=True)
+    _pub_fh = open(WORK / 'public_log.txt', 'w')
+    _proc = subprocess.Popen(_cmd, cwd=str(WORK), env=_penv, stdout=_pub_fh, stderr=subprocess.STDOUT,
+                             start_new_session=True)
+except Exception as _e:
+    traceback.print_exc()
+    _proc = None
+    _pub['status'] = 'failed: %s: %s' % (type(_e).__name__, str(_e)[:500])
+
+
+def _pub_finish():
+    # wait for the public kernel (until its cap), validate public_side.csv, clean up, write the receipt
+    global PUB_OK
+    if _pub.get('finished'):
+        return
+    _pub['finished'] = True
+    try:
+        if _proc is None:
+            raise RuntimeError(_pub['status'])
         try:
-            _rc = _proc.wait(timeout=PUBLIC_CAP_H * 3600 + 600)
+            _rc = _proc.wait(timeout=max(1.0, _pub_t0 + PUBLIC_CAP_H * 3600 + 600 - time.time()))
         except subprocess.TimeoutExpired:
             # the whole process group: nbconvert AND the kernel it started, or the GPUs stay held
             os.killpg(_proc.pid, signal.SIGKILL)
             _proc.wait()
             _rc = 'timeout'
-    _pub['returncode'] = _rc
-    if _rc != 0:
-        raise RuntimeError('public notebook ended with %s' % _rc)
-    _p = _pd.read_csv(PUB_CSV, dtype={'StudyInstanceUID': str})
-    _lab = [c for c in _p.columns if c != 'StudyInstanceUID']
-    _want = [c for c in _pd.read_csv(COMP / 'sample_submission.csv', nrows=1).columns if c != 'StudyInstanceUID']
-    assert _lab == _want, 'public columns %s' % _lab
-    assert sorted(_p.StudyInstanceUID) == sorted(_pub_ids), 'public study set differs from test.csv'
-    import numpy as _npp
-    assert _npp.isfinite(_p[_lab].to_numpy(float)).all(), 'public side has non-finite values'
-    _pub.update(status='ok', rows=len(_p))
-    PUB_OK = True
-except Exception as _e:
-    traceback.print_exc()
-    _pub['status'] = 'failed: %s: %s' % (type(_e).__name__, str(_e)[:500])
+        _pub_fh.close()
+        _pub['returncode'] = _rc
+        if _rc != 0:
+            raise RuntimeError('public notebook ended with %s' % _rc)
+        import pandas as _pd
+        _p = _pd.read_csv(PUB_CSV, dtype={'StudyInstanceUID': str})
+        _lab = [c for c in _p.columns if c != 'StudyInstanceUID']
+        _want = [c for c in _pd.read_csv(COMP / 'sample_submission.csv', nrows=1).columns if c != 'StudyInstanceUID']
+        assert _lab == _want, 'public columns %s' % _lab
+        assert sorted(_p.StudyInstanceUID) == sorted(_pub_ids), 'public study set differs from test.csv'
+        import numpy as _npp
+        assert _npp.isfinite(_p[_lab].to_numpy(float)).all(), 'public side has non-finite values'
+        _pub.update(status='ok', rows=len(_p))
+        PUB_OK = True
+    except Exception as _e:
+        traceback.print_exc()
+        if not str(_pub['status']).startswith('failed'):
+            _pub['status'] = 'failed: %s: %s' % (type(_e).__name__, str(_e)[:500])
+        try:
+            _pub['log_tail'] = (WORK / 'public_log.txt').read_text(errors='replace')[-3000:]
+        except Exception:
+            pass
+    _pub['seconds'] = round(time.time() - _pub_t0, 1)
+    _pub['overlap'] = PUBLIC_OVERLAP
+    for _d in ('/tmp/rsna_pixels_v559', '/kaggle/temp/rsna_pixels_v559', '/tmp/pub_stress_root',
+               str(WORK / '_coat_env'), str(WORK / '_g96_env'), str(WORK / '_d4_env'), str(WORK / 'd4_input')):
+        shutil.rmtree(_d, ignore_errors=True)
+    (WORK / 'public_pipeline.ipynb').unlink(missing_ok=True)
     try:
-        _pub['log_tail'] = (WORK / 'public_log.txt').read_text(errors='replace')[-3000:]
+        _pub['gpu_mem_after'] = subprocess.run(['nvidia-smi', '--query-gpu=memory.used', '--format=csv,noheader'],
+                                               capture_output=True, text=True).stdout.strip()
     except Exception:
         pass
-_pub['seconds'] = round(time.time() - _pub_t0, 1)
-for _d in ('/tmp/rsna_pixels_v559', '/kaggle/temp/rsna_pixels_v559', '/tmp/pub_stress_root',
-           str(WORK / '_coat_env'), str(WORK / '_g96_env'), str(WORK / '_d4_env'), str(WORK / 'd4_input')):
-    shutil.rmtree(_d, ignore_errors=True)
-for _f in ('public_pipeline.ipynb', 'submission.csv'):
-    (WORK / _f).unlink(missing_ok=True)
-try:
-    _pub['gpu_mem_after'] = subprocess.run(['nvidia-smi', '--query-gpu=memory.used', '--format=csv,noheader'],
-                                           capture_output=True, text=True).stdout.strip()
-except Exception:
-    pass
-(WORK / 'public_receipt.json').write_text(json.dumps(_pub, indent=1, default=str))
-print('PUBLIC SIDE %s in %.1f min (%s rows) | GPU memory after: %s'
-      % (_pub['status'][:200], _pub['seconds'] / 60, _pub.get('rows'), _pub.get('gpu_mem_after')), flush=True)"""
+    (WORK / 'public_receipt.json').write_text(json.dumps(_pub, indent=1, default=str))
+    print('PUBLIC SIDE %s in %.1f min (%s rows) | GPU memory after: %s'
+          % (_pub['status'][:200], _pub['seconds'] / 60, _pub.get('rows'), _pub.get('gpu_mem_after')), flush=True)
+
+
+if not PUBLIC_OVERLAP:
+    _pub_finish()"""
 
 _PUBLIC_BLEND_CELL = r"""# BLEND per finding in rank space: (1 - w) x rank(ours) + w x rank(public). Ours alone if the public side failed;
 # the public side alone if ours fell back to 0.5.
 import numpy as _np
-_bl = {'mode': 'ours only', 'weight': PUBLIC_W, 'public_status': _pub['status']}
+if not Path('submission.csv').exists():          # the public kernel's start-up deletes it; never end without one
+    bail('no submission.csv before the blend')
+_pub_finish()                                    # overlap: wait for the public kernel here (no-op otherwise)
+_bl = {'mode': 'ours only', 'weight': PUBLIC_W, 'public_status': _pub['status'], 'overlap': PUBLIC_OVERLAP}
 
 def _rank_blend(ours, theirs, w):
     theirs = theirs.set_index('StudyInstanceUID').reindex(ours.StudyInstanceUID.astype(str))
@@ -6613,10 +6639,15 @@ pd.read_csv('submission.csv').head()""",
         cells.insert(1, _PUBLIC_SIDE_CELL)
         assert cells[-1].count("STRESS = __STRESS__\n") == 1
         cells[-1] = cells[-1].replace("STRESS = __STRESS__\n", "# STRESS is set in the public-side cell\n")
+        # an overlapped public kernel deletes submission.csv at start-up, and a stress run never rewrites it: this
+        # read crashed the 14-member overlapped stress (5 Oct). The blend cell guarantees the file instead.
+        assert cells[-1].rstrip().endswith("pd.read_csv('submission.csv').head()")
+        cells[-1] = cells[-1].rstrip()[:-len("pd.read_csv('submission.csv').head()")] + "print('inference cell done')"
         cells.append(_PUBLIC_BLEND_CELL)
         cells = [c.replace("__PUBLIC_W__", repr(public_side.get("weight", 0.5)))
                   .replace("__PUBLIC_CAP_H__", repr(float(public_side.get("cap_h", 3.0))))
-                  .replace("__PUBLIC_ENV__", repr(dict(public_side.get("env", {})))) for c in cells]
+                  .replace("__PUBLIC_ENV__", repr(dict(public_side.get("env", {}))))
+                  .replace("__PUBLIC_OVERLAP__", repr(bool(public_side.get("overlap", False)))) for c in cells]
     _eng = _code_sha(w / "shared_code.py")
     cells = [c.replace("__STRESS__", str(int(stress))).replace("__ENGINE__", _eng) for c in cells]
     _cells = [{"cell_type": "code", "metadata": {}, "source": c.splitlines(True),
@@ -8408,11 +8439,11 @@ def _code_sha(path) -> str:
 
 
 def _check_public_side(d: Path, stress: int) -> tuple:
-    """(problems, projected hidden-set hours) from a kernel's public_receipt.json / blend_receipt.json."""
+    """(problems, projected hidden-set hours, overlapped?) from a kernel's public_receipt.json / blend_receipt.json."""
     problems, hours = [], 0.0
     rp, bp = d / "public_receipt.json", d / "blend_receipt.json"
     if not rp.exists():
-        return ["no public_receipt.json: the public-side cell never finished"], hours
+        return ["no public_receipt.json: the public-side cell never finished"], hours, False
     r = json.loads(rp.read_text(encoding="utf-8"))
     if r.get("status") != "ok":
         problems.append("public side %s | log tail: %s" % (str(r.get("status"))[:300],
@@ -8428,7 +8459,7 @@ def _check_public_side(d: Path, stress: int) -> tuple:
     else:
         print("      public side ok in %.1f min, blend %s, rank corr ours vs public %s"
               % (float(r.get("seconds", 0)) / 60, b.get("mode"), b.get("rank_corr")))
-    return problems, hours
+    return problems, hours, bool(r.get("overlap"))
 
 
 def verify_stress_output(user: str, notebook_slug: str, n_members: int, n_studies: int,
@@ -8501,9 +8532,9 @@ def verify_stress_output(user: str, notebook_slug: str, n_members: int, n_studie
                     problems.append("host RAM is still rising %.1f GB per chunk: over the hidden set's "
                                     "%d more chunks it would reach %.1f of %.1f GB (limit 90%%)"
                                     % (rise, more, proj, seq[-1][1]))
-        pub_h = 0.0
+        pub_h, overlap = 0.0, False
         if public:
-            pp, pub_h = _check_public_side(d, n_studies)
+            pp, pub_h, overlap = _check_public_side(d, n_studies)
             problems += pp
         # WALL CLOCK projected to the hidden set, against the 9 h cap with a margin. The public
         # side's stress time includes its one-off model loading, so its projection runs high.
@@ -8511,8 +8542,11 @@ def verify_stress_output(user: str, notebook_slug: str, n_members: int, n_studie
         if wm:
             secs = sum(int(v) * {"h": 3600, "m": 60, "s": 1}[u]
                        for v, u in re.findall(r"(\d+)([hms])", wm.group(1)))
-            proj_h = (secs / max(n_studies, 1)) * HIDDEN_TEST_STUDIES / 3600 + 0.25 + pub_h
-            print("      projected hidden-set runtime %.2f h (public side %.2f h)" % (proj_h, pub_h))
+            ours_h = (secs / max(n_studies, 1)) * HIDDEN_TEST_STUDIES / 3600
+            # overlapped: both rates were measured WHILE sharing the machine, so the longer side bounds the run
+            proj_h = (max(ours_h, pub_h) if overlap else ours_h + pub_h) + 0.25
+            print("      projected hidden-set runtime %.2f h (ours %.2f h, public side %.2f h, %s)"
+                  % (proj_h, ours_h, pub_h, "overlapped" if overlap else "sequential"))
             if proj_h > HIDDEN_RUNTIME_LIMIT_H:
                 problems.append("projected %.1f h on the %d hidden studies (%.1f s/study + 15 min "
                                 "fixed + public side %.1f h) - over the %.1f h safety limit under the 9 h cap"
@@ -8643,8 +8677,14 @@ def _push_and_wait(user, notebook_slug, nb_dir, wait, poll_secs, engine_guard=Fa
         # it upper-bounds the 9h cap. The notebook prints the real s/study inside its log.
         wait_t0 = time.time()
         while True:
-            st = _kaggle("kernels", "status", f"{user}/{notebook_slug}", quiet=True)
+            st = _kaggle("kernels", "status", f"{user}/{notebook_slug}", quiet=True, check=False)
             low = st.lower()
+            if "kernelworkerstatus" not in low:
+                # a failed status CALL (network, API hiccup) is not a finished kernel: retry, never crash.
+                # One such failure killed the 14-member stress waiter after 74 min (5 Oct).
+                print(f"      … status call failed, retrying: {st.strip()[:90]}")
+                time.sleep(poll_secs)
+                continue
             if "complete" in low or "error" in low or "cancel" in low:
                 break
             print(f"      … {st.strip()[:90]}")
@@ -8669,6 +8709,66 @@ def _push_and_wait(user, notebook_slug, nb_dir, wait, poll_secs, engine_guard=Fa
               f"{user}/{notebook_slug} -p .")
         return version, False
     return version, False
+
+
+def _stress_verify_and_stamp(assets, user, dataset_slug, notebook_slug, n_members, stress,
+                             code_sha, public, fp, version) -> bool:
+    """Check a finished STRESS commit run and, if it passed, write the stamp that clears this bundle."""
+    assets = Path(assets)
+    w = assets / "weights"
+    stamp = STRESS_PASSES / ("%s.json" % fp)
+    print("\n  4/4 STRESS run: checking every chunk, group and member")
+    bad = verify_stress_output(user, notebook_slug, n_members, stress, code_sha, public=public)
+    if bad:
+        print("      ❌ STRESS RUN FAILED - this bundle may NOT be submitted:")
+        for b in bad:
+            print("         - %s" % b)
+        return False
+    STRESS_PASSES.mkdir(parents=True, exist_ok=True)
+    # Keep what a later submission needs WITHOUT the weights: the notebook folder and the
+    # exact file list (name -> bytes) of the dataset version this run used. A bundle can be
+    # bigger than this PC's free disk; submit_from_stress_stamp reuses the dataset already
+    # on Kaggle after proving it is byte-for-byte this list.
+    nb_keep = STRESS_PASSES / ("%s_notebook" % fp)
+    if nb_keep.exists():
+        shutil.rmtree(nb_keep)
+    shutil.copytree(assets / "notebook", nb_keep)
+    manifest = {f.name: f.stat().st_size for f in sorted(w.iterdir()) if f.is_file()
+                and f.name != "dataset-metadata.json"}
+    stamp.write_text(json.dumps({"fingerprint": fp, "engine_sha1": code_sha,
+                                 "notebook": "%s/%s" % (user, notebook_slug),
+                                 "dataset": "%s/%s" % (user, dataset_slug),
+                                 "version": version, "n_members": n_members,
+                                 "stress_studies": stress, "manifest": manifest, "public": public,
+                                 "passed": datetime.now().isoformat(timespec="seconds")},
+                                indent=1), encoding="utf-8")
+    print("      ✅ STRESS RUN PASSED: %d studies, every member scored in every chunk." % stress)
+    print("      this exact bundle may now be submitted (stamp %s)" % stamp.name)
+    return True
+
+
+def resume_stress(assets_dir, user: str, dataset_slug: str, notebook_slug: str, stress: int,
+                  version: str | None = None, poll_secs: int = 60) -> bool:
+    """Finish a STRESS publish whose local waiter died (e.g. a failed status call) while the kernel ran on:
+    wait for that kernel, then verify and stamp exactly as kaggle_publish would. The bundle in assets_dir
+    must still be the one that was uploaded (its fingerprint and file list go into the stamp)."""
+    assets = Path(assets_dir)
+    n_members = len(list((assets / "weights").glob("m*_model.pt")))
+    fp = bundle_fingerprint(assets)
+    code_sha = _code_sha(assets / "weights" / "shared_code.py")
+    public = (assets / "weights" / "public_pipeline.ipynb").exists()
+    _banner("RESUME STRESS %s" % fp[:12], "\U0001F501")
+    while True:
+        st = _kaggle("kernels", "status", f"{user}/{notebook_slug}", quiet=True, check=False).lower()
+        if "kernelworkerstatus.complete" in st:
+            break
+        if "kernelworkerstatus.error" in st or "kernelworkerstatus.cancel" in st:
+            print("      ❌ kernel ended: %s" % st.strip()[:120])
+            return False
+        print("      … %s" % st.strip()[:90], flush=True)
+        time.sleep(poll_secs)
+    return _stress_verify_and_stamp(assets, user, dataset_slug, notebook_slug, n_members, stress,
+                                    code_sha, public, fp, version)
 
 
 def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
@@ -8751,34 +8851,8 @@ def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
         return version
 
     if stress and ensemble:
-        print("\n  4/4 STRESS run: checking every chunk, group and member")
-        bad = verify_stress_output(user, notebook_slug, n_members, stress, code_sha, public=public)
-        if bad:
-            print("      ❌ STRESS RUN FAILED - this bundle may NOT be submitted:")
-            for b in bad:
-                print("         - %s" % b)
-            return version
-        STRESS_PASSES.mkdir(parents=True, exist_ok=True)
-        # Keep what a later submission needs WITHOUT the weights: the notebook folder and the
-        # exact file list (name -> bytes) of the dataset version this run used. A bundle can be
-        # bigger than this PC's free disk; submit_from_stress_stamp reuses the dataset already
-        # on Kaggle after proving it is byte-for-byte this list.
-        nb_keep = STRESS_PASSES / ("%s_notebook" % fp)
-        if nb_keep.exists():
-            shutil.rmtree(nb_keep)
-        shutil.copytree(assets / "notebook", nb_keep)
-        manifest = {f.name: f.stat().st_size for f in sorted(w.iterdir()) if f.is_file()
-                    and f.name != "dataset-metadata.json"}
-        stamp.write_text(json.dumps({"fingerprint": fp, "engine_sha1": code_sha,
-                                     "notebook": "%s/%s" % (user, notebook_slug),
-                                     "dataset": "%s/%s" % (user, dataset_slug),
-                                     "version": version, "n_members": n_members,
-                                     "stress_studies": stress, "manifest": manifest, "public": public,
-                                     "passed": datetime.now().isoformat(timespec="seconds")},
-                                    indent=1), encoding="utf-8")
-        print("      ✅ STRESS RUN PASSED: %d studies, every member scored in every chunk."
-              % stress)
-        print("      this exact bundle may now be submitted (stamp %s)" % stamp.name)
+        _stress_verify_and_stamp(assets, user, dataset_slug, notebook_slug, n_members, stress,
+                                 code_sha, public, fp, version)
         return version
     if not submit:
         return version
@@ -8830,7 +8904,8 @@ def kaggle_dataset_files(user_slug: str) -> dict:
 
 
 def submit_from_stress_stamp(fingerprint: str, message: str, poll_secs: int = 60,
-                             submit: bool = True, public_w=None) -> str | None:
+                             submit: bool = True, public_w=None,
+                             notebook_slug: str | None = None) -> str | None:
     """Submit an ensemble that passed its STRESS run, WITHOUT rebuilding it or holding its
     weights on this PC: the dataset version that STRESS run used is already on Kaggle.
 
@@ -8886,7 +8961,16 @@ def submit_from_stress_stamp(fingerprint: str, message: str, poll_secs: int = 60
         new = json.dumps(_nbj, indent=1)
         print("      (PUBLIC_W = %r)" % (public_w,))
     ipynb.write_text(new, encoding="utf-8")
-    user, notebook_slug = st["notebook"].split("/", 1)
+    user, _stamped_slug = st["notebook"].split("/", 1)
+    if notebook_slug and notebook_slug != _stamped_slug:
+        # the SAME stress-tested notebook pushed as a fresh kernel: set A's kernel kept erroring at start with an
+        # empty log (5 Oct) while a probe with identical sources ran, so the kernel's own state was the suspect
+        meta = json.loads((nb / "kernel-metadata.json").read_text(encoding="utf-8"))
+        meta.update(id="%s/%s" % (user, notebook_slug), title=notebook_slug.replace("-", " "))
+        meta.pop("id_no", None)
+        (nb / "kernel-metadata.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        print("      (pushed as a new kernel: %s)" % notebook_slug)
+    notebook_slug = notebook_slug or _stamped_slug
     print("      (STRESS = 0)")
     version, ok = _push_and_wait(user, notebook_slug, nb, True, poll_secs, engine_guard=True)
     if not ok:
@@ -8903,7 +8987,7 @@ def submit_from_stress_stamp(fingerprint: str, message: str, poll_secs: int = 60
     if not submit:
         return version
     args = ["competitions", "submit", "-c", "rsna-knee-abnormality-detection",
-            "-f", "submission.csv", "-k", st["notebook"], "-m", message]
+            "-f", "submission.csv", "-k", "%s/%s" % (user, notebook_slug), "-m", message]
     if version:
         args += ["-v", version]
     _kaggle(*args)

@@ -40,7 +40,7 @@ COMP = Path(sorted(glob.glob('/kaggle/input/**/sample_submission.csv', recursive
 import pandas as pd
 pd.read_csv(COMP / 'sample_submission.csv').to_csv('/kaggle/working/submission.csv', index=False)   # 0.5 until replaced"""
 pub = (cell.replace("__STRESS__", "0").replace("__PUBLIC_W__", "1.0").replace("__PUBLIC_CAP_H__", "8.0")
-       .replace("__PUBLIC_ENV__", repr({"RSNA_PARALLEL_COAT_READERS": "1"})))
+       .replace("__PUBLIC_ENV__", repr({"RSNA_PARALLEL_COAT_READERS": "1"})).replace("__PUBLIC_OVERLAP__", "False"))
 post = r"""import pandas as pd
 sub = pd.read_csv(COMP / 'sample_submission.csv', dtype={'StudyInstanceUID': str})
 if PUB_OK:
