@@ -337,3 +337,11 @@ runs/others/run_queue_local_state.json
 
 # local-only helpers (they build workspace config paths): never commit
 tools_local/
+
+# generated Kaggle test outputs and pushed test notebooks (rebuilt by their scripts)
+runs/others/ensembling/public_side/*_out/
+runs/others/ensembling/public_side/*_nb/
+runs/others/ensembling/speed_bench_out/
+runs/others/ensembling/speed_bench_nb/
+runs/others/ensembling/speed_bench.json
+runs/others/logs/

@@ -6082,10 +6082,166 @@ def verify_dicom_path(cfg: dict, dicom_root, series_csv: pd.DataFrame,
     return checked > 0 and ok == checked
 
 
+# PUBLIC SIDE: the prize-safe public pipeline (runs/others/ensembling/public_side/) runs in its own kernel through
+# nbconvert, so it gets a clean machine and frees both GPUs on exit. Its own cells need a real IPython (each cell
+# compiles on its own, inspect.getsource on cell functions), which a plain script would not give it.
+_PUBLIC_SIDE_CELL = r"""# PUBLIC PIPELINE FIRST (prize-safe copy, Stage 3 RadImageNet removed), in its own kernel. Whatever happens
+# here, our ensemble still runs and submission.csv falls back to it alone.
+import os, time, shutil, signal
+STRESS = __STRESS__
+PUBLIC_W = __PUBLIC_W__
+PUBLIC_CAP_H = __PUBLIC_CAP_H__
+WORK = Path('/kaggle/working')
+PUB_CSV = WORK / 'public_side.csv'
+PUB_OK = False
+_pub = {'status': 'not run', 'stress': STRESS, 'weight': PUBLIC_W, 'cap_h': PUBLIC_CAP_H}
+_pub_map = {}
+_pub_t0 = time.time()
+try:
+    PUB_CSV.unlink(missing_ok=True)
+    import pandas as _pd
+    _penv = dict(os.environ)
+    _penv['RSNA_TIME_BUDGET_S'] = str(int(PUBLIC_CAP_H * 3600))
+    _penv.update(__PUBLIC_ENV__)
+    _t = _pd.read_csv(COMP / 'test.csv', dtype={'StudyInstanceUID': str})
+    _pub_ids = _t.StudyInstanceUID.tolist()
+    if STRESS:
+        # their code refuses repeated study IDs, so the stress cohort gets fake IDs whose folders point at real ones
+        _fake = Path('/tmp/pub_stress_root')
+        shutil.rmtree(_fake, ignore_errors=True)
+        (_fake / 'test_series').mkdir(parents=True)
+        for _it in COMP.iterdir():
+            if _it.name not in ('test.csv', 'test_series.csv', 'test_series', 'sample_submission.csv'):
+                (_fake / _it.name).symlink_to(_it, target_is_directory=_it.is_dir())
+        _ts = _pd.read_csv(COMP / 'test_series.csv', dtype={'StudyInstanceUID': str, 'SeriesInstanceUID': str})
+        _ss = _pd.read_csv(COMP / 'sample_submission.csv', dtype={'StudyInstanceUID': str})
+        _rt, _rs, _rss = [], [], []
+        for _k in range(STRESS):
+            _r = _pub_ids[_k % len(_pub_ids)]
+            _f = '%s.%d' % (_r, 9000 + _k)
+            _pub_map[_f] = _r
+            for _src, _acc in ((_t, _rt), (_ts, _rs), (_ss, _rss)):
+                _row = _src[_src.StudyInstanceUID == _r].copy()
+                _row['StudyInstanceUID'] = _f
+                _acc.append(_row)
+            (_fake / 'test_series' / _f).symlink_to(COMP / 'test_series' / _r, target_is_directory=True)
+        _pd.concat(_rt).to_csv(_fake / 'test.csv', index=False)
+        _pd.concat(_rs).to_csv(_fake / 'test_series.csv', index=False)
+        _pd.concat(_rss).to_csv(_fake / 'sample_submission.csv', index=False)
+        _penv['RSNA_COMP_ROOT'] = str(_fake)
+        _pub_ids = list(_pub_map)
+        print('PUBLIC STRESS: %d fake studies over %d real ones' % (len(_pub_ids), len(set(_pub_map.values()))))
+    _pnb = WORK / 'public_pipeline.ipynb'
+    shutil.copy(W / 'public_pipeline.ipynb', _pnb)
+    _cmd = [sys.executable, '-m', 'jupyter', 'nbconvert', '--to', 'notebook', '--execute', str(_pnb),
+            '--output', 'public_pipeline_executed.ipynb', '--output-dir', str(WORK),
+            '--ExecutePreprocessor.timeout=-1', '--ExecutePreprocessor.kernel_name=python3']
+    print('PUBLIC SIDE start, cap %.2f h' % PUBLIC_CAP_H, flush=True)
+    with open(WORK / 'public_log.txt', 'w') as _fh:
+        _proc = subprocess.Popen(_cmd, cwd=str(WORK), env=_penv, stdout=_fh, stderr=subprocess.STDOUT,
+                                 start_new_session=True)
+        try:
+            _rc = _proc.wait(timeout=PUBLIC_CAP_H * 3600 + 600)
+        except subprocess.TimeoutExpired:
+            # the whole process group: nbconvert AND the kernel it started, or the GPUs stay held
+            os.killpg(_proc.pid, signal.SIGKILL)
+            _proc.wait()
+            _rc = 'timeout'
+    _pub['returncode'] = _rc
+    if _rc != 0:
+        raise RuntimeError('public notebook ended with %s' % _rc)
+    _p = _pd.read_csv(PUB_CSV, dtype={'StudyInstanceUID': str})
+    _lab = [c for c in _p.columns if c != 'StudyInstanceUID']
+    _want = [c for c in _pd.read_csv(COMP / 'sample_submission.csv', nrows=1).columns if c != 'StudyInstanceUID']
+    assert _lab == _want, 'public columns %s' % _lab
+    assert sorted(_p.StudyInstanceUID) == sorted(_pub_ids), 'public study set differs from test.csv'
+    import numpy as _npp
+    assert _npp.isfinite(_p[_lab].to_numpy(float)).all(), 'public side has non-finite values'
+    _pub.update(status='ok', rows=len(_p))
+    PUB_OK = True
+except Exception as _e:
+    traceback.print_exc()
+    _pub['status'] = 'failed: %s: %s' % (type(_e).__name__, str(_e)[:500])
+    try:
+        _pub['log_tail'] = (WORK / 'public_log.txt').read_text(errors='replace')[-3000:]
+    except Exception:
+        pass
+_pub['seconds'] = round(time.time() - _pub_t0, 1)
+for _d in ('/tmp/rsna_pixels_v559', '/kaggle/temp/rsna_pixels_v559', '/tmp/pub_stress_root',
+           str(WORK / '_coat_env'), str(WORK / '_g96_env'), str(WORK / '_d4_env'), str(WORK / 'd4_input')):
+    shutil.rmtree(_d, ignore_errors=True)
+for _f in ('public_pipeline.ipynb', 'submission.csv'):
+    (WORK / _f).unlink(missing_ok=True)
+try:
+    _pub['gpu_mem_after'] = subprocess.run(['nvidia-smi', '--query-gpu=memory.used', '--format=csv,noheader'],
+                                           capture_output=True, text=True).stdout.strip()
+except Exception:
+    pass
+(WORK / 'public_receipt.json').write_text(json.dumps(_pub, indent=1, default=str))
+print('PUBLIC SIDE %s in %.1f min (%s rows) | GPU memory after: %s'
+      % (_pub['status'][:200], _pub['seconds'] / 60, _pub.get('rows'), _pub.get('gpu_mem_after')), flush=True)"""
+
+_PUBLIC_BLEND_CELL = r"""# BLEND per finding in rank space: (1 - w) x rank(ours) + w x rank(public). Ours alone if the public side failed;
+# the public side alone if ours fell back to 0.5.
+import numpy as _np
+_bl = {'mode': 'ours only', 'weight': PUBLIC_W, 'public_status': _pub['status']}
+
+def _rank_blend(ours, theirs, w):
+    theirs = theirs.set_index('StudyInstanceUID').reindex(ours.StudyInstanceUID.astype(str))
+    assert theirs[TASKS].notna().all().all(), 'public side misses some studies'
+    out = ours[['StudyInstanceUID']].copy()
+    corr = {}
+    for t in TASKS:
+        wt = float(w[t]) if isinstance(w, dict) else float(w)
+        ro = ours[t].rank(method='average', pct=True).to_numpy()
+        rt = theirs[t].rank(method='average', pct=True).to_numpy()
+        out[t] = (1 - wt) * ro + wt * rt
+        corr[t] = round(float(_np.corrcoef(ro, rt)[0, 1]), 4) if len(ro) > 2 else None
+    assert _np.isfinite(out[TASKS].to_numpy(float)).all()
+    return out, corr
+
+try:
+    if PUB_OK:
+        _theirs = pd.read_csv(PUB_CSV, dtype={'StudyInstanceUID': str})
+        if STRESS:
+            # dry run on the real public studies (first fake copy of each): proves the path, writes no submission
+            _theirs['StudyInstanceUID'] = _theirs.StudyInstanceUID.map(_pub_map)
+            _theirs = _theirs.drop_duplicates('StudyInstanceUID')
+            _ours = pred.drop_duplicates('StudyInstanceUID').reset_index(drop=True)
+            _ours['StudyInstanceUID'] = _ours.StudyInstanceUID.astype(str)
+            _prev, _bl['rank_corr'] = _rank_blend(_ours, _theirs, PUBLIC_W)
+            _prev.to_csv('stress_blend_preview.csv', index=False)
+            _bl.update(mode='stress dry run', rows=len(_prev))
+        else:
+            _ours = pd.read_csv('submission.csv', dtype={'StudyInstanceUID': str})
+            _ours.to_csv('submission_ours.csv', index=False)
+            _neutral = float((_ours[TASKS].to_numpy(float) == 0.5).mean())
+            _w = 1.0 if _neutral > 0.5 else PUBLIC_W
+            _out, _bl['rank_corr'] = _rank_blend(_ours, _theirs, _w)
+            assert len(_out) == len(sub) and set(_out.StudyInstanceUID) == set(sub.StudyInstanceUID.astype(str))
+            _out.to_csv('submission.csv', index=False)
+            _bl.update(mode='public only (ours fell back)' if _w == 1.0 else 'blended', rows=len(_out),
+                       ours_neutral_share=round(_neutral, 4))
+except Exception as _e:
+    traceback.print_exc()
+    _bl['error'] = '%s: %s' % (type(_e).__name__, str(_e)[:500])
+    if not STRESS and Path('submission_ours.csv').exists():
+        shutil.copy('submission_ours.csv', 'submission.csv')
+        _bl['mode'] = 'ours only (blend failed)'
+Path('blend_receipt.json').write_text(json.dumps(_bl, indent=1, default=str))
+print('BLEND', json.dumps(_bl, default=str))
+pd.read_csv('submission.csv').head()"""
+
+
 def build_kaggle_ensemble_assets(members: list, out_dir, kaggle_user: str,
                                  dataset_slug: str, notebook_slug: str, title: str = "",
-                                 blend_weights: dict | None = None, stress: int = 0):
+                                 blend_weights: dict | None = None, stress: int = 0,
+                                 public_side: dict | None = None, infer_env: dict | None = None):
     """Bundle SEVERAL runs into one Kaggle dataset + a notebook that averages them.
+
+    public_side: {"notebook": path, "weight": float or {task: float}, "cap_h": float,
+    "datasets": [...], "models": [...], "env": {extra env vars for the public kernel}} also runs that notebook (the prize-safe public
+    pipeline) first in its own kernel and rank-blends its public_side.csv with ours.
 
     members: [(name, cfg, exp_dir, checkpoint_path), ...] - member 0 owns the loader.
 
@@ -6261,10 +6417,18 @@ def build_kaggle_ensemble_assets(members: list, out_dir, kaggle_user: str,
         "code_file": "submit.ipynb", "language": "python", "kernel_type": "notebook",
         "is_private": True, "enable_gpu": True, "enable_internet": False,
         "machine_shape": "NvidiaTeslaT4",
-        "dataset_sources": [f"{kaggle_user}/{dataset_slug}"],
+        "dataset_sources": [f"{kaggle_user}/{dataset_slug}"]
+                           + list((public_side or {}).get("datasets", [])),
         "competition_sources": ["rsna-knee-abnormality-detection"],
         "kernel_sources": [],
+        **({"model_sources": list(public_side["models"])}
+           if public_side and public_side.get("models") else {}),
     }, indent=2), encoding="utf-8")
+    if public_side:
+        shutil.copy(public_side["notebook"], w / "public_pipeline.ipynb")
+        print(f"  \U0001F91D public side: {Path(public_side['notebook']).name}, weight "
+              f"{public_side.get('weight', 0.5)}, cap {public_side.get('cap_h', 3.0)} h, "
+              f"{len(public_side.get('datasets', []))} datasets + {public_side.get('models', [])}")
 
     # "prominently display" means the notebook, not just a file in the dataset
     _notice_cell = None
@@ -6438,10 +6602,32 @@ except Exception:
     bail('inference failed')
 pd.read_csv('submission.csv').head()""",
     ]
+    if infer_env:
+        # opt-in inference speed-ups (KNEE_INFER_HALF / KNEE_INFER_CL), set before anything runs so the
+        # spawned card-1 children inherit them
+        cells[0] = ("import os\nos.environ.update(%r)\nprint('inference env', %r)\n"
+                    % (dict(infer_env), dict(infer_env))) + cells[0]
+    if public_side:
+        # the public pipeline runs right after the paths cell, BEFORE our cells touch a GPU or
+        # install anything, so it sees the machine it scored on; STRESS moves up with it
+        cells.insert(1, _PUBLIC_SIDE_CELL)
+        assert cells[-1].count("STRESS = __STRESS__\n") == 1
+        cells[-1] = cells[-1].replace("STRESS = __STRESS__\n", "# STRESS is set in the public-side cell\n")
+        cells.append(_PUBLIC_BLEND_CELL)
+        cells = [c.replace("__PUBLIC_W__", repr(public_side.get("weight", 0.5)))
+                  .replace("__PUBLIC_CAP_H__", repr(float(public_side.get("cap_h", 3.0))))
+                  .replace("__PUBLIC_ENV__", repr(dict(public_side.get("env", {})))) for c in cells]
     _eng = _code_sha(w / "shared_code.py")
     cells = [c.replace("__STRESS__", str(int(stress))).replace("__ENGINE__", _eng) for c in cells]
     _cells = [{"cell_type": "code", "metadata": {}, "source": c.splitlines(True),
                "outputs": [], "execution_count": None} for c in cells]
+    if public_side:
+        _cells.insert(0, {"cell_type": "markdown", "metadata": {}, "source": (
+            "# Combined: our ensemble + the public pipeline (prize-safe)\n\n"
+            "The public side is a copy of `yamadan96/rsna-knee-d4-public0946` (code by Mattia Angeli, Jiwei Liu, "
+            "dreaddevelopment / Roman Tamrazov, Pilkwang and others) with Stage 3 removed (RadImageNet is "
+            "non-commercial). Its weights are CC0 datasets; DINOv2-small (Meta) is Apache-2.0. It runs first in "
+            "its own kernel, then our ensemble, then a per-finding rank blend of the two.\n").splitlines(True)})
     if _notice_cell:                      # first cell, so it is the first thing seen
         _cells.insert(0, {"cell_type": "markdown", "metadata": {},
                           "source": _notice_cell.splitlines(True)})
@@ -6842,6 +7028,47 @@ def _is_meta(m) -> bool:
         return False
 
 
+class _HalfInfer(nn.Module):
+    """Pure fp16 inference for one member: fp16 weights AND input, autocast off inside.
+
+    Measured on the heavy 96 x 512 px ConvNeXt member (infer_speed_bench.py): 2.03x faster than
+    autocast with fp32 weights, max logit change 0.0015. fp16 weights UNDER autocast gained
+    nothing (0.92x), which is why autocast is switched off here rather than left to the caller.
+    """
+
+    def __init__(self, m):
+        super().__init__()
+        self.m = m.half()
+
+    def forward(self, x, *a, **k):
+        with torch.autocast("cuda", enabled=False):
+            out = self.m(x.half(), *a, **k)
+        return out.float() if torch.is_tensor(out) else out
+
+    def __getattr__(self, name):
+        try:
+            return super().__getattr__(name)
+        except AttributeError:
+            return getattr(self._modules["m"], name)
+
+
+def _infer_layout(model):
+    """Opt-in inference speed-ups for ONE member, applied identically in the parent and in every
+    child process (children build their own members, so a parent-only tweak misses them).
+      KNEE_INFER_CL=1    channels_last for rank-4 models
+      KNEE_INFER_HALF=1  pure fp16 (_HalfInfer)
+    Both default off: the submitted ensembles so far ran without them."""
+    if os.environ.get("KNEE_INFER_CL") == "1":
+        try:
+            if all(p.ndim != 5 for p in model.parameters()):
+                model = model.to(memory_format=torch.channels_last)
+        except Exception:
+            pass
+    if os.environ.get("KNEE_INFER_HALF") == "1" and not isinstance(model, _HalfInfer):
+        model = _HalfInfer(model)
+    return model
+
+
 def build_member_from_bundle(spec: dict):
     """Rebuild ONE member inside a worker process, from the bundle's own files.
 
@@ -6863,7 +7090,7 @@ def build_member_from_bundle(spec: dict):
         sd = {(k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k): v
               for k, v in sd.items()}
     getattr(model, "_orig_mod", model).load_state_dict(sd)
-    return model.eval()
+    return _infer_layout(model.eval())
 
 
 def _proc_worker(dev_str: str, specs: list, task_q, res_q):
@@ -7236,6 +7463,8 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
                if device.type == "cuda" and _ngpu > 1 else [device])
     if device.type == "cuda" and (cfg0.get("inference", {}) or {}).get("tune_backend", False):
         tune_inference_backend(models)
+    if device.type == "cuda":                      # opt-in KNEE_INFER_* (children apply it in build_member_from_bundle)
+        models = [None if m is None else _infer_layout(m) for m in models]
 
     # PROCESSES, not threads, when the caller can tell a child how to rebuild a member.
     # Threads share one Global Interpreter Lock and our members are launch-bound, so the
@@ -8155,7 +8384,11 @@ def bundle_fingerprint(assets_dir) -> str:
     h = hashlib.sha1()
     h.update((a / "weights" / "shared_code.py").read_bytes())
     nb = (a / "notebook" / "submit.ipynb").read_text(encoding="utf-8")
-    h.update(re.sub(r"STRESS = \d+", "STRESS = N", nb).encode("utf-8"))
+    nb = re.sub(r"STRESS = \d+", "STRESS = N", nb)
+    nb = re.sub(r'PUBLIC_W = .*?\\n"', r'PUBLIC_W = N\\n"', nb)   # the public-side blend weight is a submit-time knob
+    h.update(nb.encode("utf-8"))
+    for f in sorted((a / "weights").glob("public_*")):
+        h.update(f.name.encode() + f.read_bytes())
     for f in sorted((a / "weights").glob("m*_*")):
         if f.name.endswith("_model.pt"):
             h.update(("%s %d" % (f.name, f.stat().st_size)).encode())
@@ -8174,8 +8407,32 @@ def _code_sha(path) -> str:
     return hashlib.sha1(Path(path).read_bytes()).hexdigest()
 
 
+def _check_public_side(d: Path, stress: int) -> tuple:
+    """(problems, projected hidden-set hours) from a kernel's public_receipt.json / blend_receipt.json."""
+    problems, hours = [], 0.0
+    rp, bp = d / "public_receipt.json", d / "blend_receipt.json"
+    if not rp.exists():
+        return ["no public_receipt.json: the public-side cell never finished"], hours
+    r = json.loads(rp.read_text(encoding="utf-8"))
+    if r.get("status") != "ok":
+        problems.append("public side %s | log tail: %s" % (str(r.get("status"))[:300],
+                                                            str(r.get("log_tail", ""))[-600:]))
+    if stress:
+        if r.get("rows") != stress:
+            problems.append("public side scored %s studies, the stress run asked for %d" % (r.get("rows"), stress))
+        hours = float(r.get("seconds", 0)) / max(stress, 1) * HIDDEN_TEST_STUDIES / 3600
+    b = json.loads(bp.read_text(encoding="utf-8")) if bp.exists() else {}
+    want = "stress dry run" if stress else "blended"
+    if b.get("mode") != want:
+        problems.append("blend mode %r, expected %r (%s)" % (b.get("mode"), want, b.get("error", "")))
+    else:
+        print("      public side ok in %.1f min, blend %s, rank corr ours vs public %s"
+              % (float(r.get("seconds", 0)) / 60, b.get("mode"), b.get("rank_corr")))
+    return problems, hours
+
+
 def verify_stress_output(user: str, notebook_slug: str, n_members: int, n_studies: int,
-                         code_sha: str) -> list:
+                         code_sha: str, public: bool = False) -> list:
     """Reasons a STRESS commit run does NOT clear its bundle for submission. Empty = cleared.
 
     The normal commit run scores 3 public studies in ONE decode chunk, so anything that only
@@ -8244,16 +8501,22 @@ def verify_stress_output(user: str, notebook_slug: str, n_members: int, n_studie
                     problems.append("host RAM is still rising %.1f GB per chunk: over the hidden set's "
                                     "%d more chunks it would reach %.1f of %.1f GB (limit 90%%)"
                                     % (rise, more, proj, seq[-1][1]))
-        # WALL CLOCK projected to the hidden set, against the 9 h cap with a margin
+        pub_h = 0.0
+        if public:
+            pp, pub_h = _check_public_side(d, n_studies)
+            problems += pp
+        # WALL CLOCK projected to the hidden set, against the 9 h cap with a margin. The public
+        # side's stress time includes its one-off model loading, so its projection runs high.
         wm = re.search(r"scored \d+ studies with \d+/\d+ members in ((?:\d+h)?(?:\d+m)?(?:\d+s)?)", txt)
         if wm:
             secs = sum(int(v) * {"h": 3600, "m": 60, "s": 1}[u]
                        for v, u in re.findall(r"(\d+)([hms])", wm.group(1)))
-            proj_h = (secs / max(n_studies, 1)) * HIDDEN_TEST_STUDIES / 3600 + 0.25
+            proj_h = (secs / max(n_studies, 1)) * HIDDEN_TEST_STUDIES / 3600 + 0.25 + pub_h
+            print("      projected hidden-set runtime %.2f h (public side %.2f h)" % (proj_h, pub_h))
             if proj_h > HIDDEN_RUNTIME_LIMIT_H:
                 problems.append("projected %.1f h on the %d hidden studies (%.1f s/study + 15 min "
-                                "fixed) - over the %.1f h safety limit under the 9 h cap"
-                                % (proj_h, HIDDEN_TEST_STUDIES, secs / max(n_studies, 1),
+                                "fixed + public side %.1f h) - over the %.1f h safety limit under the 9 h cap"
+                                % (proj_h, HIDDEN_TEST_STUDIES, secs / max(n_studies, 1), pub_h,
                                    HIDDEN_RUNTIME_LIMIT_H))
         ch = re.search(r"decode chunks (\d+)", txt)
         if not ch or int(ch.group(1)) < 2:
@@ -8265,7 +8528,8 @@ def verify_stress_output(user: str, notebook_slug: str, n_members: int, n_studie
 
 
 def verify_kernel_output(user: str, notebook_slug: str, n_members: int,
-                         expect_rows: int | None = None, code_sha: str | None = None) -> list:
+                         expect_rows: int | None = None, code_sha: str | None = None,
+                         public: bool = False) -> list:
     """Return the reasons this kernel's output must NOT be submitted. Empty means good.
 
     Reads what the notebook itself wrote: inference_log.txt for the member accounting and
@@ -8313,6 +8577,8 @@ def verify_kernel_output(user: str, notebook_slug: str, n_members: int,
             if not cm or cm.group(1) != code_sha:
                 problems.append("the kernel did not run this bundle's engine code (%s): Kaggle "
                                 "used a previous dataset version" % (cm.group(1)[:10] if cm else "unnamed"))
+    if public:                       # an ours-only fallback would just resubmit the ensemble alone
+        problems += _check_public_side(d, 0)[0]
     if not sub.exists():
         problems.append("no submission.csv in the kernel output%s"
                         % (" and no inference_log.txt either" if missing_log else ""))
@@ -8323,6 +8589,10 @@ def verify_kernel_output(user: str, notebook_slug: str, n_members: int,
         if expect_rows is not None and len(df) != expect_rows:
             problems.append("submission.csv has %d rows, expected %d" % (len(df), expect_rows))
         v = df[cols].to_numpy(dtype="float64")
+        if public and (d / "submission_ours.csv").exists():
+            # a rank blend of 3 studies lands on exactly 0.5 legitimately: judge OUR pre-blend file
+            _o = _pd.read_csv(d / "submission_ours.csv")
+            v = _o[[c for c in _o.columns if c != "StudyInstanceUID"]].to_numpy(dtype="float64")
         neutral = float((v == 0.5).mean())
         if neutral > 0.02:
             problems.append("%.1f%% of the predictions are exactly 0.5" % (neutral * 100))
@@ -8432,8 +8702,10 @@ def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
     fp = bundle_fingerprint(assets) if ensemble else None
     code_sha = _code_sha(assets / "weights" / "shared_code.py") if ensemble else None
     stamp = (STRESS_PASSES / ("%s.json" % fp)) if ensemble else None
+    public = (assets / "weights" / "public_pipeline.ipynb").exists()
     if ensemble:
-        print("      bundle fingerprint %s  engine %s" % (fp[:12], code_sha[:12]))
+        print("      bundle fingerprint %s  engine %s%s" % (fp[:12], code_sha[:12],
+                                                          "  + PUBLIC SIDE" if public else ""))
     if submit and ensemble and not stress and not stamp.exists():
         raise SystemExit(
             "❌ REFUSING TO SUBMIT: no passing STRESS run for this exact bundle (%s). "
@@ -8480,7 +8752,7 @@ def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
 
     if stress and ensemble:
         print("\n  4/4 STRESS run: checking every chunk, group and member")
-        bad = verify_stress_output(user, notebook_slug, n_members, stress, code_sha)
+        bad = verify_stress_output(user, notebook_slug, n_members, stress, code_sha, public=public)
         if bad:
             print("      ❌ STRESS RUN FAILED - this bundle may NOT be submitted:")
             for b in bad:
@@ -8501,7 +8773,7 @@ def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
                                      "notebook": "%s/%s" % (user, notebook_slug),
                                      "dataset": "%s/%s" % (user, dataset_slug),
                                      "version": version, "n_members": n_members,
-                                     "stress_studies": stress, "manifest": manifest,
+                                     "stress_studies": stress, "manifest": manifest, "public": public,
                                      "passed": datetime.now().isoformat(timespec="seconds")},
                                     indent=1), encoding="utf-8")
         print("      ✅ STRESS RUN PASSED: %d studies, every member scored in every chunk."
@@ -8516,7 +8788,8 @@ def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
     # 0.5 for two of three studies. The kernel writes down everything needed to catch that,
     # so read it before spending an attempt.
     print("\n  4/4 checking the kernel's own output before submitting")
-    bad = verify_kernel_output(user, notebook_slug, n_members=n_members, code_sha=code_sha)
+    bad = verify_kernel_output(user, notebook_slug, n_members=n_members, code_sha=code_sha,
+                               public=public)
     if bad:
         print("      \u274c NOT SUBMITTING - the kernel completed but its output is bad:")
         for b in bad:
@@ -8557,14 +8830,17 @@ def kaggle_dataset_files(user_slug: str) -> dict:
 
 
 def submit_from_stress_stamp(fingerprint: str, message: str, poll_secs: int = 60,
-                             submit: bool = True) -> str | None:
+                             submit: bool = True, public_w=None) -> str | None:
     """Submit an ensemble that passed its STRESS run, WITHOUT rebuilding it or holding its
     weights on this PC: the dataset version that STRESS run used is already on Kaggle.
 
     Refuses unless (1) a stamp exists for this fingerprint, (2) the Kaggle dataset's current
     version is byte-for-byte the stamped file list, then pushes the stamped notebook with
     STRESS = 0, and finally (3) demands the kernel ran the stamped engine (code sha1) and passed
-    the usual output checks before spending an attempt."""
+    the usual output checks before spending an attempt.
+
+    public_w: for a bundle with the public side, the blend weight to submit with (float or
+    {task: float}); the fingerprint ignores it, so every weight rides on the one stress pass."""
     stamps = [p for p in STRESS_PASSES.glob("*.json") if p.stem.startswith(fingerprint)]
     if len(stamps) != 1:
         raise SystemExit("❌ no unique stress stamp for %r (found %d)" % (fingerprint, len(stamps)))
@@ -8594,6 +8870,21 @@ def submit_from_stress_stamp(fingerprint: str, message: str, poll_secs: int = 60
     if "ENGINE MISMATCH" not in new or st["engine_sha1"] not in new:
         raise SystemExit("❌ the saved notebook has no engine guard for %s: rebuild and run a "
                          "new STRESS build" % st["engine_sha1"][:10])
+    public = bool(st.get("public"))
+    if public_w is not None:
+        if not public:
+            raise SystemExit("❌ public_w given, but stamp %s has no public side" % fp[:12])
+        # on the PARSED notebook: a dict repr ("Baker's") brings quotes the raw JSON text cannot take
+        _nbj, k = json.loads(new), 0
+        for _c in _nbj["cells"]:
+            for _j, _line in enumerate(_c.get("source", [])):
+                if _line.startswith("PUBLIC_W = "):
+                    _c["source"][_j] = "PUBLIC_W = %r\n" % (public_w,)
+                    k += 1
+        if k != 1:
+            raise SystemExit("❌ expected exactly one PUBLIC_W line in the saved notebook, found %d" % k)
+        new = json.dumps(_nbj, indent=1)
+        print("      (PUBLIC_W = %r)" % (public_w,))
     ipynb.write_text(new, encoding="utf-8")
     user, notebook_slug = st["notebook"].split("/", 1)
     print("      (STRESS = 0)")
@@ -8602,7 +8893,7 @@ def submit_from_stress_stamp(fingerprint: str, message: str, poll_secs: int = 60
         return version
     print("\n  4/4 checking the kernel's own output before submitting")
     bad = verify_kernel_output(user, notebook_slug, n_members=int(st["n_members"]),
-                               code_sha=st["engine_sha1"])
+                               code_sha=st["engine_sha1"], public=public)
     if bad:
         print("      ❌ NOT SUBMITTING:")
         for b in bad:

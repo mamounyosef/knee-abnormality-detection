@@ -142,6 +142,11 @@ NOTE         = ("THE 0.938 TEN WITH ONE MEMBER ON V3 LABELS. "
 
 # where the bundle is built. "kaggle" is a junction to the C drive temp folder (ensembling_kaggle).
 OUT_DIR      = Path(__file__).resolve().parent / "kaggle"
+# PUBLIC_SIDE: also run the prize-safe public pipeline and rank-blend it with ours (see
+# configs/combined_public_b2.py). PUBLIC_W_SUBMIT: the blend weight for a SUBMIT_FROM_STAMP run.
+PUBLIC_SIDE  = None
+INFER_ENV    = None      # e.g. {"KNEE_INFER_HALF": "1"}: pure fp16 inference (infer_speed_bench.py)
+PUBLIC_W_SUBMIT = None
 
 # ===========================================================================
 # A config file given on the command line overrides the block above (MEMBERS, SLUG, NOTE,
@@ -160,7 +165,7 @@ def main():
     # and no weights are needed on this PC, because the stress-tested dataset version is already
     # on Kaggle (submit_from_stress_stamp proves it file by file before pushing the notebook).
     if globals().get("SUBMIT_FROM_STAMP"):
-        sc.submit_from_stress_stamp(SUBMIT_FROM_STAMP, NOTE, submit=SUBMIT)
+        sc.submit_from_stress_stamp(SUBMIT_FROM_STAMP, NOTE, submit=SUBMIT, public_w=PUBLIC_W_SUBMIT)
         return
     members, missing = [], []
     for name, ckpt in MEMBERS:
@@ -206,7 +211,7 @@ def main():
         # nine-member submission from getting its own dataset. Derive it from the slug,
         # which is unique by construction, and let _kaggle_title cut it to Kaggle's 50.
         SLUG, f"{SLUG}-submit", title=sc._kaggle_title(SLUG, f"x{len(members)}"),
-        blend_weights=blend, stress=STRESS)
+        blend_weights=blend, stress=STRESS, public_side=PUBLIC_SIDE, infer_env=INFER_ENV)
 
     # A name the notebook uses but never defines parses fine, uploads fine, and fails on
     # Kaggle minutes later with the traceback swallowed by IPython's own formatter. Catch

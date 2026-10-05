@@ -710,7 +710,7 @@
     "mricore_vitb_cross_attention"
    ],
    "submitted": "2026-10-05",
-   "public_score": null,
+   "public_score": 0.941,
    "private_score": null,
    "val": null,
    "audit58": null,
@@ -721,6 +721,49 @@
    "runtime": "stress #2: 18.9 s/study over 128 studies (40m14s), ~5.0 h projected on 946; RAM peak 16.1/33.7 GB",
    "blend_weights": "relabel_b3_weights.json (spec_trauma 1 on Fracture/Contusion, spec_pfoa 2 on PF OA, spec_fluid 1 on Effusion/Synovitis/Baker's; others 1)",
    "notes": "Relabel batch 3: batch-2 fourteen with swinv2_base_in22k_v5_warm (2000), convnext_base_25d_full_v5 (6600), convnext_base_25d_perfinding_v5 (3000); + 3 specialists on their own findings; + old-label mricore_vitb_cross_attention for diversity. From stress stamp f42133575a31 (stress #1 failed on the partial-head-group alignment; engine fixed)."
+  },
+  {
+   "members": [
+    "PUBLIC PIPELINE ALONE (yamadan96/rsna-knee-d4-public0946 code, Stage 3 RadImageNet removed): 20 DINOv2-small slot readers, 5 A5 folds, 4 Raptor CoAtNet views, CoAtNet residual-gated / Global96 / D4 / Repair-v1"
+   ],
+   "submitted": "2026-10-05",
+   "public_score": null,
+   "private_score": null,
+   "val": null,
+   "audit58": null,
+   "kernel": "mamounhussam/knee-public-alone",
+   "kernel_version": 1,
+   "submission_ref": 56851117,
+   "runtime_seconds": null,
+   "runtime": "public-only 128-study tests: 43.3 min sequential / 37.6 min parallel CoAt readers (~4.3 h on 946)",
+   "blend_weights": null,
+   "note": "Measures the prize-safe public side alone, to set the blend weight of the combined notebook. Parallel CoAt readers, cap 8 h."
+  },
+  {
+   "members": [
+    "convnext_base_v5",
+    "mricore_vitb_cross_attention_v5",
+    "mricore_vitb_mae_cross_attention_v5",
+    "dinov3_convnext_base_v5",
+    "convnext_base_25d_18slices_v5_aug_base",
+    "convnext_base_25d_poolattn_v5",
+    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+    "medimageinsight_davit_huge_336_v3_f0",
+    "medimageinsight_davit_huge_336_v3_f1",
+    "+ PUBLIC PIPELINE (prize-safe, Stage 3 RadImageNet removed), rank blend w 0.5"
+   ],
+   "submitted": "2026-10-05",
+   "public_score": null,
+   "private_score": null,
+   "val": null,
+   "audit58": "ours-only offline (scaffold analogues): 0.9293 vs 0.9305 for the 14",
+   "kernel": "mamounhussam/knee-combined-b2cut-submit",
+   "kernel_version": 2,
+   "submission_ref": 56851528,
+   "runtime_seconds": null,
+   "runtime": "stress 54cd84fd057c: 9/9 members, public 128/128 in 35.5 min (parallel CoAt readers), projected 6.15 h on 946 (public 4.37 h)",
+   "blend_weights": "per finding (1-0.5) rank(ours) + 0.5 rank(public)",
+   "note": "COMBINED: batch 2 trimmed to 9 (no SwinV2, no MII-480, MII folds f0-f1) + prize-safe public pipeline."
   }
  ]
 }
