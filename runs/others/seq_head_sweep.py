@@ -190,7 +190,57 @@ class MaxPool(nn.Module):
         return self.head(x.flatten(1, 2).max(1).values)
 
 
-HEADS = {"mean": Mean, "attn": Attn, "gru": GRUHead, "tfm": TfmHead,
+class LSE(nn.Module):
+    """Per-FINDING log-sum-exp over the per-image logits (slice_aggregation_ideas_research.md idea 1). The shared linear
+    head scores every image, then each finding pools its 96 image logits with its own learnable sharpness r_j:
+    (1/r) log mean exp(r z). r -> 0 is EXACTLY the mean model (linear head of the mean = mean of the linear head);
+    r large -> max. Initialised at r = 0.1 (= the mean), so the head can only move toward focal pooling where it helps."""
+
+    def __init__(self, d, n_slots, n_slices, n_out):
+        super().__init__()
+        self.head = nn.Linear(d, n_out)
+        self.log_r = nn.Parameter(torch.full((n_out,), float(np.log(0.1))))
+
+    def forward(self, x):
+        z = self.head(x.flatten(1, 2))                       # (B, 96, 12) per-image logits
+        r = self.log_r.exp()
+        n = z.shape[1]
+        return (torch.logsumexp(r * z, dim=1) - np.log(n)) / r
+
+
+class ViewW(nn.Module):
+    """Per-view mean, one shared head, then a learnable weight per (view, finding), initialised equal (idea 2): exactly
+    the mean model at init (views have equal slice counts), able to learn that a finding is read on some views."""
+
+    def __init__(self, d, n_slots, n_slices, n_out):
+        super().__init__()
+        self.head = nn.Linear(d, n_out)
+        self.w = nn.Parameter(torch.zeros(n_slots, n_out))  # softmax over views -> equal at init
+
+    def forward(self, x):
+        z = self.head(x.mean(2))                              # (B, slots, 12)
+        a = torch.softmax(self.w, dim=0)[None]                # (1, slots, 12)
+        return (z * a).sum(1)
+
+
+class SmoothTop2(nn.Module):
+    """Parameter-free (idea 4): smooth each scan's features along the slice axis (window 3), then per feature the mean
+    of the 2 strongest smoothed slices of the whole study, concatenated with the mean -> head."""
+
+    def __init__(self, d, n_slots, n_slices, n_out):
+        super().__init__()
+        self.norm = nn.LayerNorm(2 * d)
+        self.head = nn.Linear(2 * d, n_out)
+
+    def forward(self, x):
+        b, s, n, d = x.shape
+        xs = torch.nn.functional.avg_pool1d(x.reshape(b * s, n, d).transpose(1, 2), 3, 1, 1, count_include_pad=False)
+        xs = xs.transpose(1, 2).reshape(b, s * n, d)
+        top2 = xs.topk(2, dim=1).values.mean(1)
+        return self.head(self.norm(torch.cat([x.flatten(1, 2).mean(1), top2], -1)))
+
+
+HEADS = {"lse": LSE, "vieww": ViewW, "smooth_top2": SmoothTop2, "mean": Mean, "attn": Attn, "gru": GRUHead, "tfm": TfmHead,
          "gru_joint": GRUJoint, "max": MaxPool, "top4": TopK,
          "dual": Dual, "trio": Trio}
 

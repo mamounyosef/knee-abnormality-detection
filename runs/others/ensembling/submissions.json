@@ -865,6 +865,87 @@
    "runtime": "no stress (user approved); commit run 13.2 min; ours ~3.2 h est + trimmed public ~4.3 h est",
    "blend_weights": "per finding 0.5 rank(ours) + 0.5 rank(public)",
    "note": "RESUBMIT of 56873456 (Kaggle system error), same kernel version."
+  },
+  {
+   "members": [
+    "convnext_base_v5",
+    "dinov3_convnext_base_v5",
+    "convnext_base_25d_18slices_v5_aug_base",
+    "convnext_base_25d_poolattn_full_v5",
+    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+    "medimageinsight_davit_huge_336_v3_f0",
+    "medimageinsight_davit_huge_336_v3_f4",
+    "mricore_vitb_cross_attention_v5",
+    "swinv2_base_in22k_v5_warm",
+    "convnext_base_25d_v5_joint_zoom_030 (top_step1500, joint findings only)",
+    "public pipeline (trimmed), rank blend w 0.5"
+   ],
+   "submitted": "2026-10-06",
+   "public_score": null,
+   "private_score": null,
+   "val": null,
+   "audit58": "fit-10 analogue 0.9324 / clean-121 0.9193 (zoom +0.0013 / +0.0005)",
+   "kernel": "mamounhussam/knee-combined-fit10-a",
+   "kernel_version": 1,
+   "submission_ref": 56882130,
+   "runtime_seconds": null,
+   "runtime": "fp16 inference (KNEE_INFER_HALF); commit run 27.4 min; no stress (user approved)",
+   "blend_weights": "per finding 0.5 rank(ours) + 0.5 rank(public)",
+   "note": "fit-9 + 0.30 mm joint zoom voting on ACL, menisci, medial/lateral OA (fit10_weights.json)."
+  },
+  {
+   "members": [
+    "convnext_base_v5",
+    "dinov3_convnext_base_v5",
+    "convnext_base_25d_18slices_v5_aug_base",
+    "convnext_base_25d_poolattn_full_v5",
+    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+    "medimageinsight_davit_huge_336_v3_f0",
+    "medimageinsight_davit_huge_336_v3_f4",
+    "mricore_vitb_cross_attention_v5",
+    "swinv2_base_in22k_v5_warm",
+    "convnext_base_25d_v5_joint_zoom_030 (top_step1500, joint findings only)",
+    "public pipeline (trimmed), rank blend w 0.5"
+   ],
+   "submitted": "2026-10-06",
+   "public_score": null,
+   "private_score": null,
+   "val": null,
+   "audit58": "fit-10 analogue 0.9324 / clean-121 0.9193 (zoom +0.0013 / +0.0005)",
+   "kernel": "mamounhussam/knee-combined-fit10-w04",
+   "kernel_version": 1,
+   "submission_ref": 56885292,
+   "runtime_seconds": null,
+   "runtime": "fp16 inference (KNEE_INFER_HALF); commit run 27.4 min; no stress (user approved)",
+   "blend_weights": "per finding 0.6 rank(ours) + 0.4 rank(public)",
+   "note": "fit-10 resubmitted with PUBLIC_W 0.4 (resubmit_blend_weight.py), same dataset as 56882130."
+  },
+  {
+   "members": [
+    "convnext_base_v5",
+    "dinov3_convnext_base_v5",
+    "convnext_base_25d_18slices_v5_aug_base",
+    "convnext_base_25d_poolattn_full_v5",
+    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+    "medimageinsight_davit_huge_336_v3_f0",
+    "medimageinsight_davit_huge_336_v3_f4",
+    "mricore_vitb_cross_attention_v5",
+    "swinv2_base_in22k_v5_warm",
+    "convnext_base_25d_v5_joint_zoom_030 (top_step1500, joint findings only)",
+    "public pipeline (trimmed), rank blend w 0.5"
+   ],
+   "submitted": "2026-10-06",
+   "public_score": null,
+   "private_score": null,
+   "val": null,
+   "audit58": "fit-10 analogue 0.9324 / clean-121 0.9193 (zoom +0.0013 / +0.0005)",
+   "kernel": "mamounhussam/knee-combined-fit10-w06",
+   "kernel_version": 1,
+   "submission_ref": 56885231,
+   "runtime_seconds": null,
+   "runtime": "fp16 inference (KNEE_INFER_HALF); commit run 27.4 min; no stress (user approved)",
+   "blend_weights": "per finding 0.4 rank(ours) + 0.6 rank(public)",
+   "note": "fit-10 resubmitted with PUBLIC_W 0.6 (resubmit_blend_weight.py), same dataset as 56882130."
   }
  ]
 }

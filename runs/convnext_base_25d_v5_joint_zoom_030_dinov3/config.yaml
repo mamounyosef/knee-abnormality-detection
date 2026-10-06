@@ -106,12 +106,14 @@ dataloader:
   # the same 8 studies per update and the same step count as the Modal twins
   batch_size: 1
   accum_steps: 8
-  val_batch_size: 2
-  num_workers: 4                    # 6 cores; leaves the PC usable
-  val_num_workers: 2
-  prefetch_factor: 2
+  # LIGHTER (crashed at the step-250 validation, "not enough memory"): on Windows every loader worker is a separate
+  # process importing torch (~1-1.5 GB RAM each), and the val workers were spawned NEXT TO the 4 persistent train ones
+  num_workers: 2
+  val_num_workers: 0                # validation loads in the main process: no extra workers at all
+  val_batch_size: 1
+  prefetch_factor: 1
+  persistent_workers: false         # train workers exit before each validation instead of sitting in RAM
   pin_memory: true
-  persistent_workers: true
   drop_last: false
 
 modal:

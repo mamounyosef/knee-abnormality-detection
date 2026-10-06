@@ -205,6 +205,12 @@ def load_config(experiment_dir, config_name: str = "config.yaml", verbose: bool 
     return cfg
 
 
+def amp_dtype(cfg: dict) -> torch.dtype:
+    """training.amp_dtype: "float16" (default, every run so far, with a GradScaler) | "bfloat16" (no scaler needed;
+    for language-model trunks such as qwen35_2b_vlm, whose fp16 activations can overflow)."""
+    return torch.bfloat16 if str(cfg["training"].get("amp_dtype", "float16")) == "bfloat16" else torch.float16
+
+
 def train_batch_size(cfg: dict) -> int:
     """Studies per training batch. Lives under dataloader; training.batch_size still
     works so older run configs keep loading."""
@@ -691,7 +697,7 @@ def scheduled_series(cands: list, epoch: int, epochs: int, best_last: int, key: 
 
 def pick_slices(n_available: int, n_want: int, mode: str, rng,
                 margin: float = 0.0, offset: float = 0.0,
-                reverse: bool = False) -> np.ndarray:
+                reverse: bool = False, short_stack: str = "repeat") -> np.ndarray:
     """Pick n_want slice indices from a stack of n_available real slices.
     Never blends slices into fake ones; repeats indices if the stack is short.
 
@@ -711,7 +717,13 @@ def pick_slices(n_available: int, n_want: int, mode: str, rng,
     hi = n_available - lo
     if hi - lo >= n_want:
         edges = np.linspace(lo, hi, n_want + 1)          # n_want equal bins across the stack
-        if mode == "random":
+        if mode == "random" and short_stack == "pad":
+            # "pad" never repeats: disjoint integer bins [ceil(e_i), ceil(e_i+1)), each holding >= 1 slice because the
+            # bins are >= 1 slice wide here. (The default branch below lets neighbouring bins share their boundary slice,
+            # so a stack just longer than n_want can pick the same slice twice; kept as is so old runs reproduce.)
+            a_, b_ = np.ceil(edges[:-1]).astype(int), np.ceil(edges[1:]).astype(int)
+            idx = np.array([rng.integers(a, max(a + 1, b)) for a, b in zip(a_, b_)])
+        elif mode == "random":
             # one random slice per bin: same coverage, different pick each epoch
             a_, b_ = np.floor(edges[:-1]).astype(int), np.ceil(edges[1:]).astype(int)
             idx = np.array([rng.integers(a, max(a + 1, b)) for a, b in zip(a_, b_)])
@@ -720,6 +732,19 @@ def pick_slices(n_available: int, n_want: int, mode: str, rng,
             if offset:
                 centres = centres + float(offset) * (edges[1] - edges[0])
             idx = np.clip(centres.astype(int), 0, n_available - 1)   # bin centres
+    elif short_stack == "pad":
+        # input.short_stack "pad" (6 Oct, user): never repeat a slice. A stack with room for n_want once the margin is
+        # dropped gives n_want distinct slices spread over all of it; a shorter stack gives EVERY real slice once and
+        # -1 for the rest, which _load turns into blank slices and models that mask blank images ignore.
+        if n_available >= n_want:
+            edges = np.linspace(0, n_available, n_want + 1)
+            if mode == "random":                         # disjoint bins over the whole stack, one random slice each
+                a_, b_ = np.ceil(edges[:-1]).astype(int), np.ceil(edges[1:]).astype(int)
+                idx = np.array([rng.integers(a, max(a + 1, b)) for a, b in zip(a_, b_)])
+            else:
+                idx = np.clip(((edges[:-1] + edges[1:]) / 2.0).astype(int), 0, n_available - 1)
+        else:
+            idx = np.concatenate([np.arange(n_available), -np.ones(n_want - n_available, dtype=int)])
     else:
         # too few slices: repeat rather than interpolate (17.8% of series at n=24)
         idx = np.round(np.linspace(0, n_available - 1, n_want)).astype(int)
@@ -972,6 +997,10 @@ class KneeShardDataset(Dataset):
         # training - they exist so one checkpoint can be scored several ways at inference.
         self.slice_offset = float(i.get("slice_offset") or 0.0)
         self.slice_reverse = bool(i.get("slice_reverse"))
+        # "repeat" (default, every run so far) or "pad": short stacks get blank slices, never repeated ones
+        self.short_stack = str(i.get("short_stack") or "repeat")
+        if self.short_stack == "pad" and i.get("slice_context") == "neighbours":
+            raise ValueError("input.short_stack 'pad' is not supported with slice_context 'neighbours'")
         self.flip_side = i.get("laterality_flip")
         self.sides = {}
         if self.flip_side and self.flip_side not in ("left", "right"):
@@ -1032,14 +1061,17 @@ class KneeShardDataset(Dataset):
         if arr is None:                                   # series missing for this study
             return np.zeros((n_slices * self.ctx, self.size, self.size), np.float32)
         idx = pick_slices(arr.shape[0], n_slices, self.mode, rng, self.margin,
-                          self.slice_offset, self.slice_reverse)
+                          self.slice_offset, self.slice_reverse, getattr(self, "short_stack", "repeat"))
         if self.ctx > 1:
             # k-stride, k, k+stride, clamped at the ends; flattened slice-major so a
             # later reshape gives (n_slices, ctx, H, W)
             off = np.arange(-(self.ctx // 2), self.ctx // 2 + 1) * self.ctx_stride
             idx = np.clip(np.asarray(idx)[:, None] + off[None, :],
                           0, arr.shape[0] - 1).reshape(-1)
-        vol = arr[idx].astype(np.float32)
+        pad = idx < 0                                       # short_stack "pad": -1 = a blank slice
+        vol = arr[np.where(pad, 0, idx)].astype(np.float32)
+        if pad.any():
+            vol[pad] = 0.0
         # only the volume read is timed; resample/window/augment come after
         ns, nb, ni = self._retr                          # the real shared counters (see _epoch)
         with ns.get_lock():
@@ -1062,10 +1094,13 @@ class KneeShardDataset(Dataset):
             lo_p, hi_p = self.cfg["input"]["window_pct"]
             # "volume" = one contrast window for the whole stack, "slice" = per slice
             axis = (1, 2) if self.window == "slice" else None
-            lo = np.percentile(vol, lo_p, axis=axis, keepdims=axis is not None)
-            hi = np.percentile(vol, hi_p, axis=axis, keepdims=axis is not None)
+            real = vol[~pad] if (pad.any() and axis is None and (~pad).any()) else vol   # blank padding never sets the window
+            lo = np.percentile(real, lo_p, axis=axis, keepdims=axis is not None)
+            hi = np.percentile(real, hi_p, axis=axis, keepdims=axis is not None)
             # stretch the [lo, hi] intensity range back over the full 0-255 range
             vol = np.clip((vol - lo) / np.maximum(hi - lo, 1e-6), 0, 1) * 255.0
+            if pad.any():
+                vol[pad] = 0.0                                  # padding stays exactly blank (a constant image)
         return vol
 
     def _fit(self, vol: np.ndarray) -> np.ndarray:
@@ -2819,7 +2854,7 @@ def evaluate(model, loader, loss_fn, cfg, device, collect: dict | None = None) -
     use_amp = cfg["training"]["amp"] and device.type == "cuda"
     for images, targets in loader:
         targets = targets.to(device, non_blocking=True)
-        with torch.autocast("cuda", enabled=use_amp):
+        with torch.autocast("cuda", enabled=use_amp, dtype=amp_dtype(cfg)):
             logits = model(prepare_batch(images, cfg, device))
             batch_losses.append(loss_fn(logits, targets).item())
         lg = logits.float().cpu().numpy()
@@ -3430,7 +3465,9 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
             print(f"  \u26A1 torch.compile enabled (mode={perf.get('compile_mode', 'default')})")
         except Exception as e:
             print(f"  [warn] torch.compile failed: {type(e).__name__}: {e}")
-    scaler = torch.amp.GradScaler("cuda", enabled=cfg["training"]["amp"] and device.type == "cuda")
+    use_amp_train = cfg["training"]["amp"] and device.type == "cuda"
+    # bf16 has fp32's exponent range: no loss scaling (a scaler would only add work); fp16 keeps its scaler as before
+    scaler = torch.amp.GradScaler("cuda", enabled=use_amp_train and amp_dtype(cfg) == torch.float16)
     imgs_per_batch = train_batch_size(cfg) * images_per_study(cfg)
     # Always on. There is no run for which "is every layer actually moving?" is not worth
     # knowing, and it is the one diagnostic that separates a frozen or throttled trunk from
@@ -4062,7 +4099,7 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
             # below. Arming one earlier means the NEXT iteration's arm(False) wipes the
             # reading before read() sees it, which is why the probe printed nothing.
             probe.arm(probe.active(gstep + 1) and (it % accum == 0 or it == n_micro))
-            with torch.autocast("cuda", enabled=scaler.is_enabled()):
+            with torch.autocast("cuda", enabled=use_amp_train, dtype=amp_dtype(cfg)):
                 # NOT `out`: that name is the run's OUTPUT DIRECTORY in this same scope,
                 # captured by the validation and checkpoint closure. Shadowing it would
                 # have crashed the first validation on `out / "ud_ratio.csv"`.
@@ -4656,17 +4693,23 @@ def _gpu_busy() -> tuple:
         return None, None
 
 
-def modal_image():
-    """Container image for remote runs: deps + this runs/ folder + the small CSVs."""
+def modal_image(extra_pip=()):
+    """Container image for remote runs: deps + this runs/ folder + the small CSVs.
+
+    extra_pip: packages one run needs on top (e.g. qwen35_2b_vlm: transformers 5, peft). Installed BEFORE the local
+    files are added: Modal refuses any build step after add_local_* (it would rebuild on every code change)."""
     import modal
-    return (modal.Image.debian_slim(python_version="3.11")
+    img = (modal.Image.debian_slim(python_version="3.11")
             .apt_install("libgl1", "libglib2.0-0")     # OpenCV needs these system libs
             .pip_install("torch", "torchvision", "timm", "numpy", "pandas",
                          "opencv-python-headless", "scikit-learn", "pyyaml", "wandb",
                          "libauc",   # official AUCMLoss + PESG, training only
                          "nvidia-ml-py",   # torch.cuda.utilization/memory_usage need it
 
-                         "matplotlib", "psutil", "pydicom")
+                         "matplotlib", "psutil", "pydicom"))
+    if extra_pip:                                   # only the run that asks; every other run's image is unchanged
+        img = img.pip_install(*extra_pip)
+    return (img
             # CODE ONLY. Without this ignore the mount is 7,200 files and 39 GB, because
             # runs/*/results/ holds 30 GB of checkpoints plus thousands of prediction .npz
             # and debug .png - none of which the container reads. Checkpoints reach it from
@@ -5498,7 +5541,7 @@ def _predict_dataframe(cfg: dict, model, df: pd.DataFrame, device, loss_fn=None,
           f"{nw} workers | amp={amp}", flush=True)
     for bi, (x, y) in enumerate(loader, 1):
         y = y.to(device, non_blocking=True)
-        with torch.autocast("cuda", enabled=amp):
+        with torch.autocast("cuda", enabled=amp, dtype=amp_dtype(cfg)):
             logits = model(prepare_batch(x, cfg, device))
             if loss_fn is not None:
                 losses.append(float(loss_fn(logits, y)) * y.shape[0])

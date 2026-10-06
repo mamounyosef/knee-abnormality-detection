@@ -1,0 +1,264 @@
+"""
+train.py — convnext_base_25d_v5_joint_zoom_030_6v30sl
+
+Thin entry point: load config, build the model, hand off to the engine.
+
+Local:  python runs/convnext_base_25d_v5_joint_zoom_030_6v30sl/train.py
+Modal:  modal run runs/convnext_base_25d_v5_joint_zoom_030_6v30sl/train.py
+"""
+
+import sys
+from pathlib import Path
+
+import timm
+import torch
+import torch.nn as nn
+
+EXP_NAME = "convnext_base_25d_v5_joint_zoom_030_6v30sl"
+
+
+def _pkg_root() -> Path:
+    """Find the runs/ folder holding shared_code.py — /root/runs on Modal, ../ locally."""
+    for c in (Path("/root/runs"), Path(__file__).resolve().parent.parent):
+        if (c / "shared_code.py").exists():
+            return c
+    return Path(__file__).resolve().parent.parent
+
+
+PKG_ROOT = _pkg_root()
+EXP_DIR = PKG_ROOT / EXP_NAME
+sys.path.insert(0, str(PKG_ROOT))          # so `import shared_code` works from either location
+import shared_code as sc  # noqa: E402
+
+cfg = sc.load_config(EXP_DIR, verbose=False)   # shared_config.yaml + this folder's config.yaml
+
+
+class SliceModel(nn.Module):
+    """2D backbone over every slice, pooled per study -> 12 logits."""
+
+    def __init__(self, cfg: dict):
+        super().__init__()
+        m = cfg["model"]
+        # num_classes=0 strips the ImageNet classifier, leaving a feature vector per image
+        # slices_as_channels: one image per SLOT whose channels ARE its slices, so the
+        # stem must accept n_slices inputs. timm adapts the pretrained RGB filters to the
+        # wider input by tiling and rescaling them, so the weights are still used.
+        i = cfg["input"]
+        g = int(i.get("slices_as_channels") or 0)     # images per slot; 0 = off
+        as_ch = g > 0
+        in_ch = int(i["n_slices"]) // g if as_ch else int(i["channels"])
+        self.backbone = timm.create_model(m["name"], pretrained=m.get("pretrained", True),
+                                          num_classes=0, in_chans=in_ch,
+                                          drop_rate=m.get("drop_rate", 0.0))
+        feat = self.backbone.num_features
+        # images per study: one per SLOT when slices are channels, otherwise one per slice
+        self.per_study = len(i["slots"]) * (g if as_ch else i["n_slices"])
+        self.pool = m.get("pool", "mean")            # how those images collapse into one vector
+        if self.pool == "attn":
+            # tiny network that scores each slice, so the model can weight informative ones
+            self.pool_attn = nn.Sequential(nn.Linear(feat, 128), nn.Tanh(), nn.Linear(128, 1))
+        self.head = nn.Linear(feat, sc.num_output_logits(cfg))   # one logit per label, 12
+
+    def forward(self, x):                      # x: (B*slots*D, C, H, W)
+        f = self.backbone(x)                   # (B*slots*D, F)
+        f = f.view(-1, self.per_study, f.shape[-1])   # regroup the flat images back per study
+        if self.pool == "max":
+            f = f.max(dim=1).values                   # strongest slice wins each feature
+        elif self.pool == "attn":
+            w = torch.softmax(self.pool_attn(f), dim=1)   # learned weights, summing to 1
+            f = (f * w).sum(dim=1)
+        else:
+            f = f.mean(dim=1)                         # plain average over slices and slots
+        return self.head(f)
+
+
+PARENT_CKPT = "convnext_base_25d_18slices_v5_aug_base/results/checkpoints/top_step5900.pt"   # val 0.9174, v4 labels, flip
+
+
+class JointZoomModel(SliceModel):
+    """Two-stage in ONE module: a frozen copy of the 2.5D parent finds the knee joint, the trainable ConvNeXt reads it zoomed.
+
+    The loader delivers each slot at 0.20 mm/px, 672 px (the parent's 134 mm frame at twice the detail). The localizer
+    (self.loc_*) sees it area-downsampled to 336 px, exactly its training view, and its class-activation map is taken
+    in ANATOMY mode: |contribution of each feature cell to every one of the 12 logits|, summed (exact decomposition of
+    timm ConvNeXt's pool -> LayerNorm -> linear head, no gradients). The centroid of that map's above-median part, over
+    the slot's images, is the joint centre (runs/others/crop_rois/cam_preview.py, checked by eye on normal and abnormal
+    knees). The trunk then reads a crop x crop window (384 px = 77 mm at 0.20 mm/px) around it, the same window for
+    every image of the slot. Training jitters the centre by up to jitter_px so the net does not overfit one placement.
+    self.backbone / self.head stay the trainable trunk and head, so the engine's lr groups work unchanged; the
+    localizer is frozen (requires_grad False, always eval) and saved inside the checkpoint, so inference is self-contained.
+    """
+
+    def __init__(self, cfg: dict):
+        super().__init__(cfg)
+        z = cfg["model"]["zoom"]
+        self.crop, self.loc_size, self.jitter = int(z["crop"]), int(z["loc_size"]), int(z.get("jitter_px", 0))
+        # per-view window (px of the loaded frame), resized to `crop` for the trunk; default = crop (no resize)
+        wins = dict(z.get("window_per_slot") or {})
+        self.wins = [int(wins.get(sl, self.crop)) for sl in cfg["input"]["slots"]]
+        i = cfg["input"]
+        self.g = int(i["slices_as_channels"])
+        self.n_slots = len(i["slots"])
+        self.loc_backbone = timm.create_model(cfg["model"]["name"], pretrained=False, num_classes=0, in_chans=3)
+        self.loc_head = nn.Linear(self.loc_backbone.num_features, 12)
+        for p in list(self.loc_backbone.parameters()) + list(self.loc_head.parameters()):
+            p.requires_grad = False
+
+    def train(self, mode: bool = True):
+        super().train(mode)
+        self.loc_backbone.eval()                  # frozen localizer: no dropout / stat drift, ever
+        return self
+
+    @staticmethod
+    def valid_images(x):
+        """(N, 3, H, W) normalised -> (N,) bool: False for a blank image (every channel constant: short-stack padding
+        under input.short_stack "pad", or a view the study does not have). A 3-slice image with any real slice is valid."""
+        f = x.flatten(2)
+        return (f.amax(2) - f.amin(2)).amax(1) > 1e-6
+
+    @torch.no_grad()
+    def centres(self, x, valid=None):
+        """x (N, 3, H, H) normalised hi-res -> (N // g, 2) crop centres (cy, cx) in hi-res px, one per study-slot.
+        Only VALID images are run through the localizer and counted; a slot with none falls back to the frame centre."""
+        H = x.shape[-1]
+        valid = self.valid_images(x) if valid is None else valid
+        h = w = self.loc_size // 32                                  # ConvNeXt stride 32: 336 px -> 10 x 10 cells
+        cam = torch.zeros(x.shape[0], h, w, device=x.device)
+        if valid.any():
+            lo = torch.nn.functional.interpolate(x[valid], size=(self.loc_size, self.loc_size), mode="area")
+            f = self.loc_backbone.forward_features(lo).float()        # (n_valid, F, h, w)
+            pooled = f.mean((2, 3))
+            ln = self.loc_backbone.head.norm
+            mu = pooled.mean(1, keepdim=True)
+            sig = torch.sqrt(pooled.var(1, unbiased=False, keepdim=True) + ln.eps)
+            fn = ((f - mu[:, :, None, None]) / sig[:, :, None, None] * ln.weight.float()[None, :, None, None]
+                  + ln.bias.float()[None, :, None, None])
+            cam[valid] = torch.einsum("nfhw,kf->nkhw", fn, self.loc_head.weight.float()).abs().sum(1)
+        cam = cam.view(-1, self.g, h, w).sum(1)                      # per study-slot (blank images add nothing)
+        cam = torch.clamp(cam - cam.flatten(1).median(1).values[:, None, None], min=0)
+        tot = cam.flatten(1).sum(1).clamp_min(1e-6)
+        ys = torch.arange(h, device=x.device, dtype=torch.float32)
+        xs = torch.arange(w, device=x.device, dtype=torch.float32)
+        cy = (cam.sum(2) * ys).sum(1) / tot
+        cx = (cam.sum(1) * xs).sum(1) / tot
+        flat = cam.flatten(1).sum(1) <= 0                            # no signal at all: frame centre
+        cell = 32.0 * H / self.loc_size
+        c = torch.stack([(cy + 0.5) * cell, (cx + 0.5) * cell], 1)
+        c[flat] = H / 2
+        return c
+
+    def forward(self, x):                      # x: (B*slots*g, 3, H, H)
+        H, s = x.shape[-1], self.crop
+        valid = self.valid_images(x)
+        c = self.centres(x, valid)
+        if self.training and self.jitter:
+            c = c + torch.empty_like(c).uniform_(-self.jitter, self.jitter)
+        xv = x.view(-1, self.g, *x.shape[1:])
+        crops = []
+        for k in range(xv.shape[0]):                  # k = study * n_slots + slot
+            w_ = min(self.wins[k % self.n_slots], H)
+            y0, x0 = torch.clamp(torch.round(c[k] - w_ / 2), 0, H - w_).long().tolist()
+            cr = xv[k, :, :, y0:y0 + w_, x0:x0 + w_]
+            if w_ != s:                               # wider view window (axial: the kneecap joint too) -> trunk size
+                cr = torch.nn.functional.interpolate(cr, size=(s, s), mode="area")
+            crops.append(cr)
+        crops = torch.stack(crops).view(-1, x.shape[1], s, s)
+        # the trunk reads ONLY the valid images (blank padding and absent views cost nothing) and the study vector is
+        # the mean over the valid ones: padding never dilutes the evidence
+        feat = torch.zeros(crops.shape[0], self.backbone.num_features, device=x.device, dtype=torch.float32)
+        if valid.any():
+            feat[valid] = self.backbone(crops[valid]).float()
+        feat = feat.view(-1, self.per_study, feat.shape[-1])
+        m = valid.view(-1, self.per_study, 1).float()
+        f = (feat * m).sum(1) / m.sum(1).clamp_min(1.0)
+        return self.head(f)
+
+
+def build_model(cfg: dict) -> nn.Module:
+    model = JointZoomModel(cfg)
+    src = None
+    for c in (Path(cfg["modal"]["runs_mount"]) / PARENT_CKPT, PKG_ROOT.parent / "runs" / PARENT_CKPT):
+        if c.exists():
+            src = c
+            break
+    if src is None:
+        # only training needs the seed; at inference (Kaggle) the checkpoint carries trunk, head AND localizer
+        print("  🔍 no parent checkpoint - skipping the seed; fine for inference, WRONG for training", flush=True)
+        return model
+    sd = dict(torch.load(src, map_location="cpu", weights_only=False)["model"])
+    sd = {(k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k): v for k, v in sd.items()}
+    assert sd["head.weight"].shape[0] == 12 and len(cfg["tasks"]) == 12
+    full = dict(sd)
+    full.update({"loc_" + k: v for k, v in sd.items()})            # loc_backbone.*, loc_head.*
+    r = model.load_state_dict(full, strict=False)
+    if r.missing_keys or r.unexpected_keys:
+        raise RuntimeError(f"seed load mismatch - missing={r.missing_keys} unexpected={r.unexpected_keys}")
+    print(f"  🔍 seeded trunk, head and frozen localizer from {src.name}", flush=True)
+    return model
+
+
+def run_local():
+    """Train on this PC's GPU — only useful for smoke tests, real runs go to Modal."""
+    sc.set_seed(cfg["reproducibility"]["seed"], cfg["reproducibility"]["deterministic"])
+    sc.print_config(cfg)
+    sc.run_experiment(cfg, build_model(cfg), EXP_DIR)
+
+
+try:
+    # everything below is skipped when modal isn't installed, so local runs still work
+    import modal
+
+    app = modal.App(cfg["experiment"]["name"])
+    _image = sc.modal_image()
+    _shards = modal.Volume.from_name(cfg["modal"]["shards_volume"], create_if_missing=True)  # input data
+    _runs = modal.Volume.from_name(cfg["modal"]["runs_volume"], create_if_missing=True)      # outputs
+    _secrets = ([modal.Secret.from_name(cfg["modal"]["wandb_secret"])]
+                if cfg.get("wandb", {}).get("enabled") else [])
+
+    @app.function(image=_image,
+                  volumes={cfg["modal"]["shards_mount"]: _shards,
+                           cfg["modal"]["runs_mount"]: _runs},
+                  secrets=_secrets, **sc.modal_resources(cfg))
+    def train_remote(run_id: str = ""):
+        """Runs inside the Modal container on the GPU named in config.yaml."""
+        rcfg = sc.remote_cfg(cfg)                  # same config, container paths
+        if run_id:
+            rcfg["experiment"]["run_id"] = run_id  # allocated on the launching PC
+        out_dir = Path(cfg["modal"]["runs_mount"]) / cfg["experiment"]["name"]
+        sc.set_seed(rcfg["reproducibility"]["seed"], rcfg["reproducibility"]["deterministic"])
+        sc.print_config(rcfg)
+        model = build_model(rcfg)
+
+        wb = cfg.get("wandb", {})
+        run, log_fn = None, None
+        if wb.get("enabled"):
+            import wandb
+            run = wandb.init(project=wb.get("project"), name=cfg["experiment"]["name"],
+                             config=cfg, settings=wandb.Settings(x_disable_stats=True))
+            log_fn = lambda d, s: run.log(d, step=s)
+        try:
+            sc.run_experiment(rcfg, model, out_dir, persist_fn=_runs.commit, log_fn=log_fn)
+        finally:
+            if run:
+                run.finish()
+            _runs.commit()                         # always save results, even if training crashed
+
+    @app.local_entrypoint()                        # what `modal run train.py` calls
+    def modal_main():
+        sc.sync_on_interrupt(cfg)                  # ctrl+c still pulls the artifacts
+        run_id = sc.launch_run_id(cfg, EXP_DIR)    # sequential, reserved here
+        status = "crashed"
+        try:
+            train_remote.remote(run_id)
+            status = "finished"
+        finally:
+            # the container can't reach this PC, so the pull happens here — and it
+            # has to happen whether training finished or blew up
+            sc.sync_back(cfg, status)
+
+except ImportError:
+    pass
+
+
+if __name__ == "__main__":
+    run_local()
