@@ -64,6 +64,10 @@ training:
     name: "cosine"
     warmup_frac: 0.05
     min_lr_mult: 0.01
+    # the cosine spans 10 epochs while we train 6 (user, 6 Oct): at the end of epoch 6 the lr is still ~35% of its
+    # peak, so if val is still rising we EXTEND (epochs -> 8 or 10, resume) along the SAME curve instead of
+    # restarting from a floor where the model would only saturate
+    schedule_epochs: 10
   loss:
     name: "bce"
     pos_weight: null
