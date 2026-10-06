@@ -27,7 +27,7 @@ model = mod.build_model(cfg).to(dev).eval()
 plan = sc.plan_slots(pd.read_csv(sc.resolve(cfg["paths"]["series_index"], cfg)), cfg)
 df = sc._eval_df(cfg, cfg["paths"]["val_csv"]).sample(N, random_state=1).reset_index(drop=True)
 ds = sc.KneeShardDataset(df, cfg, plan, train=False)
-loader = torch.utils.data.DataLoader(ds, batch_size=4, num_workers=4)
+loader = torch.utils.data.DataLoader(ds, batch_size=4, num_workers=0)   # Windows: workers need a main guard
 H, s, slots = cfg["input"]["size"], model.crop, cfg["input"]["slots"]
 C, missing = [], []
 with torch.no_grad():

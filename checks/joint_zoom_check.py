@@ -29,7 +29,7 @@ res = []
 res.append(ok(cfg["experiment"]["name"] == NAME, f"experiment name {NAME}"))
 i = cfg["input"]
 res.append(ok(abs(i["size"] * i["mm_per_px"] - 134.4) < 0.5 and i["mm_per_px"] < 0.40, f"input frame 134 mm ({i['size']}, {i['mm_per_px']})"))
-res.append(ok(i["slots"] == ["cor_fluid", "cor_plain", "sag_fluid", "sag_plain"], f"slots {i['slots']}"))
+res.append(ok(len(i["slots"]) == 4, f"slots {i['slots']}"))
 res.append(ok(i.get("resize_to") in (None, 0), "no resize_to (the trunk must get the full-detail frame)"))
 res.append(ok(i["laterality_flip"] == "left", "laterality flip left"))
 res.append(ok(len(cfg["tasks"]) == 12, "12 tasks"))
@@ -38,8 +38,14 @@ model = mod.build_model(cfg)
 par = torch.load(ROOT / "runs" / mod.PARENT_CKPT, map_location="cpu", weights_only=False)["model"]
 sd = model.state_dict()
 k = "backbone.stages.3.blocks.2.mlp.fc2.weight"
-res.append(ok(torch.equal(sd[k], par[k]) and torch.equal(sd["loc_" + k], par[k]), "trunk and localizer = parent weights"))
-res.append(ok(torch.equal(sd["head.weight"], par["head.weight"]) and torch.equal(sd["loc_head.weight"], par["head.weight"]), "head and loc head = parent rows"))
+# the trunk may come from another member (TRUNK_CKPT, e.g. the DINOv3 zoom); the localizer is always the parent
+tr = torch.load(ROOT / "runs" / mod.TRUNK_CKPT, map_location="cpu", weights_only=False)["model"] if hasattr(mod, "TRUNK_CKPT") else par
+tname = mod.TRUNK_CKPT.split("/")[0] if hasattr(mod, "TRUNK_CKPT") else "parent"
+res.append(ok(torch.equal(sd[k], tr[k]) and torch.equal(sd["loc_" + k], par[k]), f"trunk = {tname}, localizer = parent"))
+res.append(ok(torch.equal(sd["head.weight"], tr["head.weight"]) and torch.equal(sd["loc_head.weight"], par["head.weight"]), f"head = {tname} rows, loc head = parent rows"))
+if "feat_norm.weight" in sd:
+    res.append(ok(torch.equal(sd["feat_norm.weight"], tr["feat_norm.weight"]), "feat_norm seeded"))
+    res.append(ok(not torch.equal(sd[k], par[k]), "trunk differs from the localizer"))
 res.append(ok(all(not p.requires_grad for n, p in model.named_parameters() if n.startswith("loc_")), "localizer frozen"))
 opt = sc.build_optimizer(model, cfg)
 n_opt = sum(p.numel() for g in opt.param_groups for p in g["params"])
@@ -99,9 +105,10 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 fig, ax = plt.subplots(2, 4, figsize=(16, 8))
-s = model.crop
+s0 = model.crop
 for kk in range(4):
     cy, cx = c1[kk].tolist()
+    s = getattr(model, "wins", [s0] * 4)[kk]   # per-view window when the run has one
     y0, x0 = int(np.clip(round(cy - s / 2), 0, i["size"] - s)), int(np.clip(round(cx - s / 2), 0, i["size"] - s))
     img = xa[kk, 9].numpy()
     ax[0, kk].imshow(img, cmap="gray")

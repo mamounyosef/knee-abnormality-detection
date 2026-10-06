@@ -1,0 +1,161 @@
+{
+ "members": [
+  "convnext_base_v5",
+  "mricore_vitb_cross_attention_v5",
+  "dinov3_convnext_base_v5",
+  "convnext_base_25d_18slices_v5_aug_base",
+  "swinv2_base_in22k_v5_warm",
+  "convnext_base_25d_poolattn_full_v5",
+  "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+  "medimageinsight_davit_huge_336_v3_f0",
+  "medimageinsight_davit_huge_336_v3_f4",
+  "convnext_base_25d_v5_joint_zoom_030"
+ ],
+ "weights_per_class": {
+  "ACL": {
+   "convnext_base_v5": 1.0,
+   "mricore_vitb_cross_attention_v5": 1.0,
+   "dinov3_convnext_base_v5": 1.0,
+   "convnext_base_25d_18slices_v5_aug_base": 1.0,
+   "swinv2_base_in22k_v5_warm": 1.0,
+   "convnext_base_25d_poolattn_full_v5": 1.0,
+   "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip": 1.0,
+   "medimageinsight_davit_huge_336_v3_f0": 1.0,
+   "medimageinsight_davit_huge_336_v3_f4": 1.0,
+   "convnext_base_25d_v5_joint_zoom_030": 1.0
+  },
+  "MCL": {
+   "convnext_base_v5": 1.0,
+   "mricore_vitb_cross_attention_v5": 1.0,
+   "dinov3_convnext_base_v5": 1.0,
+   "convnext_base_25d_18slices_v5_aug_base": 1.0,
+   "swinv2_base_in22k_v5_warm": 1.0,
+   "convnext_base_25d_poolattn_full_v5": 1.0,
+   "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip": 1.0,
+   "medimageinsight_davit_huge_336_v3_f0": 1.0,
+   "medimageinsight_davit_huge_336_v3_f4": 1.0,
+   "convnext_base_25d_v5_joint_zoom_030": 0.0
+  },
+  "Medial Meniscus": {
+   "convnext_base_v5": 1.0,
+   "mricore_vitb_cross_attention_v5": 1.0,
+   "dinov3_convnext_base_v5": 1.0,
+   "convnext_base_25d_18slices_v5_aug_base": 1.0,
+   "swinv2_base_in22k_v5_warm": 1.0,
+   "convnext_base_25d_poolattn_full_v5": 1.0,
+   "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip": 1.0,
+   "medimageinsight_davit_huge_336_v3_f0": 1.0,
+   "medimageinsight_davit_huge_336_v3_f4": 1.0,
+   "convnext_base_25d_v5_joint_zoom_030": 1.0
+  },
+  "Lateral Meniscus": {
+   "convnext_base_v5": 1.0,
+   "mricore_vitb_cross_attention_v5": 1.0,
+   "dinov3_convnext_base_v5": 1.0,
+   "convnext_base_25d_18slices_v5_aug_base": 1.0,
+   "swinv2_base_in22k_v5_warm": 1.0,
+   "convnext_base_25d_poolattn_full_v5": 1.0,
+   "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip": 1.0,
+   "medimageinsight_davit_huge_336_v3_f0": 1.0,
+   "medimageinsight_davit_huge_336_v3_f4": 1.0,
+   "convnext_base_25d_v5_joint_zoom_030": 1.0
+  },
+  "Medial OA": {
+   "convnext_base_v5": 1.0,
+   "mricore_vitb_cross_attention_v5": 1.0,
+   "dinov3_convnext_base_v5": 1.0,
+   "convnext_base_25d_18slices_v5_aug_base": 1.0,
+   "swinv2_base_in22k_v5_warm": 1.0,
+   "convnext_base_25d_poolattn_full_v5": 1.0,
+   "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip": 1.0,
+   "medimageinsight_davit_huge_336_v3_f0": 1.0,
+   "medimageinsight_davit_huge_336_v3_f4": 1.0,
+   "convnext_base_25d_v5_joint_zoom_030": 1.0
+  },
+  "Lateral OA": {
+   "convnext_base_v5": 1.0,
+   "mricore_vitb_cross_attention_v5": 1.0,
+   "dinov3_convnext_base_v5": 1.0,
+   "convnext_base_25d_18slices_v5_aug_base": 1.0,
+   "swinv2_base_in22k_v5_warm": 1.0,
+   "convnext_base_25d_poolattn_full_v5": 1.0,
+   "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip": 1.0,
+   "medimageinsight_davit_huge_336_v3_f0": 1.0,
+   "medimageinsight_davit_huge_336_v3_f4": 1.0,
+   "convnext_base_25d_v5_joint_zoom_030": 1.0
+  },
+  "PF OA": {
+   "convnext_base_v5": 1.0,
+   "mricore_vitb_cross_attention_v5": 1.0,
+   "dinov3_convnext_base_v5": 1.0,
+   "convnext_base_25d_18slices_v5_aug_base": 1.0,
+   "swinv2_base_in22k_v5_warm": 1.0,
+   "convnext_base_25d_poolattn_full_v5": 1.0,
+   "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip": 1.0,
+   "medimageinsight_davit_huge_336_v3_f0": 1.0,
+   "medimageinsight_davit_huge_336_v3_f4": 1.0,
+   "convnext_base_25d_v5_joint_zoom_030": 0.0
+  },
+  "Effusion": {
+   "convnext_base_v5": 1.0,
+   "mricore_vitb_cross_attention_v5": 1.0,
+   "dinov3_convnext_base_v5": 1.0,
+   "convnext_base_25d_18slices_v5_aug_base": 1.0,
+   "swinv2_base_in22k_v5_warm": 1.0,
+   "convnext_base_25d_poolattn_full_v5": 1.0,
+   "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip": 1.0,
+   "medimageinsight_davit_huge_336_v3_f0": 1.0,
+   "medimageinsight_davit_huge_336_v3_f4": 1.0,
+   "convnext_base_25d_v5_joint_zoom_030": 0.0
+  },
+  "Synovitis": {
+   "convnext_base_v5": 1.0,
+   "mricore_vitb_cross_attention_v5": 1.0,
+   "dinov3_convnext_base_v5": 1.0,
+   "convnext_base_25d_18slices_v5_aug_base": 1.0,
+   "swinv2_base_in22k_v5_warm": 1.0,
+   "convnext_base_25d_poolattn_full_v5": 1.0,
+   "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip": 1.0,
+   "medimageinsight_davit_huge_336_v3_f0": 1.0,
+   "medimageinsight_davit_huge_336_v3_f4": 1.0,
+   "convnext_base_25d_v5_joint_zoom_030": 0.0
+  },
+  "Baker's": {
+   "convnext_base_v5": 1.0,
+   "mricore_vitb_cross_attention_v5": 1.0,
+   "dinov3_convnext_base_v5": 1.0,
+   "convnext_base_25d_18slices_v5_aug_base": 1.0,
+   "swinv2_base_in22k_v5_warm": 1.0,
+   "convnext_base_25d_poolattn_full_v5": 1.0,
+   "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip": 1.0,
+   "medimageinsight_davit_huge_336_v3_f0": 1.0,
+   "medimageinsight_davit_huge_336_v3_f4": 1.0,
+   "convnext_base_25d_v5_joint_zoom_030": 0.0
+  },
+  "Contusion": {
+   "convnext_base_v5": 1.0,
+   "mricore_vitb_cross_attention_v5": 1.0,
+   "dinov3_convnext_base_v5": 1.0,
+   "convnext_base_25d_18slices_v5_aug_base": 1.0,
+   "swinv2_base_in22k_v5_warm": 1.0,
+   "convnext_base_25d_poolattn_full_v5": 1.0,
+   "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip": 1.0,
+   "medimageinsight_davit_huge_336_v3_f0": 1.0,
+   "medimageinsight_davit_huge_336_v3_f4": 1.0,
+   "convnext_base_25d_v5_joint_zoom_030": 0.0
+  },
+  "Fracture": {
+   "convnext_base_v5": 1.0,
+   "mricore_vitb_cross_attention_v5": 1.0,
+   "dinov3_convnext_base_v5": 1.0,
+   "convnext_base_25d_18slices_v5_aug_base": 1.0,
+   "swinv2_base_in22k_v5_warm": 1.0,
+   "convnext_base_25d_poolattn_full_v5": 1.0,
+   "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip": 1.0,
+   "medimageinsight_davit_huge_336_v3_f0": 1.0,
+   "medimageinsight_davit_huge_336_v3_f4": 1.0,
+   "convnext_base_25d_v5_joint_zoom_030": 0.0
+  }
+ },
+ "note": "fit-10: all members 1; the 0.30 mm joint zoom 1 on the 5 joint findings, 0 elsewhere"
+}

@@ -346,3 +346,9 @@ runs/others/ensembling/speed_bench_nb/
 runs/others/ensembling/speed_bench.json
 runs/others/logs/
 runs/others/ensembling/probe_nb/
+
+# joint-zoom preview / crop-check images (regenerable, competition scans)
+runs/others/crop_rois/preview_*/
+runs/others/crop_rois/robustness_worst/
+checks/*_crops.png
+data/external/
