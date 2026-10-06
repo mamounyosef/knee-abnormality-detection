@@ -1,0 +1,114 @@
+# qwen35_2b_vlm_sys
+#
+# = qwen35_2b_vlm + a radiologist SYSTEM prompt and a user prompt naming each image group's view (user, 6 Oct:
+# "just do a good system prompt now"). Fresh start (the prompt length lives in the checkpoint). Batch 8 x accum 1.
+#
+# A VISION-LANGUAGE MODEL AS A MEMBER (6 Oct). Forum thread 735304: a fine-tuned Qwen 3.5 2B (LoRA on the language
+# model, vision encoder trained jointly, 384 px) scored LB 0.950 from ONE fold, the best single-model number posted,
+# and a model family unlike anything we ship (diversity is what our correlated members lack). Our earlier
+# qwen3_5_vision_tower_336 used only the 0.8B model's vision tower and failed (0.71): this run uses the WHOLE 2B model,
+# so the 24-layer language model reasons over all visual tokens of the study. Images only (no reports at test time).
+# Licence: Apache-2.0, ungated (Qwen/Qwen3.5-2B card, checked 6 Oct).
+# Inference on Kaggle's T4 measured (knee-vlm-speed-bench, fp16): 24 images/study 1.79 s on one T4 = 0.32 h for 1300
+# studies on two; peak 6.3 GB.
+# Input: the 2.5D parent's study (4 views x 6 images of 3 neighbouring slices as RGB), 384 px over the same 134 mm
+# (0.35 mm/px), Qwen's normalisation ((x - 0.5) / 0.5); patched to Qwen's vision layout inside the model
+# (checks/vlm_patchify_check.py: byte-equal to the real processor). Head: [last token, mean of visual tokens] -> 12.
+# v4 labels, v5 split, knee flip: the same data as every current member, so audit/val compare directly.
+#
+# ---- the parent's notes follow ----
+#
+# convnext_base_25d_18slices_v5_aug_base: AUGMENTATION-STRENGTH TEST (2 Oct) baseline arm, v4 labels, v5 split, flip.
+
+experiment:
+  name: "qwen35_2b_vlm_sys"
+
+paths:
+  # Byte-identical split MEMBERSHIP to convnext_base_25d_group3 and convnext_base_336px.
+  train_csv: "23_train_w50.csv"   # v5 split: 3,996 studies on v4 labels (data_code/23_make_split8.py)
+  val_csv:   "23_val_v3_audit.csv"   # 346 studies on v3 labels + the 58 audit studies on panel labels
+  # audit_csv stays 05_audit58.csv - the panel labels never change, so it is the one
+  # honest cross-label-set comparison.
+
+model:
+  name: "qwen35_2b_vlm"             # not a timm id: train.py builds the Qwen3.5-2B model itself
+  pretrained: true
+  vlm:
+    local_dir: null                 # null = download Qwen/Qwen3.5-2B (Modal has internet); a folder on Kaggle
+    system_prompt: "You are an expert musculoskeletal radiologist reading knee MRI. Read every image carefully and judge each finding from the images alone, as a consensus panel of musculoskeletal radiologists would: ACL tear, MCL tear, medial meniscus tear, lateral meniscus tear, medial tibiofemoral osteoarthritis, lateral tibiofemoral osteoarthritis, patellofemoral osteoarthritis, joint effusion, synovitis, Baker's (popliteal) cyst, bone contusion (bone marrow edema) and fracture."
+    prompt: "Knee MRI study, 24 images, each holding 3 neighbouring slices. Images 1-6: sagittal proton-density or T1 (anatomy, cartilage, meniscus shape). Images 7-12: sagittal fat-suppressed fluid-sensitive (tears, edema, effusion). Images 13-18: coronal fat-suppressed fluid-sensitive (collateral ligaments, menisci, compartments). Images 19-24: axial fat-suppressed fluid-sensitive (patellofemoral joint, effusion, Baker's cyst). Left knees are mirrored to face like right knees. Assess all twelve findings."
+    n_tokens: 3772                  # prompt length incl. the system prompt (checks/vlm_patchify_check.py qwen35_2b_vlm_sys)
+    lora_r: 16
+    lora_alpha: 32
+    lora_dropout: 0.05
+    lora_targets: ["q_proj", "k_proj", "v_proj", "o_proj", "in_proj_qkv", "in_proj_z", "out_proj", "gate_proj", "up_proj", "down_proj"]
+    grad_checkpointing: true        # ~3.5k tokens per study through 24 + 24 layers
+
+input:
+  laterality_flip: "left"          # mirror left knees, per plane
+  size: 384                         # Qwen patch 16 x merge 2 = multiples of 32; 384 = the forum's resolution
+  mm_per_px: 0.35                   # 384 x 0.35 = 134 mm, the parent's field of view
+  n_slices: 18
+  slices_as_channels: 6             # 6 images per view, 3 neighbouring slices each -> 24 images per study
+  norm_mean: [0.5, 0.5, 0.5]        # Qwen's image processor: (x - 0.5) / 0.5
+  norm_std: [0.5, 0.5, 0.5]
+
+training:
+  epochs: 6                         # 2B model, ~4 h budget on an H100 (forum: one fold ~3.5 h)
+  grad_clip: 3.0                    # 3.0, NEVER 1.0
+  amp: true
+  amp_dtype: "bfloat16"             # Qwen was trained in bf16; fp16 activations of a 2B language model can overflow
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 1.0e-5                      # the VISION ENCODER (backbone group): full fine-tune of pretrained weights
+    backbone_lr_mult: 0.1           # head group = 1.0e-4: the LoRA adapters, feat_norm and the 12-way head
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05
+    min_lr_mult: 0.01
+    # the cosine spans 10 epochs while we train 6 (user, 6 Oct): at the end of epoch 6 the lr is still ~35% of its
+    # peak, so if val is still rising we EXTEND (epochs -> 8 or 10, resume) along the SAME curve instead of
+    # restarting from a floor where the model would only saturate
+    schedule_epochs: 10
+  loss:
+    name: "bce"
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 6                     # validations (every 250 steps)
+
+evaluation:
+  eval_every_steps_before: 250      # 500 steps per epoch (8 studies per update)
+  eval_every_steps_mid: 250
+  validate_before_training: false   # step 0 = a random head: nothing to learn from it
+
+dataloader:
+  batch_size: 8                     # 8 studies x 24 images per micro-batch (peak was 15.9 GB at batch 2 of 80)
+  accum_steps: 1                    # 8 studies per update, as every member
+  val_batch_size: 4
+  num_workers: 16
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+output:
+  # a full fp32 checkpoint of a 2.2B model is ~9 GB (weights + optimizer state ~ x2 for the trainable part)
+  keep_last_n: 2
+  keep_top_k: 4
+  top_k_weights_only: true
+  checkpoint_every_steps: 250
+
+modal:
+  gpu: "H100"                       # 80 GB: 2.2B fp32 weights (8.8 GB) + AdamW on vision + LoRA + bf16 activations
+  cpu: 16.0
+  memory_gb: 64
+  timeout_hours: 12

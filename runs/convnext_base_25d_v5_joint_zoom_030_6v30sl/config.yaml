@@ -111,8 +111,8 @@ evaluation:
   validate_before_training: true    # step 0 = the parent's weights reading the zoomed crops
 
 dataloader:
-  batch_size: 4                     # 4 studies x 6 views x 10 images = up to 240 crops @256 (~38 GB est.; blanks skipped)
-  accum_steps: 2                    # 8 studies per update, as the parent
+  batch_size: 8                     # 8 studies per micro-batch (peak was 30.1 GB at batch 4 of 80)
+  accum_steps: 1                    # 8 studies per update, as the parent
   val_batch_size: 8
   num_workers: 24
   val_num_workers: null

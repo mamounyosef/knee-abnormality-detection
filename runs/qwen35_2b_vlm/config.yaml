@@ -86,8 +86,8 @@ evaluation:
   validate_before_training: false   # step 0 = a random head: nothing to learn from it
 
 dataloader:
-  batch_size: 2                     # 2 studies x 24 images (~7k tokens) per micro-batch, gradient checkpointing on
-  accum_steps: 4                    # 8 studies per update, as every member
+  batch_size: 8                     # 8 studies x 24 images per micro-batch (peak was 15.9 GB at batch 2 of 80)
+  accum_steps: 1                    # 8 studies per update, as every member
   val_batch_size: 4
   num_workers: 16
   val_num_workers: null

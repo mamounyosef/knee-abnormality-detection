@@ -19,7 +19,7 @@ from PIL import Image
 from transformers import AutoProcessor
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("vlm_train", ROOT / "runs" / "qwen35_2b_vlm" / "train.py")
+spec = importlib.util.spec_from_file_location("vlm_train", ROOT / "runs" / (sys.argv[1] if len(sys.argv) > 1 else "qwen35_2b_vlm") / "train.py")
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 cfg = mod.cfg
@@ -29,6 +29,8 @@ n = len(cfg["input"]["slots"]) * int(cfg["input"]["slices_as_channels"])
 rng = np.random.default_rng(0)
 arr = rng.integers(0, 256, (n, S, S, 3), dtype=np.uint8)
 msgs = [{"role": "user", "content": [{"type": "image"} for _ in range(n)] + [{"type": "text", "text": cfg["model"]["vlm"]["prompt"]}]}]
+if cfg["model"]["vlm"].get("system_prompt"):
+    msgs = [{"role": "system", "content": [{"type": "text", "text": cfg["model"]["vlm"]["system_prompt"]}]}] + msgs
 text = proc.apply_chat_template(msgs, add_generation_prompt=True, tokenize=False)
 enc = proc(text=[text], images=[Image.fromarray(a) for a in arr], return_tensors="pt")
 x = torch.from_numpy(arr).permute(0, 3, 1, 2).float() / 255.0
