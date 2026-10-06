@@ -174,7 +174,9 @@ try:
     import modal
 
     app = modal.App(cfg["experiment"]["name"])
-    _image = sc.modal_image(extra_pip=("transformers>=5.5", "peft>=0.18"))   # Qwen3.5 needs transformers 5
+    # flash-linear-attention: the fast (Triton) kernels for the 18 linear-attention layers; without it transformers silently
+    # falls back to a slow pure-torch chunk loop (the first launch ran ~1 study/s)
+    _image = sc.modal_image(extra_pip=("transformers>=5.5", "peft>=0.18", "flash-linear-attention"))
     _shards = modal.Volume.from_name(cfg["modal"]["shards_volume"], create_if_missing=True)  # input data
     _runs = modal.Volume.from_name(cfg["modal"]["runs_volume"], create_if_missing=True)      # outputs
     _secrets = ([modal.Secret.from_name(cfg["modal"]["wandb_secret"])]

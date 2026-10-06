@@ -110,6 +110,19 @@ class JointZoomModel(SliceModel):
         return self
 
     @staticmethod
+    def bucket(valid, mult=32):
+        """Indices of the valid images, padded (by repeating the first one) up to a multiple of `mult`. The trunk then
+        sees at most ~15 distinct batch shapes instead of a new one almost every step: with cudnn.benchmark on (the
+        engine's default, and Kaggle inference) every new shape re-runs the autotuner, which made this run ~16x slow.
+        -> (idx padded, n_real); outputs past n_real are dropped."""
+        idx = valid.nonzero(as_tuple=True)[0]
+        n = idx.numel()
+        m = -(-n // mult) * mult
+        if m > n:
+            idx = torch.cat([idx, idx[:1].expand(m - n)])
+        return idx, n
+
+    @staticmethod
     def valid_images(x):
         """(N, 3, H, W) normalised -> (N,) bool: False for a blank image (every channel constant: short-stack padding
         under input.short_stack "pad", or a view the study does not have). A 3-slice image with any real slice is valid."""
@@ -125,8 +138,9 @@ class JointZoomModel(SliceModel):
         h = w = self.loc_size // 32                                  # ConvNeXt stride 32: 336 px -> 10 x 10 cells
         cam = torch.zeros(x.shape[0], h, w, device=x.device)
         if valid.any():
-            lo = torch.nn.functional.interpolate(x[valid], size=(self.loc_size, self.loc_size), mode="area")
-            f = self.loc_backbone.forward_features(lo).float()        # (n_valid, F, h, w)
+            bi, nr = self.bucket(valid)
+            lo = torch.nn.functional.interpolate(x[bi], size=(self.loc_size, self.loc_size), mode="area")
+            f = self.loc_backbone.forward_features(lo).float()[:nr]   # (n_valid, F, h, w); bucket padding dropped
             pooled = f.mean((2, 3))
             ln = self.loc_backbone.head.norm
             mu = pooled.mean(1, keepdim=True)
@@ -167,7 +181,8 @@ class JointZoomModel(SliceModel):
         # the mean over the valid ones: padding never dilutes the evidence
         feat = torch.zeros(crops.shape[0], self.backbone.num_features, device=x.device, dtype=torch.float32)
         if valid.any():
-            feat[valid] = self.backbone(crops[valid]).float()
+            bi, nr = self.bucket(valid)
+            feat[bi[:nr]] = self.backbone(crops[bi]).float()[:nr]       # fixed-size buckets, padding dropped
         feat = feat.view(-1, self.per_study, feat.shape[-1])
         m = valid.view(-1, self.per_study, 1).float()
         f = (feat * m).sum(1) / m.sum(1).clamp_min(1.0)
