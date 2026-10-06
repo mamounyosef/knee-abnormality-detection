@@ -43,6 +43,16 @@ patch(7, "    return _one_direct('competition', [\n"
       "        os.environ.get('RSNA_COMP_ROOT', '/kaggle/input/competitions/rsna-knee-abnormality-detection'),\n"
       "        '/kaggle/input/rsna-knee-abnormality-detection',\n"
       "    ], ['test.csv', 'test_series.csv', 'test_series'])")
+patch(28, "    _parallel_pairs = _o.environ.get(\n",
+      "    # combined notebook: RSNA_SKIP_COAT_READERS=global96,repairv1 skips readers to fit the 9 h cap; a skipped reader\n"
+      "    # counts as 'not ok', exactly like a failed one, so the family mean covers the readers that ran\n"
+      "    _skip_readers = set(filter(None, _o.environ.get('RSNA_SKIP_COAT_READERS', '').split(',')))\n"
+      "    if 'residual' in _skip_readers: _run_residual_reader = lambda: rsna_phase('residual_coat', 'COMPLETE', ok=False, skipped=True)\n"
+      "    if 'global96' in _skip_readers: _run_global96_reader = lambda: rsna_phase('global96_coat', 'COMPLETE', ok=False, skipped=True)\n"
+      "    if 'd4' in _skip_readers: _run_d4_reader = lambda: rsna_phase('d4', 'COMPLETE', ok=False, skipped=True)\n"
+      "    if 'repairv1' in _skip_readers: _run_repairv1_reader = lambda: rsna_phase('repairv1_coat', 'COMPLETE', ok=False, skipped=True)\n"
+      "    if _skip_readers: print('[coat-arm] skipping readers:', sorted(_skip_readers), flush=True)\n"
+      "    _parallel_pairs = _o.environ.get(\n")
 patch(30, "if not globals().get('V18_CALIBRATOR_APPLIED'):raise RuntimeError('BTKD calibrator was not applied')\n",
       "# Stage 3 (RadImageNet + its calibrator) removed for prize eligibility: no calibrator check\n")
 patch(30, "_final=Path('/kaggle/working/submission.csv')", "_final=Path('/kaggle/working/public_side.csv')")

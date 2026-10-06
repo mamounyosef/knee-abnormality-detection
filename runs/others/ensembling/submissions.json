@@ -727,7 +727,7 @@
     "PUBLIC PIPELINE ALONE (yamadan96/rsna-knee-d4-public0946 code, Stage 3 RadImageNet removed): 20 DINOv2-small slot readers, 5 A5 folds, 4 Raptor CoAtNet views, CoAtNet residual-gated / Global96 / D4 / Repair-v1"
    ],
    "submitted": "2026-10-05",
-   "public_score": null,
+   "public_score": 0.937,
    "private_score": null,
    "val": null,
    "audit58": null,
@@ -753,7 +753,7 @@
     "+ PUBLIC PIPELINE (prize-safe, Stage 3 RadImageNet removed), rank blend w 0.5"
    ],
    "submitted": "2026-10-05",
-   "public_score": null,
+   "public_score": 0.94,
    "private_score": null,
    "val": null,
    "audit58": "ours-only offline (scaffold analogues): 0.9293 vs 0.9305 for the 14",
@@ -789,7 +789,82 @@
    "runtime_seconds": null,
    "runtime": "stress 8db425358c6c: projected 6.93 h (ours 2.24 + public 4.44, sequential)",
    "blend_weights": "per finding 0.5 rank(ours) + 0.5 rank(public)",
-   "note": "COMBINED SET A (members by leave-one-out value). Original kernel knee-combined-seta-submit errored at start 3x with empty logs; same stamped notebook pushed as a new kernel."
+   "note": "COMBINED SET A (members by leave-one-out value). Original kernel knee-combined-seta-submit errored at start 3x with empty logs; same stamped notebook pushed as a new kernel. Hidden rerun failed: Kaggle 'system error'."
+  },
+  {
+   "members": [
+    "convnext_base_v5",
+    "mricore_vitb_cross_attention_v5",
+    "dinov3_convnext_base_v5",
+    "convnext_base_25d_18slices_v5_aug_base",
+    "swinv2_base_in22k_v5_warm",
+    "convnext_base_25d_poolattn_v5",
+    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+    "medimageinsight_davit_huge_336_v3_f0",
+    "medimageinsight_davit_huge_336_v3_f1",
+    "+ PUBLIC PIPELINE (prize-safe), rank blend w 0.5"
+   ],
+   "submitted": "2026-10-05",
+   "public_score": null,
+   "private_score": null,
+   "val": null,
+   "audit58": "ours-only offline (scaffold): 0.9311 (+0.0006 vs 14), clean-121 0.9176 (+0.0020)",
+   "kernel": "mamounhussam/knee-seta-submit-b",
+   "kernel_version": 1,
+   "submission_ref": 56857307,
+   "runtime_seconds": null,
+   "runtime": "stress 8db425358c6c: projected 6.93 h (ours 2.24 + public 4.44, sequential)",
+   "blend_weights": "per finding 0.5 rank(ours) + 0.5 rank(public)",
+   "note": "RESUBMIT of 56857028 (Kaggle system error), same kernel version. Exceeded the allowed runtime (no score)."
+  },
+  {
+   "members": [
+    "convnext_base_v5",
+    "dinov3_convnext_base_v5",
+    "convnext_base_25d_18slices_v5_aug_base",
+    "convnext_base_25d_poolattn_full_v5",
+    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+    "medimageinsight_davit_huge_336_v3_f0",
+    "public pipeline (no RadImageNet; Global96 and Repair-v1 skipped), rank blend w 0.5"
+   ],
+   "submitted": "2026-10-05",
+   "public_score": 0.943,
+   "private_score": null,
+   "val": null,
+   "audit58": "ours-only offline: 0.9312 (+0.0007 vs 14), clean-121 0.9171 (+0.0015)",
+   "kernel": "mamounhussam/knee-combined-fit-a",
+   "kernel_version": 1,
+   "submission_ref": 56861632,
+   "runtime_seconds": null,
+   "runtime": "no stress (user override); commit run 16.3 min on 3 studies; ours first, public capped to 8.2 h - elapsed",
+   "blend_weights": "per finding 0.5 rank(ours) + 0.5 rank(public)",
+   "note": "Sized for ~1300 hidden studies; ORDER last: ours writes the submission first, public blends only if it finishes."
+  },
+  {
+   "members": [
+    "convnext_base_v5",
+    "dinov3_convnext_base_v5",
+    "convnext_base_25d_18slices_v5_aug_base",
+    "convnext_base_25d_poolattn_full_v5",
+    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+    "medimageinsight_davit_huge_336_v3_f0",
+    "medimageinsight_davit_huge_336_v3_f4",
+    "mricore_vitb_cross_attention_v5",
+    "swinv2_base_in22k_v5_warm",
+    "public pipeline (trimmed), rank blend w 0.5"
+   ],
+   "submitted": "2026-10-06",
+   "public_score": null,
+   "private_score": null,
+   "val": null,
+   "audit58": "not scored offline as a set (3 members added by leave-one-out value)",
+   "kernel": "mamounhussam/knee-combined-fit9-a",
+   "kernel_version": 1,
+   "submission_ref": 56873740,
+   "runtime_seconds": null,
+   "runtime": "no stress (user approved); commit run 13.2 min; ours ~3.2 h est + trimmed public ~4.3 h est",
+   "blend_weights": "per finding 0.5 rank(ours) + 0.5 rank(public)",
+   "note": "RESUBMIT of 56873456 (Kaggle system error), same kernel version."
   }
  ]
 }

@@ -6259,6 +6259,45 @@ print('BLEND', json.dumps(_bl, default=str))
 pd.read_csv('submission.csv').head()"""
 
 
+def _public_cell_last(cell: str) -> str:
+    """The public-side cell for ORDER "last": our ensemble has already written submission.csv, so
+      - STRESS comes from the inference cell (one STRESS line per notebook, as submit_from_stress_stamp needs)
+      - the cap is whatever the 9 h allows: 8.2 h minus the time already used (+10 min kill grace = 8.4 h worst case), at most the configured cap; under
+        0.5 h left, the public side is skipped and ours stands
+      - our models are released first, and our submission.csv is kept aside and restored after the public kernel
+        (whose start-up deletes it), so the blend always finds it and a failed public side leaves ours exactly
+    """
+    head = "STRESS = __STRESS__\nPUBLIC_W = __PUBLIC_W__\nPUBLIC_CAP_H = __PUBLIC_CAP_H__\n"
+    assert cell.count(head) == 1
+    cell = cell.replace(head, (
+        "# STRESS comes from the inference cell (ours ran FIRST)\n"
+        "PUBLIC_W = __PUBLIC_W__\n"
+        "PUBLIC_CAP_H = min(__PUBLIC_CAP_H__, (8.2 * 3600 - (time.time() - _KERNEL_T0)) / 3600)\n"
+        "print('PUBLIC SIDE after ours: %.2f h used, cap %.2f h' % ((time.time() - _KERNEL_T0) / 3600, PUBLIC_CAP_H), flush=True)\n"
+        "if not STRESS and Path('submission.csv').exists():\n"
+        "    shutil.copy('submission.csv', 'submission_ours.csv')      # the public kernel deletes submission.csv\n"
+        "for _nm in ('MODELS', 'SPECS'):\n"
+        "    globals().pop(_nm, None)                                  # free our weights before the public kernel loads\n"
+        "import gc as _gc\n"
+        "_gc.collect()\n"
+        "try:\n"
+        "    import torch as _tch\n"
+        "    _tch.cuda.empty_cache()\n"
+        "except Exception:\n"
+        "    pass\n"))
+    start = "try:\n    PUB_CSV.unlink(missing_ok=True)\n"
+    assert cell.count(start) == 1
+    cell = cell.replace(start, "try:\n    if PUBLIC_CAP_H < 0.5:\n        raise RuntimeError('skipped: %.2f h left after our ensemble' % PUBLIC_CAP_H)\n"
+                               "    PUB_CSV.unlink(missing_ok=True)\n")
+    mark = "    _pub['overlap'] = PUBLIC_OVERLAP\n"
+    assert cell.count(mark) == 1
+    cell = cell.replace(mark, mark + "    _pub['order'] = 'last'\n")
+    tail = "if not PUBLIC_OVERLAP:\n    _pub_finish()"
+    assert cell.rstrip().endswith(tail)
+    return cell.rstrip() + ("\nif not STRESS and Path('submission_ours.csv').exists():\n"
+                            "    shutil.copy('submission_ours.csv', 'submission.csv')     # ours back in place before the blend\n")
+
+
 def build_kaggle_ensemble_assets(members: list, out_dir, kaggle_user: str,
                                  dataset_slug: str, notebook_slug: str, title: str = "",
                                  blend_weights: dict | None = None, stress: int = 0,
@@ -6633,7 +6672,14 @@ pd.read_csv('submission.csv').head()""",
         # spawned card-1 children inherit them
         cells[0] = ("import os\nos.environ.update(%r)\nprint('inference env', %r)\n"
                     % (dict(infer_env), dict(infer_env))) + cells[0]
-    if public_side:
+    _order_last = bool(public_side) and public_side.get("order") == "last"
+    if _order_last:
+        # OURS FIRST (5 Oct night): a valid submission exists after ~1.5 h whatever the public side does; the public
+        # kernel then gets exactly the time left, and the blend runs if it finishes
+        cells[0] = "import time as _kt\n_KERNEL_T0 = _kt.time()\n" + cells[0]
+        cells.append(_public_cell_last(_PUBLIC_SIDE_CELL))
+        cells.append(_PUBLIC_BLEND_CELL)
+    elif public_side:
         # the public pipeline runs right after the paths cell, BEFORE our cells touch a GPU or
         # install anything, so it sees the machine it scored on; STRESS moves up with it
         cells.insert(1, _PUBLIC_SIDE_CELL)
@@ -6644,6 +6690,7 @@ pd.read_csv('submission.csv').head()""",
         assert cells[-1].rstrip().endswith("pd.read_csv('submission.csv').head()")
         cells[-1] = cells[-1].rstrip()[:-len("pd.read_csv('submission.csv').head()")] + "print('inference cell done')"
         cells.append(_PUBLIC_BLEND_CELL)
+    if public_side:
         cells = [c.replace("__PUBLIC_W__", repr(public_side.get("weight", 0.5)))
                   .replace("__PUBLIC_CAP_H__", repr(float(public_side.get("cap_h", 3.0))))
                   .replace("__PUBLIC_ENV__", repr(dict(public_side.get("env", {}))))
@@ -8429,7 +8476,9 @@ def bundle_fingerprint(assets_dir) -> str:
 
 
 STRESS_PASSES = Path(__file__).resolve().parent / "others" / "ensembling" / "stress_passes"
-HIDDEN_TEST_STUDIES = 946          # solved from observed rerun wall times (runtime_budget.py)
+HIDDEN_TEST_STUDIES = 1300         # the data page: "about 1300 studies in the test set". The old 946 was solved from
+                                   # one timed rerun and under-projected the 5 Oct combined runs badly
+PUBLIC_REAL_DATA_FACTOR = 1.3      # a stress run repeats 3 cached public studies; real varied studies run slower
 HIDDEN_RUNTIME_LIMIT_H = 8.0       # margin under the 9 h cap: Kaggle's machines vary
 
 
@@ -8451,7 +8500,7 @@ def _check_public_side(d: Path, stress: int) -> tuple:
     if stress:
         if r.get("rows") != stress:
             problems.append("public side scored %s studies, the stress run asked for %d" % (r.get("rows"), stress))
-        hours = float(r.get("seconds", 0)) / max(stress, 1) * HIDDEN_TEST_STUDIES / 3600
+        hours = float(r.get("seconds", 0)) / max(stress, 1) * HIDDEN_TEST_STUDIES / 3600 * PUBLIC_REAL_DATA_FACTOR
     b = json.loads(bp.read_text(encoding="utf-8")) if bp.exists() else {}
     want = "stress dry run" if stress else "blended"
     if b.get("mode") != want:
@@ -8459,7 +8508,7 @@ def _check_public_side(d: Path, stress: int) -> tuple:
     else:
         print("      public side ok in %.1f min, blend %s, rank corr ours vs public %s"
               % (float(r.get("seconds", 0)) / 60, b.get("mode"), b.get("rank_corr")))
-    return problems, hours, bool(r.get("overlap"))
+    return problems, hours, ("last" if r.get("order") == "last" else bool(r.get("overlap")))
 
 
 def verify_stress_output(user: str, notebook_slug: str, n_members: int, n_studies: int,
@@ -8543,10 +8592,20 @@ def verify_stress_output(user: str, notebook_slug: str, n_members: int, n_studie
             secs = sum(int(v) * {"h": 3600, "m": 60, "s": 1}[u]
                        for v, u in re.findall(r"(\d+)([hms])", wm.group(1)))
             ours_h = (secs / max(n_studies, 1)) * HIDDEN_TEST_STUDIES / 3600
-            # overlapped: both rates were measured WHILE sharing the machine, so the longer side bounds the run
-            proj_h = (max(ours_h, pub_h) if overlap else ours_h + pub_h) + 0.25
-            print("      projected hidden-set runtime %.2f h (ours %.2f h, public side %.2f h, %s)"
-                  % (proj_h, ours_h, pub_h, "overlapped" if overlap else "sequential"))
+            if overlap == "last":
+                # ours first, then the public side capped to what is left of 8.2 h: the run cannot pass the cap,
+                # so the gate is that ours leaves the public side real room; whether it finishes is reported
+                room = 8.2 - (ours_h + 0.25)
+                print("      ours first: %.2f h, public side projected %.2f h into %.2f h of room -> %s"
+                      % (ours_h + 0.25, pub_h, room, "BLENDS" if pub_h <= room else "likely CUT (ours alone)"))
+                if room < 4.0:
+                    problems.append("ours takes %.1f h, leaving the public side only %.1f h" % (ours_h + 0.25, room))
+                proj_h = 0.0
+            else:
+                # overlapped: both rates were measured WHILE sharing the machine, so the longer side bounds the run
+                proj_h = (max(ours_h, pub_h) if overlap else ours_h + pub_h) + 0.25
+                print("      projected hidden-set runtime %.2f h (ours %.2f h, public side %.2f h, %s)"
+                      % (proj_h, ours_h, pub_h, "overlapped" if overlap else "sequential"))
             if proj_h > HIDDEN_RUNTIME_LIMIT_H:
                 problems.append("projected %.1f h on the %d hidden studies (%.1f s/study + 15 min "
                                 "fixed + public side %.1f h) - over the %.1f h safety limit under the 9 h cap"
@@ -8774,8 +8833,11 @@ def resume_stress(assets_dir, user: str, dataset_slug: str, notebook_slug: str, 
 def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
                    message: str, wait: bool = True, poll_secs: int = 60,
                    submit: bool = True, n_members: int | None = None,
-                   stress: int = 0) -> str | None:
+                   stress: int = 0, allow_unstressed: bool = False) -> str | None:
     """Dataset -> notebook -> wait for the run -> submit. Returns the kernel version.
+
+    allow_unstressed: the USER's explicit override of the stress gate for one submission (5 Oct night, combined
+    ours-first notebook); the commit run's own output checks still run before the attempt is spent.
 
     The weights go up as a dataset because a code-competition notebook has no
     internet; the notebook itself is what Kaggle scores.
@@ -8806,7 +8868,9 @@ def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
     if ensemble:
         print("      bundle fingerprint %s  engine %s%s" % (fp[:12], code_sha[:12],
                                                           "  + PUBLIC SIDE" if public else ""))
-    if submit and ensemble and not stress and not stamp.exists():
+    if submit and ensemble and not stress and not stamp.exists() and allow_unstressed:
+        print("      ⚠️ no stress stamp: submitting on the user's explicit override (SKIP_STRESS_GATE)")
+    elif submit and ensemble and not stress and not stamp.exists():
         raise SystemExit(
             "❌ REFUSING TO SUBMIT: no passing STRESS run for this exact bundle (%s). "
             "Build it again with STRESS = 128 and SUBMIT = False, let it pass, then submit."
@@ -8831,7 +8895,7 @@ def kaggle_publish(assets_dir, user: str, dataset_slug: str, notebook_slug: str,
         # anything else is a rejection. It used to fall through to _wait_for_dataset and
         # burn its full 600s timeout before reporting "kaggle never listed model.pt",
         # which hides the real message (e.g. "title must be between 6 and 50 characters").
-        raise SystemExit("❌ dataset upload failed: %s" % out.strip()[:500])
+        raise SystemExit("❌ dataset upload failed: %s" % out.strip()[-500:])   # the END holds the reason (e.g. quota)
     _wait_for_dataset(user, dataset_slug, expect_models=len(list(w.glob("m*_model.pt"))),
                       local_dir=w if ensemble else None)
 

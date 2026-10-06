@@ -211,7 +211,7 @@ def main():
         # under a title that already exists, so "knee ensemble 9" blocked every later
         # nine-member submission from getting its own dataset. Derive it from the slug,
         # which is unique by construction, and let _kaggle_title cut it to Kaggle's 50.
-        SLUG, f"{SLUG}-submit", title=sc._kaggle_title(SLUG, f"x{len(members)}"),
+        SLUG, globals().get("NOTEBOOK_SLUG") or f"{SLUG}-submit", title=sc._kaggle_title(SLUG, f"x{len(members)}"),
         blend_weights=blend, stress=STRESS, public_side=PUBLIC_SIDE, infer_env=INFER_ENV)
 
     # A name the notebook uses but never defines parses fine, uploads fine, and fails on
@@ -295,8 +295,9 @@ def main():
     if not PUBLISH:
         print("PUBLISH is False - assets built, nothing uploaded")
         return
-    sc.kaggle_publish(out, KAGGLE_USER, SLUG, f"{SLUG}-submit",
-                      message=NOTE, wait=WAIT_FOR_RUN, submit=SUBMIT, stress=STRESS)
+    sc.kaggle_publish(out, KAGGLE_USER, SLUG, globals().get("NOTEBOOK_SLUG") or f"{SLUG}-submit",
+                      message=NOTE, wait=WAIT_FOR_RUN, submit=SUBMIT, stress=STRESS,
+                      allow_unstressed=bool(globals().get("SKIP_STRESS_GATE", False)))
     if not SUBMIT:
         print("  SUBMIT is False - the kernel ran, nothing was submitted. Fetch its "
               "submission.csv and inference_log.txt before flipping it True.")

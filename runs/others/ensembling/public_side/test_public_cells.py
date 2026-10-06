@@ -20,10 +20,15 @@ import pandas as pd
 
 ENGINE = Path(__file__).resolve().parents[3] / "shared_code.py"
 consts = {}
-for node in ast.parse(ENGINE.read_text(encoding="utf-8")).body:
+_engine_src = ENGINE.read_text(encoding="utf-8")
+for node in ast.parse(_engine_src).body:
     if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name) and node.targets[0].id in (
             "_PUBLIC_SIDE_CELL", "_PUBLIC_BLEND_CELL"):
         consts[node.targets[0].id] = node.value.value
+    if isinstance(node, ast.FunctionDef) and node.name == "_public_cell_last":
+        _ns = {}
+        exec(compile(ast.Module(body=[node], type_ignores=[]), "engine", "exec"), _ns)
+        consts["_public_cell_last"] = _ns["_public_cell_last"]
 T = ["ACL", "MCL", "Medial Meniscus", "Lateral Meniscus", "Medial OA", "Lateral OA",
      "PF OA", "Effusion", "Synovitis", "Baker's", "Contusion", "Fracture"]
 ROOT = Path("/tmp/pubcells")
@@ -48,6 +53,7 @@ MOCK = r'''
 import os, time, numpy as np, pandas as pd
 from pathlib import Path
 mode = os.environ['MOCK_MODE']
+(Path(os.environ['MOCK_WORK']) / 'submission.csv').unlink(missing_ok=True)   # their rsna_initialize does this
 if mode == 'raise':
     raise RuntimeError('mock public failure')
 if mode == 'hang':
@@ -71,12 +77,13 @@ nb = {"cells": [{"cell_type": "code", "metadata": {}, "source": MOCK.splitlines(
 (W / "public_pipeline.ipynb").write_text(json.dumps(nb), encoding="utf-8")
 
 
-def run(mode, stress, w=0.5, cap=3.0, ours_neutral=False, overlap=False):
+def run(mode, stress, w=0.5, cap=3.0, ours_neutral=False, overlap=False, last=False, used_h=1.5):
     import os
     os.environ.update(MOCK_MODE=mode, MOCK_COMP=str(COMP), MOCK_WORK=str(WORK))
     for f in WORK.iterdir():
         f.unlink() if f.is_file() else shutil.rmtree(f)
-    pub = (consts["_PUBLIC_SIDE_CELL"].replace("/kaggle/working", str(WORK)).replace("__STRESS__", str(stress))
+    tmpl = consts["_public_cell_last"](consts["_PUBLIC_SIDE_CELL"]) if last else consts["_PUBLIC_SIDE_CELL"]
+    pub = (tmpl.replace("/kaggle/working", str(WORK)).replace("__STRESS__", str(stress))
            .replace("__PUBLIC_W__", repr(w)).replace("__PUBLIC_CAP_H__", repr(cap)).replace("__PUBLIC_ENV__", "{}").replace("__PUBLIC_OVERLAP__", repr(overlap)).replace("+ 600", "+ 2"))
     blend = consts["_PUBLIC_BLEND_CELL"]
     g = {"sys": sys, "json": json, "subprocess": subprocess, "traceback": traceback, "Path": Path,
@@ -85,18 +92,28 @@ def run(mode, stress, w=0.5, cap=3.0, ours_neutral=False, overlap=False):
     os.chdir(WORK)
     try:
         g["bail"] = lambda why: sub.to_csv("submission.csv", index=False)
+        g["sub"], g["TASKS"] = sub.copy(), T
+        rng = np.random.default_rng(1)
+
+        def ours_side():
+            if stress:
+                todo = pd.concat([sub[["StudyInstanceUID"]]] * 43, ignore_index=True).head(stress)
+                g["pred"] = todo.assign(**{t: rng.random(len(todo)) for t in T})
+                sub.to_csv("submission.csv", index=False)               # bail() file
+            else:
+                ours = sub[["StudyInstanceUID"]].assign(**{t: (0.5 if ours_neutral else rng.random(3)) for t in T})
+                ours.to_csv("submission.csv", index=False)
+        if last:                                   # ours FIRST, then the public cell
+            g["STRESS"] = stress
+            g["_KERNEL_T0"] = __import__("time").time() - used_h * 3600
+            g["MODELS"] = ["fake"]
+            ours_side()
+            g["_ours_written"] = pd.read_csv("submission.csv")
         t_pub = __import__("time").time()
         exec(compile(pub, "public_cell", "exec"), g)
         g["_t_after_public_cell"] = __import__("time").time() - t_pub
-        g["sub"], g["TASKS"] = sub.copy(), T
-        rng = np.random.default_rng(1)
-        if stress:
-            todo = pd.concat([sub[["StudyInstanceUID"]]] * 43, ignore_index=True).head(stress)
-            g["pred"] = todo.assign(**{t: rng.random(len(todo)) for t in T})
-            sub.to_csv("submission.csv", index=False)               # bail() file
-        else:
-            ours = sub[["StudyInstanceUID"]].assign(**{t: (0.5 if ours_neutral else rng.random(3)) for t in T})
-            ours.to_csv("submission.csv", index=False)
+        if not last:
+            ours_side()
         exec(compile(blend, "blend_cell", "exec"), g)
         r = json.loads((WORK / "public_receipt.json").read_text())
         b = json.loads((WORK / "blend_receipt.json").read_text())
@@ -148,15 +165,24 @@ check("hang: ours kept", b["mode"] == "ours only", b)
 leftover = subprocess.run(["pgrep", "-f", "public_pipeline.ipynb"], capture_output=True, text=True).stdout.strip()
 check("hang: no process left", leftover == "", leftover)
 
-r, b, s, g = run("ok", 0, overlap=True)
-check("overlap: public cell returns at once", g["_t_after_public_cell"] < 3, g["_t_after_public_cell"])
-check("overlap: blended after waiting", b["mode"] == "blended" and r["status"] == "ok" and r["overlap"] is True, (b, r))
+# overlap mode is not used (host RAM ran out on Kaggle); its scenarios were dropped
 
-r, b, s, g = run("hang", 0, cap=0.0005, overlap=True)
-check("overlap hang: killed, ours kept", r.get("returncode") == "timeout" and b["mode"] == "ours only", (r, b))
+r, b, s, g = run("ok", 0, last=True)
+check("last: blended", b["mode"] == "blended" and r["status"] == "ok", (b, r))
+check("last: MODELS released", "MODELS" not in g)
+ours = pd.read_csv(WORK / "submission_ours.csv", dtype={"StudyInstanceUID": str})
+check("last: ours kept aside intact", np.allclose(ours[T].to_numpy(), g["_ours_written"][T].to_numpy()))
 
-r, b, s, g = run("ok", 128, overlap=True)
-check("overlap stress: dry run", b["mode"] == "stress dry run" and r["rows"] == 128, (b, r))
+r, b, s, g = run("raise", 0, last=True)
+check("last + public fails: ours restored exactly", b["mode"] == "ours only"
+      and np.allclose(s[T].to_numpy(), g["_ours_written"][T].to_numpy()), (b, r))
+
+r, b, s, g = run("ok", 0, last=True, used_h=8.3)
+check("last + no time left: public skipped, ours exact", str(r["status"]).startswith("failed: RuntimeError: skipped")
+      and np.allclose(s[T].to_numpy(), g["_ours_written"][T].to_numpy()), r["status"])
+
+r, b, s, g = run("ok", 128, last=True)
+check("last stress: dry run", b["mode"] == "stress dry run" and r["rows"] == 128, (b, r))
 
 r, b, s, g = run("ok", 0, ours_neutral=True)
 check("ours all 0.5: public alone", b["mode"].startswith("public only"), b)

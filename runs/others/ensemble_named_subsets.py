@@ -22,6 +22,12 @@ DROP = {
     "B: A + drop MII f1": ["perslice_480", "336_v3_f1", "336_v3_f2", "336_v3_f3", "336_v3_f4", "mae_cross"],
     "D: drop MII-480 + MII f2-f4 (keep SwinV2, MAE)": ["perslice_480", "336_v3_f2", "336_v3_f3", "336_v3_f4"],
     "E: drop MII f1-f4 + MRI-CORE MAE (keep SwinV2, MII-480)": ["336_v3_f1", "336_v3_f2", "336_v3_f3", "336_v3_f4", "mae_cross"],
+    "F: drop MII-480 + MII f2": ["perslice_480", "336_v3_f2"],
+    "G: drop MII-480 + MII f2 + f3": ["perslice_480", "336_v3_f2", "336_v3_f3"],
+    "S6: convnext_base, dinov3, 3x2.5D, MII f0": ["swinv2", "perslice_480", "mricore", "336_v3_f1", "336_v3_f2", "336_v3_f3", "336_v3_f4"],
+    "S7: S6 + MII f1": ["swinv2", "perslice_480", "mricore", "336_v3_f2", "336_v3_f3", "336_v3_f4"],
+    "S7m: S6 + MRI-CORE cross": ["swinv2", "perslice_480", "mae_cross", "336_v3_f1", "336_v3_f2", "336_v3_f3", "336_v3_f4"],
+    "S5: S6 minus convnext_base": ["swinv2", "perslice_480", "mricore", "336_v3_f1", "336_v3_f2", "336_v3_f3", "336_v3_f4", "convnext_base_v5"],
     "drop MII-480 only": ["perslice_480"],
     "drop SwinV2 only": ["swinv2"],
 }

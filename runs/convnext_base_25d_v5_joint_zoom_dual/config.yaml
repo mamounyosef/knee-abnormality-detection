@@ -1,0 +1,110 @@
+# convnext_base_25d_v5_joint_zoom_dual
+#
+# DUAL VIEW (user, 6 Oct): the twin of convnext_base_25d_v5_joint_zoom where ONLY the joint-line findings read the
+# zoomed crops (ACL, Medial Meniscus, Lateral Meniscus, Medial OA, Lateral OA) and every other finding (MCL, PF OA,
+# Effusion, Synovitis, Baker's, Contusion, Fracture: often outside the 77 mm joint window) reads the normal full
+# view, through ONE shared trunk and head (train.py: torch.where(zoom_mask, crop logits, full-view logits)). The
+# full view is the localizer's view = the parent's exact training view, so at step 0 those 7 findings equal the
+# parent. About 2x the zoom run's compute per study (crops @384 + full @336), so an H200 at batch 8 (same 8 studies
+# per update, one optimizer step per batch on an H200). Trained side by side with the zoom-only twin; same seed, slots, schedule.
+#
+# ---- the zoom-only twin's notes follow ----
+#
+# convnext_base_25d_v5_joint_zoom
+#
+# TWO-STAGE JOINT ZOOM (6 Oct). Our weakest findings on audit-58 sit on the knee joint line: Lateral Meniscus
+# 0.872, Lateral OA 0.851 (and the medial pair, ACL), where small tears and thin cartilage get lost when the whole
+# 134 mm frame is squeezed into 336 px. This run reads the joint at TWICE the detail:
+#   stage 1 (frozen): the parent below finds the joint in each slot from its class-activation map, ANATOMY mode
+#           (how strongly each region moves any of the 12 findings). Checked by eye on normal and abnormal knees:
+#           runs/others/crop_rois/cam_preview.py (preview_lateral_abs_all/). Finding-evidence mode drifted on normal
+#           knees; the kneecap joint is not found reliably yet (axial slices often below it), so PF OA is not
+#           the target here.
+#   stage 2 (trained): a 384 px window = 77 mm around that centre, cut from the slot loaded at 0.20 mm/px.
+# Both stages live in one module (train.py JointZoomModel); the localizer is saved inside the checkpoint.
+# Views: the joint-line ones, coronal + sagittal, fluid-sensitive + plain (as convnext_base_25d_v5_spec_lateral).
+# Trains all 12 findings (head seeded with the parent's 12 rows); the ensemble test decides which it votes on.
+# Seed: convnext_base_25d_18slices_v5_aug_base top_step5900 (v4 labels, v5 split, flip; val 0.9174), trunk + head.
+# Compare against the parent on the clean 346 / audit-58 (0.9248 / 0.9209), per finding.
+#
+# ---- the parent's notes follow ----
+#
+# convnext_base_25d_18slices_v5_aug_base: AUGMENTATION-STRENGTH TEST (2 Oct) baseline arm, v4 labels (50% report
+# labels + 50% out-of-fold ConvNeXt/MedImageInsight teachers), v5 split, knee flip ON.
+
+experiment:
+  name: "convnext_base_25d_v5_joint_zoom_dual"
+
+paths:
+  train_csv: "23_train_w50.csv"   # v5 split: 3,996 studies on v4 labels (data_code/23_make_split8.py)
+  val_csv:   "23_val_v3_audit.csv"   # 346 studies on v3 labels + the 58 audit studies on panel labels
+
+model:
+  name: "convnext_base.fb_in22k_ft_in1k"   # timm id: ConvNeXt-Base pretrained on ImageNet-22k
+  pretrained: true
+  pool: "mean"                      # how the 24 image features collapse per study: mean | max | attn
+  drop_rate: 0.1                    # dropout in the head, mild regularization
+  zoom:
+    crop: 384                       # px of the 0.20 mm/px frame the trunk reads = 77 mm (the whole joint width)
+    loc_size: 336                   # the localizer's view = the parent's training view (134 mm at 0.40 mm/px)
+    jitter_px: 24                   # train-time shift of the crop centre, up to +-4.8 mm
+    findings: ["ACL", "Medial Meniscus", "Lateral Meniscus", "Medial OA", "Lateral OA"]   # read from the crops; the rest from the full view
+
+input:
+  laterality_flip: "left"          # mirror left knees, per plane
+  slots: ["cor_fluid", "cor_plain", "sag_fluid", "sag_plain"]   # the joint-line views
+  # 672 x 0.20 = the parent's 134 mm frame at twice the detail. The localizer downsamples it to 336 (= the
+  # parent's exact view); the trunk reads a 384 px window of it.
+  size: 672
+  mm_per_px: 0.20
+  n_slices: 18
+  slices_as_channels: 6             # 6 images per slot, 3 consecutive slices each, as the parent
+
+training:
+  epochs: 8                         # a new view of the knee (2x zoom), so more than a 4-epoch specialist tune
+  grad_clip: 3.0                    # 3.0, NEVER 1.0
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 3.0e-5                      # 60% of the parent's 5e-5: seeded trunk, but the input scale changed
+    backbone_lr_mult: 0.5           # head = lr / 0.5 = 6.0e-5
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05
+    min_lr_mult: 0.01
+  loss:
+    name: "bce"
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 6                     # validations (every 250 steps) without improvement = 3 epochs
+
+evaluation:
+  eval_every_steps_before: 250      # 500 steps per epoch: twice per epoch
+  eval_every_steps_mid: 250
+  validate_before_training: true    # step 0 = the parent's weights reading the zoomed crops
+
+dataloader:
+  batch_size: 8                     # 8 studies x (24 crops @384 + 24 full views @336): ~121 GB est. (parent
+                                    # measured 0.273 GB/image @336; @384 x1.31), so the H200's 141 GB, no accumulation
+  accum_steps: 1                    # 8 studies per update, as the parent and the zoom-only twin
+  val_batch_size: 8
+  num_workers: 24
+  val_num_workers: null
+  # one batch is 8 x 4 x 18 x 672 x 672 uint8 = 260 MB (4x the parent's), so the queue is kept short:
+  # 24 workers x 2 = ~12.5 GB of host RAM
+  prefetch_factor: 2
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+modal:
+  gpu: "H200"                       # 141 GB: 192 crops @384 alone are ~69 GB est., too tight for an H100's 80
+  cpu: 16.0
+  memory_gb: 64

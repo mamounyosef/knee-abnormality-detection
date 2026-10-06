@@ -2,12 +2,13 @@
 the prize-safe public pipeline works on our image and how long it takes. Uses the already-uploaded combined dataset
 (it holds public_pipeline.ipynb). Never submits.
 
-    python runs/others/ensembling/public_side/public_only_test.py [STRESS] [DATASET_SLUG] [EXTRA_ENV_JSON]
+    python runs/others/ensembling/public_side/public_only_test.py [STRESS] [DATASET_SLUG] [EXTRA_ENV_JSON] [DOCKER_IMAGE]
 
 STRESS 0 = the 3 public studies; 128 = fake 128-study cohort, as in the stress run.
 Outputs land in runs/others/ensembling/public_side/test_out/<kernel version>/.
 """
 import ast
+import os
 import json
 import re
 import subprocess
@@ -34,9 +35,30 @@ pub = cell.replace("__STRESS__", str(STRESS)).replace("__PUBLIC_W__", "0.5").rep
 EXTRA_ENV = json.loads(sys.argv[3]) if len(sys.argv) > 3 else {}      # e.g. '{"RSNA_PARALLEL_COAT_READERS": "1"}'
 if EXTRA_ENV:                                   # its own kernel, so it can run beside a plain test
     SLUG += "-env"
+DOCKER = sys.argv[4] if len(sys.argv) > 4 else None   # e.g. the public notebook's pinned image, to compare speed
+if DOCKER:
+    SLUG += "-img"
 _hook = "    _penv['RSNA_TIME_BUDGET_S'] = str(int(PUBLIC_CAP_H * 3600))\n"
 assert pub.count(_hook) == 1
 pub = pub.replace(_hook, _hook + "    _penv.update(%r)\n" % (EXTRA_ENV,))
+if os.environ.get("PUB_TEST_FROM_TRAIN") == "1":
+    # REALISTIC timing: the fake cohort points at 128 DIFFERENT training studies (real, varied, uncached DICOMs)
+    # instead of the 3 public test studies repeated, which sit in the page cache and run optimistically fast
+    reps_ = [("        _ts = _pd.read_csv(COMP / 'test_series.csv', dtype={'StudyInstanceUID': str, 'SeriesInstanceUID': str})\n",
+              "        _ts = _pd.read_csv(COMP / 'train_series.csv', dtype={'StudyInstanceUID': str, 'SeriesInstanceUID': str})\n"
+              "        _trn = _pd.read_csv(COMP / 'train.csv', dtype={'StudyInstanceUID': str})\n"
+              "        _pub_ids = [u for u in _trn.StudyInstanceUID if (COMP / 'train_series' / u).is_dir()][:STRESS]\n"
+              "        _t = _pd.DataFrame({'StudyInstanceUID': _pub_ids})\n"),
+             ("            _r = _pub_ids[_k % len(_pub_ids)]\n", "            _r = _pub_ids[_k]\n"),
+             ("            for _src, _acc in ((_t, _rt), (_ts, _rs), (_ss, _rss)):\n",
+              "            _ss = _pd.DataFrame({'StudyInstanceUID': [_r], **{c: 0.5 for c in _pd.read_csv(COMP / 'sample_submission.csv', nrows=1).columns if c != 'StudyInstanceUID'}})\n"
+              "            for _src, _acc in ((_t, _rt), (_ts, _rs), (_ss, _rss)):\n"),
+             ("(_fake / 'test_series' / _f).symlink_to(COMP / 'test_series' / _r, target_is_directory=True)",
+              "(_fake / 'test_series' / _f).symlink_to(COMP / 'train_series' / _r, target_is_directory=True)")]
+    for _a, _b in reps_:
+        assert pub.count(_a) == 1, _a[:60]
+        pub = pub.replace(_a, _b)
+    SLUG += "-train"
 nb = {"cells": [{"cell_type": "code", "metadata": {}, "source": c.splitlines(True), "outputs": [], "execution_count": None}
                 for c in (pre, pub)],
       "metadata": {"kernelspec": {"name": "python3", "language": "python", "display_name": "Python 3"}},
@@ -52,7 +74,8 @@ d.mkdir(exist_ok=True)
     "language": "python", "kernel_type": "notebook", "is_private": True, "enable_gpu": True,
     "enable_internet": False, "machine_shape": "NvidiaTeslaT4",
     "dataset_sources": [f"{USER}/{DSET}"] + datasets, "competition_sources": ["rsna-knee-abnormality-detection"],
-    "kernel_sources": [], "model_sources": ["metaresearch/dinov2/PyTorch/small/1"]}, indent=2), encoding="utf-8")
+    "kernel_sources": [], "model_sources": ["metaresearch/dinov2/PyTorch/small/1"],
+    **({"docker_image": DOCKER} if DOCKER else {})}, indent=2), encoding="utf-8")
 print(f"datasets: {len(datasets)} public + {DSET}; STRESS {STRESS}; extra env {EXTRA_ENV}")
 
 
@@ -78,7 +101,7 @@ while True:
     print(f"  {int(time.time() - t0) // 60} min: running", flush=True)
     time.sleep(60)
 print(f"kernel ended: {st.strip()[-120:]} after {(time.time() - t0) / 60:.1f} min")
-o = HERE / "test_out" / f"v{ver}"
+o = HERE / "test_out" / f"{SLUG}_v{ver}"
 o.mkdir(parents=True, exist_ok=True)
 kag("kernels", "output", f"{USER}/{SLUG}", "-p", str(o))
 rp = o / "public_receipt.json"
