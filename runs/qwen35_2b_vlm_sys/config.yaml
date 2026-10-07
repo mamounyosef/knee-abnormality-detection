@@ -42,7 +42,12 @@ model:
     lora_alpha: 32
     lora_dropout: 0.05
     lora_targets: ["q_proj", "k_proj", "v_proj", "o_proj", "in_proj_qkv", "in_proj_z", "out_proj", "gate_proj", "up_proj", "down_proj"]
-    grad_checkpointing: true        # ~3.5k tokens per study through 24 + 24 layers
+    grad_checkpointing: true        # ~3.5k tokens per study through 24 + 24 layers; off OOMs even at batch 2 x 4 (runs/others/vlm_step_bench.py)
+    # speed (7 Oct, vlm_step_bench.py on H100): 4.26 -> 3.13 s/update. FA3 from the hub (`kernels` package) batches the
+    # vision encoder's 192 images per step into one varlen call (sdpa ran them one by one); Hopper only, so Kaggle's
+    # T4 falls back to sdpa (train.py). frozen_linear_bf16: bit-identical logits, smaller weights.
+    attn_implementation: "kernels-community/flash-attn3"
+    frozen_linear_bf16: true
 
 input:
   laterality_flip: "left"          # mirror left knees, per plane
@@ -101,11 +106,12 @@ dataloader:
   drop_last: false
 
 output:
-  # a full fp32 checkpoint of a 2.2B model is ~9 GB (weights + optimizer state ~ x2 for the trainable part)
+  # checkpoints hold only the trained tensors (VLMModel.state_dict): was 10.9 GB with the frozen LM, a dead workspace
+  # (7 Oct) then cost up to 250 steps (~20 min). Every 100 steps = at most ~7 min lost.
   keep_last_n: 2
   keep_top_k: 4
   top_k_weights_only: true
-  checkpoint_every_steps: 250
+  checkpoint_every_steps: 100
 
 modal:
   gpu: "H100"                       # 80 GB: 2.2B fp32 weights (8.8 GB) + AdamW on vision + LoRA + bf16 activations

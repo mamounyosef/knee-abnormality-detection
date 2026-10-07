@@ -11,6 +11,7 @@ Fluid-only sources (3 columns) only ever touch the fluid columns.
 
     python data_code/label_v2/label_blend_search.py --base current     # Qwen + MedGemma 1.5 on 5
     python data_code/label_v2/label_blend_search.py --base oof         # + 30% out-of-fold, all 12
+    python data_code/label_v2/label_blend_search.py --base w50 --all-sources   # the v4 labels (7 Oct), every labeller file
 """
 import argparse
 import itertools
@@ -57,7 +58,8 @@ def sg(x):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--base", choices=["current", "oof"], default="current")
+    ap.add_argument("--base", choices=["current", "oof", "w50"], default="current")
+    ap.add_argument("--all-sources", action="store_true", help="every data/03_report_labels_*_validate58.csv")
     ap.add_argument("--splits", type=int, default=200)
     a = ap.parse_args()
     aud = pd.read_csv(D / "05_audit58.csv").set_index("StudyInstanceUID")
@@ -90,10 +92,28 @@ def main():
             z = np.load(sw.best_npz(f"convnext_base_25d_18slices_f{k}", "audit"), allow_pickle=True)
             fl.append(pd.DataFrame(z["logits"], index=[str(s) for s in z["study_ids"]], columns=T).loc[u].values)
         BASE = sg(0.7 * lg(BASE) + 0.3 * np.mean(fl, axis=0))
+    if a.base == "w50":
+        # v4 = the labels every current member trains on (data_code/22_make_convnext_mii_labels.py --w 0.5): the 58
+        # are in no fold, so each teacher's audit logit is its 5 fold models' mean (that script's own estimate)
+        import sweep_new_runs as sw
+        tl = {}
+        for fam, run in (("cnx", "convnext_base_25d_18slices_f{k}"), ("mii", "medimageinsight_davit_huge_336_v3_f{k}")):
+            fl = []
+            for k in range(5):
+                z = np.load(sw.best_npz(run.format(k=k), "audit"), allow_pickle=True)
+                fl.append(pd.DataFrame(z["logits"], index=[str(s) for s in z["study_ids"]], columns=T).loc[u].values)
+            tl[fam] = np.mean(fl, axis=0)
+        BASE = sg(0.5 * lg(BASE) + 0.5 * (0.5 * tl["cnx"] + 0.5 * tl["mii"]))
     ALL = np.arange(len(u))
     base = np.nanmean(auc_cols(BASE, ALL))
     print(f"base = {a.base}: audit-58 macro AUROC {base:.4f}")
 
+    if a.all_sources:
+        for f in sorted(D.glob("03_report_labels_*_validate58.csv")):
+            n = f.stem[len("03_report_labels_"):-len("_validate58")]
+            ids = set(pd.read_csv(f, usecols=["StudyInstanceUID"]).StudyInstanceUID)
+            if n != "qwen24t-med" and f.name not in SOURCES.values() and set(u) <= ids:   # partial (hold-out) files skipped
+                SOURCES[n] = f.name
     X, fluid_only = {}, set()
     for n, f in SOURCES.items():
         if not (D / f).exists():

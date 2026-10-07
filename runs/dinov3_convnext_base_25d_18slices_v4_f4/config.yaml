@@ -1,0 +1,150 @@
+# dinov3_convnext_base_25d_18slices_v4_f4
+#
+# ROUND-2 TEACHER, fold 4 (7 Oct, user: yes). Copy of convnext_base_25d_18slices_v3_flip_f4 with the DINOv3 ConvNeXt-Base weights (as dinov3_convnext_base_v5, but 2.5D at 336). Labels v3 -> v4 (data/27_fold4_*: the 21_fold4
+# studies with the 22_*-w50 labels every current member trains on). Its out-of-fold predictions, averaged with
+# the other two families, become the round-2 teacher (audit-58 stays clean: the 58 are in no fold).
+#
+# ---- the donor's notes follow ----
+# dinov3_convnext_base_25d_18slices_v4_f4
+#
+# NEW CONVNEXT TEACHER FOLD 4, trained on Modal H100. Copy of convnext_base_25d_18slices_f4 (LB of the 5-fold block 0.918),
+# with three changes: labels v2 -> v3 (21_fold4_*: Qwen + MedGemma on the five MedGemma findings,
+# the labels the MII folds trained on; same studies and order as 13_fold4), knee flip on (left knees
+# mirrored, per plane), patience 6 -> 7. v3 holds no model predictions, so the out-of-fold
+# predictions stay clean for the next label build.
+#
+# ---- the donor's notes follow ----
+# convnext_base_25d_group3 with 18 SLICES instead of 24. A study becomes 24 images, not 32.
+#
+# THE ONE VARIABLE. Everything is byte-identical to convnext_base_25d_group3 (val 0.9013,
+# audit 0.8999, 51m51s) except the slice count. Three consecutive slices still go into the
+# three RGB channels, so the pretrained stem is still untouched at in_chans=3. A slot becomes
+# 6 images instead of 8, and a study costs 24 forward passes instead of 32.
+#
+#     convnext_base_336px           24 slices   96 passes   1.00x   0.9044
+#     convnext_base_25d_group3      24 slices   32 passes   0.33x   0.9013
+#     THIS RUN                      18 slices   24 passes   0.25x   ?
+#
+# 20 SLICES IS NOT AVAILABLE, and the reason is arithmetic rather than preference. The engine
+# requires slices_as_channels to divide n_slices, and the channel count must land on exactly
+# 3 or the pretrained stem gets widened - which is precisely what cost ch1/ch2/ramp 0.025 to
+# 0.038. 20 has divisors 1, 2, 4, 5, 10 and 20, so its channel counts are 20, 10, 5, 4, 2 and
+# 1: none of them is 3. 18 and 21 are the neighbouring counts that work.
+#
+# WHAT IS ACTUALLY BEING ASKED. This is the slice-count question on its own, which has never
+# been tested cleanly here. Dropping 24 -> 18 removes a quarter of the through-plane sampling,
+# so it is a real information loss, not a free saving: the model sees 18 planes of the knee
+# where it saw 24. The runs that packed slices into channels showed slice count "barely
+# mattering" (20 and 16 both measured ~0.044x), but that was because n_slices only set the
+# WIDTH of the first convolution there. Here it sets how much anatomy is sampled at all.
+#
+# WATCH THE FOCAL FINDINGS. A fracture or a contusion lives on two or three planes, so
+# thinning the stack is exactly the change that can miss one. convnext_base_25d_group3 gained
+# on ACL (+0.0068), Fracture (+0.0038), Contusion (+0.0036) and Medial Meniscus (+0.0024)
+# against convnext_base_336px; if those four give the gains back here, the sampling is the
+# cause and 24 slices is the floor.
+#
+# Beat: convnext_base_25d_group3, val 0.9013, at three quarters of its compute.
+
+experiment:
+  name: "dinov3_convnext_base_25d_18slices_v4_f4"
+
+paths:
+  # Byte-identical split MEMBERSHIP to convnext_base_25d_group3 and convnext_base_336px.
+  train_csv: "27_fold4_train.csv"
+  val_csv:   "27_fold4_val.csv"
+  # audit_csv stays 05_audit58.csv - the panel labels never change, so it is the one
+  # honest cross-label-set comparison.
+
+model:
+  name: "convnext_base.dinov3_lvd1689m"   # DINOv3 ConvNeXt-Base (ungated), the dinov3_convnext_base_v5 weights
+  pretrained: true
+  pool: "mean"                      # how the 24 image features collapse per study: mean | max | attn
+  drop_rate: 0.1                    # dropout in the head, mild regularization
+
+input:
+  # 336 x 0.40 = 134 mm of frame, unchanged. mm_per_px stays 0.40, the value every run in
+  # this project has used: it is the knob that controls interpolation, and at 0.40 exactly
+  # 24.4% of series are upsampled (median 1.17x).
+  size: 336
+
+  # 18 real slices per slot, down from the shared default of 24. This is the ONLY difference
+  # from convnext_base_25d_group3.
+  n_slices: 18
+
+  # 6 IMAGES PER SLOT, each holding 3 consecutive slices in its 3 channels.
+  # prepare_batch reshapes (B, 4, 18, H, W) -> (B*4*6, 3, H, W). The slice axis splits with
+  # the GROUP as the outer index and the CHANNEL as the inner one, so the groups are
+  # contiguous and non-overlapping: (0,1,2), (3,4,5), ... (15,16,17).
+  # 18 / 6 = 3 means train.py builds the backbone with in_chans=3, i.e. the pretrained stem
+  # exactly as shipped. No filter tiling, no rescaling, no adaptation.
+  slices_as_channels: 6
+  laterality_flip: "left"          # mirror the MINORITY side (1,938 left vs 2,469 right)
+
+training:
+  epochs: 12
+  grad_clip: 3.0                    # 3.0, NEVER 1.0. 1.0 clips every step and silently
+                                    # throttles the effective learning rate.
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.05
+    lr: 5.0e-5                      # BACKBONE lr, identical to convnext_base_25d_group3 so
+                                    # the slice count is the only variable
+    backbone_lr_mult: 0.5           # head = lr / 0.5 = 1.0e-4, twice the trunk
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05
+    min_lr_mult: 0.01               # floor: ends at 1% of the base learning rate
+  loss:
+    name: "bce"                     # bce = binary cross-entropy | focal = focuses on hard cases
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 7                     # VALIDATIONS without improvement
+
+# CPU-side loading; decoding shards is the bottleneck and stays one here, though 18 slices
+# is a quarter less to decode per study than 24.
+dataloader:
+  batch_size: 8                     # 8 studies x 4 slots x 6 images = 192 images @336.
+                                    # MEASURED basis: convnext_base_25d_group3 peaked at
+                                    # 71.02 GB on 256 images, i.e. ~0.273 GB/image, so 192
+                                    # images is ~54 GB of the A100-80GB. Comfortable.
+  accum_steps: 1                    # effective 8 studies per update - IDENTICAL to every
+                                    # other run, so step counts and the lr schedule compare
+                                    # directly against convnext_base_25d_group3
+  val_batch_size: 16                # 16 studies x 24 images = 384 images, but with no
+                                    # backward pass there are no stored activations, so this
+                                    # is far cheaper than the training batch despite being
+                                    # twice the studies. Speeds the validations up.
+
+  num_workers: 26                   # the GPU does a quarter of convnext_base_336px's work
+                                    # per study, so the loader is the binding constraint
+  val_num_workers: null             # null = same as num_workers
+
+  prefetch_factor: 6                # batches queued per worker
+  pin_memory: true                  # page-locked memory, faster CPU -> GPU copies
+  persistent_workers: true          # don't respawn workers every epoch
+  drop_last: false                  # keep the ragged final batch
+
+modal:
+  gpu: "H100"                     # same model 1.7x faster than the A100-80GB for 1.58x the price
+                                    # room. NOT the A100-40GB: that would be over the card.
+                                    # At 24 passes per study this run is I/O bound anyway,
+                                    # so the faster H200 would idle.
+  cpu: 16.0                         # raised with the GPU so the loader keeps up
+                                    # CPU-bound and matters more than ever here
+  memory_gb: 64                     # 26 workers x prefetch 6 x ~32 MB per queued batch
+
+# inherits resume: "last" from shared_config - the preemption-safe setting.
+
+reproducibility:
+  seed: 2042                          # this fold's own seed: adds trajectory diversity
+
+evaluation:
+  eval_every_steps_before: 800            # epochs 1..4: validate half as often (user, 1 Oct); the best step comes late

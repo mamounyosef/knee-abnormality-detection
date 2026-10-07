@@ -1,0 +1,38 @@
+model,macro_auroc,parsed,batch,calls,tok_in,tok_out,secs,errors,ACL,MCL,Medial Meniscus,Lateral Meniscus,Medial OA,Lateral OA,PF OA,Effusion,Synovitis,Baker's,Contusion,Fracture,when
+inclusionai/ling-3.1-flash,0.8605,13,15,4,4933,21290,472,"429: {""error"":{""message"":""Provider returned error"",""code"":429,""metadata"":{""raw"":""inclusionai/ling-3.1-flash is temporarily ra | 429: {""error"":{""message"":""Provider returned error"",""code"":429,""metadata"":{""raw"":""inclusionai/ling-3.1-flash is temporarily ra | 429: {""error"":{""message"":""Provider returned ",1.0,1.0,0.9643,1.0,0.9333,0.5,0.8095,0.9125,0.7,0.75,0.8472,0.9091,2026-10-07 16:35
+nvidia/nemotron-3.5-lightning:free,,0,15,4,23129,41530,2101,200: None | 200: None | unparseable: no JSON object in reply: line 1 column 1 (char 0) | 200: None,,,,,,,,,,,,,2026-10-07 17:02
+inclusionai/ling-3.0-flash-sante:free,0.9111,15,15,4,22739,29123,209,"unparseable: Expecting ',' delimiter: line 1 column 11592 (char 11591) | unparseable: Expecting ',' delimiter: line 1 column 11758 (char 11757) | unparseable: Expecting ',' delimiter: line 1 column 8495 (char 8494)",1.0,0.9773,1.0,0.86,0.9861,0.8889,0.8194,0.9318,0.6071,0.9615,0.9907,0.91,2026-10-07 17:02
+nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free,0.842,13,15,4,9881,53152,1085,"200: 
+         
+{""id"":""gen-1791380321-pz28wzrgEJknGEQQoojt"",""error"":{""message"":""Upstream error from Nvidia: ResourceExhausted | unparseable: no JSON object in reply: line 1 column 1 (char 0) | 200: 
+         
+{""id"":""gen-1791380928-cCa93msrNgyXrqlLUB96"",""error"":{""message"":""Upstream error from Nvidia:",1.0,1.0,0.9167,1.0,0.9667,0.7045,0.8095,0.825,0.7,0.7778,0.7222,0.6818,2026-10-07 17:02
+apodex/apodex-1.1-mini:free,0.8835,43,15,4,23235,60893,209,"unparseable: Expecting ',' delimiter: line 1 column 12954 (char 12953)",0.9833,0.9868,0.9134,0.8978,0.8844,0.8732,0.9022,0.8388,0.8037,0.8955,0.8333,0.7897,2026-10-07 17:02
+poolside/laguna-s-2.1:free,0.8687,43,15,4,24713,50052,949,200: None,0.9778,0.9684,0.9002,0.8844,0.9099,0.8036,0.8278,0.8695,0.7654,0.9061,0.7705,0.841,2026-10-07 17:16
+thinkingmachines/inkling:free,,0,15,4,0,0,1,"403: {""error"":{""message"":""thinkingmachines/inkling:free is only available on agentic harnesses. Try plugging it into a coding | 403: {""error"":{""message"":""thinkingmachines/inkling:free is only available on agentic harnesses. Try plugging it into a coding | 403: {""error"":{""message"":""thinkingmachines/i",,,,,,,,,,,,,2026-10-07 17:16
+dots-studio/dots-3-note-preview:free,,0,15,4,16480,96000,1171,"200: None | 200: None | 200: 
+         
+
+         
+
+         
+
+         
+
+         
+
+         
+{""id"":""gen-1791382550-w461Zkrt3uXNU0lsNasZ"",""error"":{"" | unparseable: Expecting ',' delimiter: line 9 column 86 (char 489)",,,,,,,,,,,,,2026-10-07 17:21
+thinkingmachines/inkling-small:free,,0,15,4,0,0,3,"403: {""error"":{""message"":""thinkingmachines/inkling-small:free is only available on agentic harnesses. Try plugging it into a  | 403: {""error"":{""message"":""thinkingmachines/inkling-small:free is only available on agentic harnesses. Try plugging it into a  | 403: {""error"":{""message"":""thinkingmachines/i",,,,,,,,,,,,,2026-10-07 17:21
+poolside/laguna-xs-2.1:free,0.8422,15,15,4,19349,23431,537,"unparseable: Expecting ',' delimiter: line 1 column 13018 (char 13017) | unparseable: Extra data: line 1 column 5565 (char 5564) | 429: {""error"":{""message"":""Provider returned error"",""code"":429,""metadata"":{""raw"":""poolside/laguna-xs-2.1:free is temporarily r",0.9091,0.9167,0.9545,0.8571,0.9583,0.8846,0.75,0.8393,0.6204,1.0,0.6667,0.75,2026-10-07 17:25
+google/gemma-4-26b-a4b-it:free,,0,15,4,0,0,366,"429: {""error"":{""message"":""Provider returned error"",""code"":429,""metadata"":{""raw"":""google/gemma-4-26b-a4b-it:free is temporaril | 429: {""error"":{""message"":""Provider returned error"",""code"":429,""metadata"":{""raw"":""google/gemma-4-26b-a4b-it:free is temporaril | 429: {""error"":{""message"":""Provider returned ",,,,,,,,,,,,,2026-10-07 17:28
+liquid/lfm-2.5-2.6b:free,,0,15,4,22230,32768,186,"unparseable: no JSON object in reply: line 1 column 1 (char 0) | unparseable: Expecting ',' delimiter: line 118 column 8 (char 3972) | 200: None | unparseable: Expecting ',' delimiter: line 122 column 8 (char 2603)",,,,,,,,,,,,,2026-10-07 17:28
+cohere/north-mini-code:free,0.8362,13,15,4,20623,99725,2114,200: None | 200: None | 200: None,1.0,1.0,0.8333,1.0,0.85,0.5909,0.7857,0.825,0.7125,0.8056,0.7222,0.9091,2026-10-07 18:03
+inclusionai/ling-3.0-flash-sante:free,0.9066,28,5,9,23056,26011,200,"unparseable: Expecting ',' delimiter: line 1 column 4003 (char 4002) | unparseable: Expecting ',' delimiter: line 1 column 3989 (char 3988) | unparseable: Expecting ',' delimiter: line 1 column 3922 (char 3921) | unparseable: Expecting ',' delimiter: line 1 column 3836 (char 3835) | unparseable: Exp",0.95,0.9739,0.9545,0.8906,0.9558,0.9031,0.9415,0.8538,0.7231,0.8844,0.9035,0.9444,2026-10-07 18:03
+apodex/apodex-1.1-mini:free,0.8839,58,5,3,8557,21516,82,,0.9859,0.9796,0.9363,0.8957,0.9093,0.8279,0.8887,0.8348,0.7784,0.8877,0.8576,0.825,2026-10-07 18:03
+poolside/laguna-s-2.1:free,0.8683,48,5,3,9215,66599,1260,200: None | 200: None,0.9782,0.9544,0.9109,0.8884,0.8947,0.8305,0.8403,0.8706,0.7698,0.8882,0.7586,0.8354,2026-10-07 18:22
+inclusionai/ling-3.1-flash,0.8666,28,5,9,7303,24853,932,"429: {""error"":{""message"":""Provider returned error"",""code"":429,""metadata"":{""raw"":""inclusionai/ling-3.1-flash is temporarily ra | 429: {""error"":{""message"":""Provider returned error"",""code"":429,""metadata"":{""raw"":""inclusionai/ling-3.1-flash is temporarily ra | 429: {""error"":{""message"":""Provider returned ",1.0,0.9844,0.9786,0.9558,0.9735,0.54,0.8385,0.8646,0.7188,0.8217,0.8027,0.9205,2026-10-07 18:22
+poolside/laguna-xs-2.1:free,0.8402,43,5,9,16055,45018,938,"429: {""error"":{""message"":""Provider returned error"",""code"":429,""metadata"":{""raw"":""poolside/laguna-xs-2.1:free is temporarily r | 429: {""error"":{""message"":""Provider returned error"",""code"":429,""metadata"":{""raw"":""poolside/laguna-xs-2.1:free is temporarily r | 429: {""error"":{""message"":""Provider returned ",0.94,0.9286,0.8812,0.8575,0.8909,0.8107,0.7821,0.8495,0.7132,0.9216,0.7155,0.7917,2026-10-07 18:35
+nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free,0.8261,18,5,9,7336,34507,852,"200: 
+         
+{""id"":""gen-1791386573-IcuGe7lX5Uqn33XYLLuL"",""error"":{""message"":""Upstream error from Nvidia: ResourceExhausted | 200: {""id"":""gen-1791386573-gbEAPF3mVfxgTEC7HYoD"",""error"":{""message"":""Upstream error from Nvidia: ResourceExhausted: Worker lo | unparseable: Expecting ',' delimiter: line 7",0.8125,0.7941,0.8875,0.9643,0.9615,0.7444,0.7857,0.8688,0.7532,0.8077,0.7778,0.7556,2026-10-07 18:37

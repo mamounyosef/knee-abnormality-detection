@@ -72,7 +72,13 @@ class VLMModel(nn.Module):
         self.n_img = len(i["slots"]) * int(i["slices_as_channels"])
         src = v.get("local_dir") or VLM_ID
         if pretrained:
-            full = tf.Qwen3_5ForConditionalGeneration.from_pretrained(src, dtype=torch.float32)
+            # attn_implementation: None = transformers' default (sdpa); e.g. "kernels-community/flash-attn3" pulls a
+            # prebuilt kernel from the hub (needs the `kernels` package), same weights, so a resume is unaffected
+            # FA3 is Hopper-only and the hub download needs internet: anywhere else (Kaggle T4, this PC) use the default
+            attn = v.get("attn_implementation")
+            if attn and not (torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 9):
+                attn = None
+            full = tf.Qwen3_5ForConditionalGeneration.from_pretrained(src, dtype=torch.float32, attn_implementation=attn)
         else:                                               # inference: config only, the checkpoint fills the weights
             full = tf.Qwen3_5ForConditionalGeneration(tf.AutoConfig.from_pretrained(src))
         core = full.model                                   # visual + language_model; lm_head (tied) dropped
@@ -84,6 +90,14 @@ class VLMModel(nn.Module):
         self.lm = get_peft_model(lm, lc)
         for n_, p_ in self.lm.named_parameters():
             p_.requires_grad = "lora_" in n_
+        if v.get("frozen_linear_bf16"):
+            # frozen LM Linear weights stored in bf16: autocast casts them to bf16 on EVERY matmul anyway, so the maths
+            # is bit-identical (bench: diff 0, no speed change alone; kept for the smaller weights)
+            for mod_ in self.lm.modules():
+                if isinstance(mod_, nn.Linear) and not mod_.weight.requires_grad:
+                    mod_.weight.data = mod_.weight.data.to(torch.bfloat16)
+                    if mod_.bias is not None:
+                        mod_.bias.data = mod_.bias.data.to(torch.bfloat16)
         self._core = [core]                                 # rope-index helper, not a registered child
         self.image_token_id = int(full.config.image_token_id)
         if v.get("grad_checkpointing"):
@@ -96,6 +110,16 @@ class VLMModel(nn.Module):
         self.feat_norm = nn.LayerNorm(2 * hid)
         self.head = nn.Linear(2 * hid, sc.num_output_logits(cfg))
         del full
+
+    def state_dict(self, *args, destination=None, prefix="", keep_vars=False):
+        """Save ONLY what load_state_dict restores: trained tensors + persistent buffers. The frozen LM (never loaded
+        back) made every checkpoint 10.9 GB (7 Oct), so saves were slow and rare and a dead workspace lost ~250 steps."""
+        full = super().state_dict(*args, destination=destination, prefix=prefix, keep_vars=keep_vars)
+        keep = ({prefix + n for n, p in self.named_parameters() if p.requires_grad}
+                | {prefix + n for n, _ in self.named_buffers()})
+        for k in [k for k in full if k not in keep]:
+            del full[k]
+        return full
 
     def load_state_dict(self, state_dict, strict=True, assign=False):
         """Restore ONLY the trained tensors, verbatim (training resume and the Kaggle inference path alike)."""
@@ -176,7 +200,7 @@ try:
     app = modal.App(cfg["experiment"]["name"])
     # flash-linear-attention: the fast (Triton) kernels for the 18 linear-attention layers; without it transformers silently
     # falls back to a slow pure-torch chunk loop (the first launch ran ~1 study/s)
-    _image = sc.modal_image(extra_pip=("transformers>=5.5", "peft>=0.18", "flash-linear-attention"))
+    _image = sc.modal_image(extra_pip=("transformers>=5.5", "peft>=0.18", "flash-linear-attention", "kernels>=0.16,<0.17"))
     _shards = modal.Volume.from_name(cfg["modal"]["shards_volume"], create_if_missing=True)  # input data
     _runs = modal.Volume.from_name(cfg["modal"]["runs_volume"], create_if_missing=True)      # outputs
     _secrets = ([modal.Secret.from_name(cfg["modal"]["wandb_secret"])]

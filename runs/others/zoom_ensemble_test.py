@@ -34,15 +34,17 @@ PARENT = "convnext_base_25d_18slices_v5_aug_base"
 S6 = ["convnext_base_v5", "dinov3_convnext_base_v5", PARENT, "convnext_base_25d_poolattn_v5",
       "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip", "medimageinsight_davit_huge_336_v3_f0"]
 ZOOM = {"dual": "convnext_base_25d_v5_joint_zoom_dual", "z030": "convnext_base_25d_v5_joint_zoom_030",
-        "z020": "convnext_base_25d_v5_joint_zoom", "zax": "convnext_base_25d_v5_joint_zoom_030_ax"}
-OVERALL = {"zax"}          # these pick their step by overall val macro (they may vote on all 12), the rest by joint
+        "z020": "convnext_base_25d_v5_joint_zoom", "zax": "convnext_base_25d_v5_joint_zoom_030_ax",
+        "zdino": "convnext_base_25d_v5_joint_zoom_030_dinov3",
+        "z6v": "convnext_base_25d_v5_joint_zoom_030_6v30sl"}
+OVERALL = {"zax", "z6v"}          # these pick their step by overall val macro (they may vote on all 12), the rest by joint
 rng = np.random.default_rng(0)
 
 
 def zoom_preds(run):
     v = pd.read_csv(R / run / "results" / "val_log.csv").drop_duplicates("step", keep="last")
     v = v[v.step > 0]
-    v["j"] = v[[f"val_auroc_{t}" for t in (T if run == ZOOM.get("zax") else JOINT)]].mean(axis=1)
+    v["j"] = v[[f"val_auroc_{t}" for t in (T if run in [ZOOM[k] for k in OVERALL] else JOINT)]].mean(axis=1)
     st = int(v.loc[v.j.idxmax(), "step"])
     g["STEP"][run] = st
     return st
@@ -110,6 +112,16 @@ def variants(base):
     if PARENT in base:
         nb = [m for m in base if m != PARENT]
         out["zax swapP + z030 addJ"] = (nb, [("zax", 1, np.ones(12)), ("z030", 1, JM.astype(float))])
+    out["z030+zdino addJ"] = (base, [("z030", 1, JM.astype(float)), ("zdino", 1, JM.astype(float))])
+    out["z030 addJ + zdino add12"] = (base, [("z030", 1, JM.astype(float)), ("zdino", 1, np.ones(12))])
+    out["z030 addJ + zdino addO"] = (base, [("z030", 1, JM.astype(float)), ("zdino", 1, (~JM).astype(float))])
+    out["z030+zdino addJ w2"] = (base, [("z030", 2, JM.astype(float)), ("zdino", 2, JM.astype(float))])
+    out["z030 addJ + z6v add12"] = (base, [("z030", 1, JM.astype(float)), ("z6v", 1, np.ones(12))])
+    out["z030 addJ + z6v addO"] = (base, [("z030", 1, JM.astype(float)), ("z6v", 1, (~JM).astype(float))])
+    out["z030+z6v addJ"] = (base, [("z030", 1, JM.astype(float)), ("z6v", 1, JM.astype(float))])
+    if PARENT in base:
+        nb = [m for m in base if m != PARENT]
+        out["z6v swapP + z030 addJ"] = (nb, [("z6v", 1, np.ones(12)), ("z030", 1, JM.astype(float))])
     out["dual add12 + z030 addJ"] = (base, [("dual", 1, np.ones(12)), ("z030", 1, JM.astype(float))])
     if PARENT in base:
         nb = [m for m in base if m != PARENT]
