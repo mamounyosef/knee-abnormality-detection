@@ -1,15 +1,15 @@
 # convnext_base_25d_18slices_v4_flip_f0
 #
-# ROUND-2 TEACHER, fold 0 (7 Oct, user: yes). Copy of convnext_base_25d_18slices_v3_flip_f4 (the Modal H100 recipe). Labels v3 -> v4 (data/27_fold0_*: the 21_fold0
+# ROUND-2 TEACHER, fold 0 (7 Oct, user: yes). Copy of convnext_base_25d_18slices_v3_flip_f0 (LOCAL recipe). Labels v3 -> v4 (data/27_fold0_*: the 21_fold0
 # studies with the 22_*-w50 labels every current member trains on). Its out-of-fold predictions, averaged with
 # the other two families, become the round-2 teacher (audit-58 stays clean: the 58 are in no fold).
 #
 # ---- the donor's notes follow ----
 # convnext_base_25d_18slices_v4_flip_f0
 #
-# NEW CONVNEXT TEACHER FOLD 4, trained on Modal H100. Copy of convnext_base_25d_18slices_f4 (LB of the 5-fold block 0.918),
-# with three changes: labels v2 -> v3 (21_fold4_*: Qwen + MedGemma on the five MedGemma findings,
-# the labels the MII folds trained on; same studies and order as 13_fold4), knee flip on (left knees
+# NEW CONVNEXT TEACHER FOLD 0, trained LOCALLY on the RTX 4060. Copy of convnext_base_25d_18slices_f0 (LB of the 5-fold block 0.918),
+# with three changes: labels v2 -> v3 (21_fold0_*: Qwen + MedGemma on the five MedGemma findings,
+# the labels the MII folds trained on; same studies and order as 13_fold0), knee flip on (left knees
 # mirrored, per plane), patience 6 -> 7. v3 holds no model predictions, so the out-of-fold
 # predictions stay clean for the next label build.
 #
@@ -52,7 +52,7 @@ experiment:
 paths:
   # Byte-identical split MEMBERSHIP to convnext_base_25d_group3 and convnext_base_336px.
   train_csv: "27_fold0_train.csv"
-  val_csv:   "27_fold0_val.csv"
+  val_csv:   "21_fold0_val.csv"   # SAME studies as 27_fold0_val, graded by the v3 labels (no model in the key; v4 = half round-1 teacher graded ~0.95, user 7 Oct)
   # audit_csv stays 05_audit58.csv - the panel labels never change, so it is the one
   # honest cross-label-set comparison.
 
@@ -82,6 +82,7 @@ input:
   laterality_flip: "left"          # mirror the MINORITY side (1,938 left vs 2,469 right)
 
 training:
+  grad_checkpointing: true          # local 8 GB GPU: recompute activations (exact)
   epochs: 12
   grad_clip: 3.0                    # 3.0, NEVER 1.0. 1.0 clips every step and silently
                                     # throttles the effective learning rate.
@@ -103,7 +104,8 @@ training:
     aucm_margin: 1.0
     aucm_bce_mix: 0.1
   early_stopping:
-    enable: true
+    enable: true    # patience 7 (user, 7 Oct), on the v3-GRADED val below
+    reset_tag: "v3val"   # one-time reset of best/patience on resume: the monitored val changed from v4- to v3-graded
     monitor: "val_macro_auroc"
     mode: "max"
     patience: 7                     # VALIDATIONS without improvement
@@ -111,40 +113,52 @@ training:
 # CPU-side loading; decoding shards is the bottleneck and stays one here, though 18 slices
 # is a quarter less to decode per study than 24.
 dataloader:
-  batch_size: 8                     # 8 studies x 4 slots x 6 images = 192 images @336.
+  batch_size: 2                     # LOCAL: 2 x accum_steps 4 = the same 8 studies per update
                                     # MEASURED basis: convnext_base_25d_group3 peaked at
                                     # 71.02 GB on 256 images, i.e. ~0.273 GB/image, so 192
                                     # images is ~54 GB of the A100-80GB. Comfortable.
-  accum_steps: 1                    # effective 8 studies per update - IDENTICAL to every
+  accum_steps: 4                    # effective 8 studies per update
                                     # other run, so step counts and the lr schedule compare
                                     # directly against convnext_base_25d_group3
-  val_batch_size: 16                # 16 studies x 24 images = 384 images, but with no
+  val_batch_size: 4                 # local
                                     # backward pass there are no stored activations, so this
                                     # is far cheaper than the training batch despite being
                                     # twice the studies. Speeds the validations up.
 
-  num_workers: 26                   # the GPU does a quarter of convnext_base_336px's work
+  num_workers: 1                    # local PC: 16 GB RAM ran out with 2 (30 Sep); results do not depend on it
                                     # per study, so the loader is the binding constraint
-  val_num_workers: null             # null = same as num_workers
+  val_num_workers: 1
 
-  prefetch_factor: 6                # batches queued per worker
-  pin_memory: true                  # page-locked memory, faster CPU -> GPU copies
+  prefetch_factor: 2                # batches queued per worker
+  pin_memory: false                 # local: no page-locked memory
   persistent_workers: true          # don't respawn workers every epoch
   drop_last: false                  # keep the ragged final batch
 
 modal:
-  gpu: "H100"                     # same model 1.7x faster than the A100-80GB for 1.58x the price
+  gpu: "A100-80GB"                  # 192 images is ~54 GB, so the 80 GB card fits it with
                                     # room. NOT the A100-40GB: that would be over the card.
                                     # At 24 passes per study this run is I/O bound anyway,
                                     # so the faster H200 would idle.
-  cpu: 16.0                         # raised with the GPU so the loader keeps up
+  cpu: 14.0                         # one core per dataloader worker, decoding npz is
                                     # CPU-bound and matters more than ever here
   memory_gb: 64                     # 26 workers x prefetch 6 x ~32 MB per queued batch
 
 # inherits resume: "last" from shared_config - the preemption-safe setting.
 
 reproducibility:
-  seed: 2042                          # this fold's own seed: adds trajectory diversity
+  seed: 42                          # shared with folds 0-2: their spread measures the SPLIT alone
+
+output:
+  keep_last_n: 1                    # local disk: last.pt covers resume
+  keep_top_k: 1
+  checkpoint_every_steps: 100       # a crash loses at most 100 steps
+  upload_checkpoints:
+    modal_config: "local"            # path in ~/.knee_upload_modal_config (outside the repo)
+    patterns: ["top_step*.pt", "best.pt"]
 
 evaluation:
   eval_every_steps_before: 800            # epochs 1..4: validate half as often (user, 1 Oct); the best step comes late
+
+# the resume guard watches paths.val_csv: it moved 27_fold0_val -> 21_fold0_val (same studies, v3-graded, user 7 Oct).
+# Nothing that trains changed (checks/round2_v3val_check.py), so resuming across it is safe.
+resume_force: true

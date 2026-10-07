@@ -260,10 +260,14 @@ def main():
                 say(f"{run}: another process (PID {busy}) is ALREADY training it - not starting a second copy. "
                     f"Stop that one first. Moving on")
                 break
-            while free_gb(RUNS / run) < MIN_FREE_GB:
-                say(f"{run}: only {free_gb(RUNS / run):.1f} GB free on its drive (need {MIN_FREE_GB}) - waiting 10 min")
+            # checkpoints may be a junction to another drive (D: is nearly full): measure where they are written
+            ck = RUNS / run / "results" / "checkpoints"
+            where = ck if ck.exists() else RUNS / run
+            while free_gb(where) < MIN_FREE_GB:
+                say(f"{run}: only {free_gb(where):.1f} GB free where its checkpoints go (need {MIN_FREE_GB}) - waiting 10 min")
                 time.sleep(600)
-            say(f"{run}: attempt {attempt} starting ({'fresh' if attempt == 1 and not (RUNS / run / 'results' / 'checkpoints').exists() else 'resumes from its last checkpoint'})")
+            fresh = attempt == 1 and not (ck.exists() and any(ck.glob("*.pt")))
+            say(f"{run}: attempt {attempt} starting ({'fresh' if fresh else 'resumes from its last checkpoint'})")
             code, mins, log = one_attempt(run, attempt)
             why = finished_by_files(run)
             if code == 0 and why:

@@ -1,6 +1,6 @@
 # convnext_base_25d_18slices_v4_flip_f4
 #
-# ROUND-2 TEACHER, fold 4 (7 Oct, user: yes). Copy of convnext_base_25d_18slices_v3_flip_f4 (the Modal H100 recipe). Labels v3 -> v4 (data/27_fold4_*: the 21_fold4
+# ROUND-2 TEACHER, fold 4 (7 Oct, user: yes). Copy of convnext_base_25d_18slices_v3_flip_f4 (Modal H100 recipe). Labels v3 -> v4 (data/27_fold4_*: the 21_fold4
 # studies with the 22_*-w50 labels every current member trains on). Its out-of-fold predictions, averaged with
 # the other two families, become the round-2 teacher (audit-58 stays clean: the 58 are in no fold).
 #
@@ -52,7 +52,7 @@ experiment:
 paths:
   # Byte-identical split MEMBERSHIP to convnext_base_25d_group3 and convnext_base_336px.
   train_csv: "27_fold4_train.csv"
-  val_csv:   "27_fold4_val.csv"
+  val_csv:   "21_fold4_val.csv"   # SAME studies as 27_fold4_val, graded by the v3 labels (no model in the key; v4 = half round-1 teacher graded ~0.95, user 7 Oct)
   # audit_csv stays 05_audit58.csv - the panel labels never change, so it is the one
   # honest cross-label-set comparison.
 
@@ -103,7 +103,8 @@ training:
     aucm_margin: 1.0
     aucm_bce_mix: 0.1
   early_stopping:
-    enable: true
+    enable: true    # patience 7 (user, 7 Oct), on the v3-GRADED val below
+    reset_tag: "v3val"   # one-time reset of best/patience on resume: the monitored val changed from v4- to v3-graded
     monitor: "val_macro_auroc"
     mode: "max"
     patience: 7                     # VALIDATIONS without improvement
@@ -148,3 +149,7 @@ reproducibility:
 
 evaluation:
   eval_every_steps_before: 800            # epochs 1..4: validate half as often (user, 1 Oct); the best step comes late
+
+# the resume guard watches paths.val_csv: it moved 27_fold4_val -> 21_fold4_val (same studies, v3-graded, user 7 Oct).
+# Nothing that trains changed (checks/round2_v3val_check.py), so resuming across it is safe.
+resume_force: true

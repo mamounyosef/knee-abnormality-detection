@@ -44,19 +44,33 @@ for pre, (mid, gpu) in FAM.items():
         name = f"{pre}{k}"
         cfg = sc.load_config(ROOT / "runs" / name, verbose=False)
         check(cfg["experiment"]["name"] == name, f"{name}: experiment name {cfg['experiment']['name']}")
-        check(cfg["paths"]["train_csv"] == f"27_fold{k}_train.csv" and cfg["paths"]["val_csv"] == f"27_fold{k}_val.csv",
+        cnx = pre.startswith("convnext")      # ConvNeXt folds validate on v3-graded val (user 7 Oct), early stop reset once
+        want_val = f"21_fold{k}_val.csv" if cnx else f"27_fold{k}_val.csv"
+        check(cfg["paths"]["train_csv"] == f"27_fold{k}_train.csv" and cfg["paths"]["val_csv"] == want_val,
               f"{name}: csv {cfg['paths']['train_csv']} {cfg['paths']['val_csv']}")
+        if cnx:
+            es = cfg["training"]["early_stopping"]
+            check(es["enable"] and es["patience"] == 7 and es.get("reset_tag") == "v3val", f"{name}: early stopping {es}")
         tr = pd.read_csv(ROOT / "data" / cfg["paths"]["train_csv"]).set_index("StudyInstanceUID")
         va = pd.read_csv(ROOT / "data" / cfg["paths"]["val_csv"]).set_index("StudyInstanceUID")
         check(not (set(tr.index) & set(va.index)), f"{name}: train/val overlap")
         check(not ((set(tr.index) | set(va.index)) & aud), f"{name}: audit study inside")
         for part, f in (("train", tr), ("val", va)):
-            d = (f[T] - v4.loc[f.index, T]).abs().to_numpy().max()
+            ref = v4 if part == "train" or not cnx else pd.read_csv(ROOT / "data" / f"21_fold{k}_val.csv").set_index("StudyInstanceUID")
+            d = (f[T] - ref.loc[f.index, T]).abs().to_numpy().max()
             check(d < 1e-12, f"{name}: {part} labels differ from v4 by {d}")
         check(cfg["input"]["laterality_flip"] == "left", f"{name}: flip {cfg['input']['laterality_flip']}")
         check(cfg["model"]["name"] == mid, f"{name}: model {cfg['model']['name']}")
         check(int(cfg["training"]["epochs"]) == 12, f"{name}: epochs {cfg['training']['epochs']}")
-        check(cfg["modal"]["gpu"] == gpu, f"{name}: gpu {cfg['modal']['gpu']}")
+        local = pre.startswith("convnext") and k < 2          # folds 0-1 of the ConvNeXt family train on this PC
+        check(local or cfg["modal"]["gpu"] == gpu, f"{name}: gpu {cfg['modal']['gpu']}")
+        if local:
+            dl = cfg["dataloader"]
+            check(dl["batch_size"] == 2 and dl["accum_steps"] == 4 and cfg["training"].get("grad_checkpointing")
+                  and cfg["output"]["keep_last_n"] == 1 and cfg["output"]["keep_top_k"] == 1, f"{name}: not the local recipe")
+        if not pre.startswith("medimageinsight"):
+            check(cfg["reproducibility"]["seed"] == {0: 42, 1: 42, 2: 42, 3: 1042, 4: 2042}[k],
+                  f"{name}: seed {cfg['reproducibility']['seed']}")
         check(int(cfg["dataloader"]["batch_size"]) * int(cfg["dataloader"].get("accum_steps") or 1) == 8, f"{name}: batch")
     print(f"{pre}0..4 config + data checked")
 

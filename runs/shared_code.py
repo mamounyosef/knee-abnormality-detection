@@ -3508,7 +3508,8 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     # reason to carry a monitor, a mode or a patience
     es = cfg["training"].get("early_stopping", {}) or {}
     es = {"enable": es.get("enable", True), "monitor": es.get("monitor", "val_macro_auroc"),
-          "mode": es.get("mode", "max"), "patience": es.get("patience", 4)}
+          "mode": es.get("mode", "max"), "patience": es.get("patience", 4),
+          "reset_tag": es.get("reset_tag")}       # one-time reset when the monitored metric changed meaning
     best, best_epoch, bad, gstep = -math.inf, 0, 0, 0
     start_epoch, top_k_track = 1, []
     # declared up here because the resume block below restores into them
@@ -3715,6 +3716,16 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                   f"new head, new objective, so the old bar and the half-finished epoch "
                   f"do not carry. Starting clean at epoch {start_epoch}")
 
+        # early_stopping.reset_tag: the MONITORED METRIC changed meaning (e.g. val re-graded with other labels, 7 Oct:
+        # round-2 teachers moved from v4- to v3-graded val). The stored best (0.95 on the old scale) could never be
+        # beaten, so patience would run out on a different metric. A new tag resets best/patience/top-k ONCE; the tag
+        # is saved, so later resumes of the same tag keep counting normally.
+        _rt = es.get("reset_tag")
+        if _rt and tr.get("es_tag") != _rt:
+            print(f"  🔄 early stopping reset for metric tag {_rt!r} (was {tr.get('es_tag')!r}): best {best:.4f} and "
+                  f"patience {bad} dropped, top-k list cleared")
+            best, best_epoch, bad, top_k_track = -math.inf, 0, 0, []
+
     # ---- extend: carry a FINISHED run on under a fresh lr curve ---------------
     # A plain resume restores the cosine schedule the checkpoint stopped under. Once
     # that schedule has run to its end the lr sits at min_lr_mult (1% of base), so
@@ -3845,7 +3856,8 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
         return {"best": best, "best_epoch": best_epoch, "bad": bad,
                 "top_k": top_k_track, "history": history,
                 "audit_best": list(audit_best), "audit_bad": audit_bad[0],
-                "prev_eval": dict(prev_eval), "extend": dict(ext_state)}
+                "prev_eval": dict(prev_eval), "extend": dict(ext_state),
+                "es_tag": es.get("reset_tag")}
 
     def _validate_and_checkpoint(epoch: int, gstep: int, tag: str = "epoch"):
         """Score val (and audit), log, checkpoint, update early stopping."""

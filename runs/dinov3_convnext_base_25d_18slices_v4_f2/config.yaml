@@ -1,16 +1,18 @@
 # dinov3_convnext_base_25d_18slices_v4_f2
 #
-# ROUND-2 TEACHER, fold 2 (7 Oct, user: yes). Copy of convnext_base_25d_18slices_v3_flip_f4 with the DINOv3 ConvNeXt-Base weights (as dinov3_convnext_base_v5, but 2.5D at 336). Labels v3 -> v4 (data/27_fold2_*: the 21_fold2
+# ROUND-2 TEACHER, fold 2 (7 Oct, user: yes). Copy of convnext_base_25d_18slices_v3_flip_f2 with the DINOv3 ConvNeXt-Base weights (as dinov3_convnext_base_v5, but 2.5D at 336). Labels v3 -> v4 (data/27_fold2_*: the 21_fold2
 # studies with the 22_*-w50 labels every current member trains on). Its out-of-fold predictions, averaged with
 # the other two families, become the round-2 teacher (audit-58 stays clean: the 58 are in no fold).
 #
 # ---- the donor's notes follow ----
 # dinov3_convnext_base_25d_18slices_v4_f2
 #
-# NEW CONVNEXT TEACHER FOLD 4, trained on Modal H100. Copy of convnext_base_25d_18slices_f4 (LB of the 5-fold block 0.918),
-# with three changes: labels v2 -> v3 (21_fold4_*: Qwen + MedGemma on the five MedGemma findings,
-# the labels the MII folds trained on; same studies and order as 13_fold4), knee flip on (left knees
-# mirrored, per plane), patience 6 -> 7. v3 holds no model predictions, so the out-of-fold
+# MOVED TO MODAL (2 Oct) before it ever started locally: same recipe as f3/f4, own seed kept (42).
+#
+# NEW CONVNEXT TEACHER FOLD 2, trained on Modal H100. Copy of convnext_base_25d_18slices_f2 (LB of the 5-fold block 0.918),
+# with three changes: labels v2 -> v3 (21_fold2_*: Qwen + MedGemma on the five MedGemma findings,
+# the labels the MII folds trained on; same studies and order as 13_fold2), knee flip on (left knees
+# mirrored, per plane), patience 6 (was 7 until 2 Oct). v3 holds no model predictions, so the out-of-fold
 # predictions stay clean for the next label build.
 #
 # ---- the donor's notes follow ----
@@ -106,7 +108,7 @@ training:
     enable: true
     monitor: "val_macro_auroc"
     mode: "max"
-    patience: 7                     # VALIDATIONS without improvement
+    patience: 6                     # VALIDATIONS without improvement (7 -> 6 for the Modal finish, user 2 Oct)
 
 # CPU-side loading; decoding shards is the bottleneck and stays one here, though 18 slices
 # is a quarter less to decode per study than 24.
@@ -144,7 +146,7 @@ modal:
 # inherits resume: "last" from shared_config - the preemption-safe setting.
 
 reproducibility:
-  seed: 2042                          # this fold's own seed: adds trajectory diversity
+  seed: 42                          # shared with folds 0-2: their spread measures the SPLIT alone
 
 evaluation:
   eval_every_steps_before: 800            # epochs 1..4: validate half as often (user, 1 Oct); the best step comes late
