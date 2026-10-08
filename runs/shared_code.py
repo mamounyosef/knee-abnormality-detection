@@ -1001,6 +1001,23 @@ class KneeShardDataset(Dataset):
         self.short_stack = str(i.get("short_stack") or "repeat")
         if self.short_stack == "pad" and i.get("slice_context") == "neighbours":
             raise ValueError("input.short_stack 'pad' is not supported with slice_context 'neighbours'")
+        # input.channel_mode (8 Oct): what an image's 3 channels hold. "slices" (default) = 3 consecutive picks.
+        #   multiwindow  ONE slice through 3 intensity windows (input.multiwindow_pct, default dark / normal / fluid)
+        #   slab_mmm     a slab = every stored slice of one bin: [min, mean, max] over it (MinIP / mean / MIP)
+        # Both keep n_slices = 3 x slices_as_channels, so the pass count is unchanged; images are groups of 3
+        # channels with a MEANING, so the sagittal mirror reverses whole images, not channels (self.grp).
+        self.channel_mode = str(i.get("channel_mode") or "slices")
+        if self.channel_mode not in ("slices", "multiwindow", "slab_mmm"):
+            raise ValueError(f"input.channel_mode must be slices | multiwindow | slab_mmm, got {self.channel_mode!r}")
+        self.grp = self.ctx
+        if self.channel_mode != "slices":
+            if self.ctx > 1 or per_slot_input(cfg) or i.get("fuse_partner"):
+                raise ValueError("input.channel_mode needs plain slices_as_channels groups (no slice_context, "
+                                 "per-slot n_slices or fuse_partner)")
+            for s in self.slots:
+                if slot_slices(cfg, s) != 3 * slot_groups(cfg, s):
+                    raise ValueError(f"channel_mode {self.channel_mode}: n_slices must be 3 x slices_as_channels")
+            self.grp = 3
         self.flip_side = i.get("laterality_flip")
         self.sides = {}
         if self.flip_side and self.flip_side not in ("left", "right"):
@@ -1024,6 +1041,25 @@ class KneeShardDataset(Dataset):
                 if self.aux is not None:
                     raise SystemExit("[aux] aux_report and aux_attributes are both enabled; pick one")
                 self.aux, self.aux_kind = att, "attributes"
+        # input.fuse_partner {slot: partner slot} (8 Oct): same-plane cross-sequence early fusion. Each image of a fused
+        # slot is [fluid slice, the plain slice at the same position (in-plane aligned), next fluid slice]. Off = {}.
+        self.fuse = dict(i.get("fuse_partner") or {})
+        self.fuse_max_mm = float(i.get("fuse_max_mm", 5.0))
+        self.partner_plan = {}
+        if self.fuse:
+            if dicom is not None:
+                raise NotImplementedError("input.fuse_partner needs per-slice geometry on the DICOM path; "
+                                          "add it to dicom_series_volume / scan_dicom_index before shipping")
+            if self.ctx > 1 or self.per_slot:
+                raise ValueError("input.fuse_partner works with slices_as_channels groups only (no slice_context, "
+                                 "no per-slot n_slices)")
+            for s in self.fuse:
+                if s not in self.slots or slot_slices(cfg, s) % 3 or slot_slices(cfg, s) // 3 != slot_groups(cfg, s):
+                    raise ValueError(f"fused slot {s!r}: needs n_slices = 3 x slices_as_channels (3 channels per image)")
+            _pc = copy.deepcopy(cfg)
+            _pc["input"]["slots"] = sorted(set(self.fuse.values()))
+            _pc["input"]["fallback_same_plane"] = False              # a partner is the OTHER sequence or nothing
+            self.partner_plan = plan_slots(pd.read_csv(resolve(cfg["paths"]["series_index"], cfg)), _pc)
         if dicom is not None:
             dicom_index, self.dicom_files = dicom
             self.geo = dicom_index.set_index("series")[["pixel_spacing_c", "pixel_spacing_r"]]
@@ -1060,6 +1096,8 @@ class KneeShardDataset(Dataset):
         arr = self._read_series(study, series)
         if arr is None:                                   # series missing for this study
             return np.zeros((n_slices * self.ctx, self.size, self.size), np.float32)
+        if getattr(self, "channel_mode", "slices") != "slices":
+            return self._load_channels(arr, series, rng, n_slices, _t)
         idx = pick_slices(arr.shape[0], n_slices, self.mode, rng, self.margin,
                           self.slice_offset, self.slice_reverse, getattr(self, "short_stack", "repeat"))
         if self.ctx > 1:
@@ -1089,7 +1127,185 @@ class KneeShardDataset(Dataset):
                                 for s in vol])
 
         vol = self._fit(vol)                                 # force every slice to size x size
-        # shards are already windowed 0.1-99.9; re-window only if asked
+        return self._normalise(vol, pad)
+
+    def _load_channels(self, arr: np.ndarray, series: str, rng, n_slices: int, _t: float) -> np.ndarray:
+        """input.channel_mode multiwindow / slab_mmm -> (n_slices, size, size), images = consecutive 3-channel groups.
+
+        multiwindow: G = n_slices / 3 slices picked like today's grid (even at eval, one random per bin in training);
+          each becomes [window 1, window 2, window 3], every window a percentile range of the whole picked stack
+          (input.multiwindow_pct, default [1, 80] dark tissue / [1, 99] today's / [60, 99.8] fluid).
+        slab_mmm: the stack (minus input.slice_margin) is cut into G equal bins; every stored slice of a bin is
+          read and windowed together (today's volume window), then the image is [min, mean, max] over the bin:
+          MinIP keeps dark bands (ligaments, menisci) continuous, MIP keeps bright fluid/edema. Training jitters the
+          bin grid by up to half a bin, like the random pick does today."""
+        G = n_slices // 3
+        n = arr.shape[0]
+        if self.channel_mode == "multiwindow":
+            idx = pick_slices(n, G, self.mode, rng, self.margin, self.slice_offset, self.slice_reverse)
+            vol = self._resample_fit(arr[idx].astype(np.float32), series)
+            pcts = self.cfg["input"].get("multiwindow_pct") or [[1.0, 80.0], [1.0, 99.0], [60.0, 99.8]]
+            out = np.empty((3 * G, self.size, self.size), np.float32)
+            for c, (lo_p, hi_p) in enumerate(pcts):
+                lo, hi = np.percentile(vol, lo_p), np.percentile(vol, hi_p)
+                out[c::3] = np.clip((vol - lo) / max(hi - lo, 1e-6), 0, 1) * 255.0
+            used = len(idx)
+        else:
+            lo_i = int(n * self.margin)
+            hi_i = max(lo_i + 1, n - lo_i)
+            edges = np.linspace(lo_i, hi_i, G + 1)
+            if self.mode == "random":
+                edges = edges + rng.uniform(-0.5, 0.5) * (edges[1] - edges[0])
+            elif self.slice_offset:
+                edges = edges + float(self.slice_offset) * (edges[1] - edges[0])
+            a_ = np.clip(np.floor(edges[:-1]).astype(int), 0, n - 1)
+            b_ = np.clip(np.ceil(edges[1:]).astype(int), 1, n)
+            b_ = np.maximum(b_, a_ + 1)                      # every bin holds >= 1 real slice
+            first, last = int(a_.min()), int(b_.max())
+            vol = self._normalise(self._resample_fit(arr[first:last].astype(np.float32), series),
+                                  np.zeros(last - first, bool))
+            out = np.empty((3 * G, self.size, self.size), np.float32)
+            for g, (a, b) in enumerate(zip(a_ - first, b_ - first)):
+                s = vol[a:b]
+                out[3 * g], out[3 * g + 1], out[3 * g + 2] = s.min(0), s.mean(0), s.max(0)
+            if self.slice_reverse:
+                out = out.reshape(G, 3, self.size, self.size)[::-1].reshape(out.shape).copy()
+            used = last - first
+        ns, nb, ni = self._retr
+        with ns.get_lock():
+            ns.value += int((time.perf_counter() - _t) * 1e9)
+            nb.value += int(arr.nbytes)
+            ni.value += used
+        return out
+
+    def _resample_fit(self, vol: np.ndarray, series: str) -> np.ndarray:
+        """Resample to mm_per_px (same rule as _load) and fit to size x size."""
+        if self.mm_per_px:
+            sp = float(self.geo["pixel_spacing_c"].get(series, self.mm_per_px) or self.mm_per_px)
+            f = sp / self.mm_per_px
+            if abs(f - 1) > 0.02:
+                h, w = int(round(vol.shape[1] * f)), int(round(vol.shape[2] * f))
+                vol = np.stack([cv2.resize(s, (w, h), interpolation=cv2.INTER_AREA) for s in vol])
+        return self._fit(vol)
+
+    def _prep(self, arr: np.ndarray, idx, series: str, sp: float | None = None) -> np.ndarray:
+        """Stored slices idx of one series -> resampled to mm_per_px, fitted to size, windowed (as _load does)."""
+        vol = arr[np.asarray(idx)].astype(np.float32)
+        if self.mm_per_px:
+            sp = float(sp or self.geo["pixel_spacing_c"].get(series, self.mm_per_px) or self.mm_per_px)
+            f = sp / self.mm_per_px
+            if abs(f - 1) > 0.02:
+                h, w = int(round(vol.shape[1] * f)), int(round(vol.shape[2] * f))
+                vol = np.stack([cv2.resize(s, (w, h), interpolation=cv2.INTER_AREA) for s in vol])
+        return self._normalise(self._fit(vol), np.zeros(len(vol), bool))
+
+    def _load_fused(self, study: str, sa: str, sb: str | None, rng, n_slices: int) -> np.ndarray:
+        """Fused slot -> (n_slices, size, size): per image [A(a0), B at A's position (aligned in-plane), A(a1)].
+
+        A = this slot's series (fluid), B = its partner (plain, same plane). a0/a1 are two consecutive picks of an even
+        (eval) / random (train) grid of 2 x images over A, exactly like the 3 picks of today's 2.5D images. B's slice is
+        the one whose position along A's slice normal is nearest the a0-a1 midpoint (geometry from the shard meta:
+        pos_first/pos_last/orientation, uniform spacing). B is shifted in-plane by the frame-centre offset projected on
+        A's row/column axes. No partner, or nearest B farther than input.fuse_max_mm: the middle channel is A's slice
+        halfway between a0 and a1 (plain 2.5D)."""
+        _t = time.perf_counter()
+        G = n_slices // 3
+        with np.load(self.shards / f"{study}.npz") as z:
+            arr_a = z[sa]
+            arr_b = z[sb] if (sb and sb != sa and sb in z.files) else None
+            meta = json.loads(bytes(z["meta"]).decode())["series"]
+        na = arr_a.shape[0]
+        picks = pick_slices(na, 2 * G, self.mode, rng, self.margin, self.slice_offset, self.slice_reverse)
+        a0, a1 = np.asarray(picks[0::2]), np.asarray(picks[1::2])
+        mid = np.round((a0 + a1) / 2.0).astype(int)
+
+        def _pos(m, n):
+            pf, pl = np.asarray(m["pos_first"], float), np.asarray(m["pos_last"], float)
+            return lambda i: pf + np.asarray(i, float)[..., None] * (pl - pf) / max(n - 1, 1)
+
+        mid_b, shift, ok = None, None, np.zeros(G, bool)
+        ga = meta.get(sa) or {}
+        if arr_b is not None and ga.get("orientation") and (meta.get(sb) or {}).get("orientation"):
+            gb = meta[sb]
+            ra, ca = np.asarray(ga["orientation"][:3], float), np.asarray(ga["orientation"][3:], float)
+            nrm = np.cross(ra, ca)
+            pa, pb = _pos(ga, na), _pos(gb, arr_b.shape[0])
+            t = (pa(a0) @ nrm + pa(a1) @ nrm) / 2.0                         # (G,) group centres along A's normal
+            tb = pb(np.arange(arr_b.shape[0])) @ nrm                        # (nB,)
+            j = np.abs(tb[None, :] - t[:, None]).argmin(1)
+            ok = np.abs(tb[j] - t) <= self.fuse_max_mm
+            if ok.any():
+                mid_b = j
+
+                def _ctr(g, p, i):                                          # frame centre in patient mm
+                    r_, c_ = np.asarray(g["orientation"][:3], float), np.asarray(g["orientation"][3:], float)
+                    psr, psc = (g.get("pixel_spacing") or [1.0, 1.0])[:2]
+                    return p(i) + ((g["cols"] - 1) / 2.0 * psc) * r_[None] + ((g["rows"] - 1) / 2.0 * psr) * c_[None]
+
+                d = _ctr(gb, pb, j) - _ctr(ga, pa, a0)                        # (G, 3)
+                mm = self.mm_per_px or float(ga["pixel_spacing"][1])
+                shift = np.stack([d @ ra / mm, d @ ca / mm], 1)            # (G, 2) px along columns, rows
+                shift = shift * float(getattr(self, "_fuse_shift_mult", 1.0))   # checks only: 0 / -1 = misaligned
+        sp_a = float(ga["pixel_spacing"][1]) if ga.get("pixel_spacing") else None
+        va = self._prep(arr_a, np.concatenate([a0, a1, mid]), sa, sp_a)
+        A0, A1, AM = va[:G], va[G:2 * G], va[2 * G:]
+        middle = AM.copy()
+        if mid_b is not None:
+            gb = meta[sb]
+            vb = self._prep(arr_b, mid_b[ok], sb, float(gb["pixel_spacing"][1]) if gb.get("pixel_spacing") else None)
+            s = self.size
+            for k, g in enumerate(np.flatnonzero(ok)):
+                M = np.float32([[1, 0, shift[g, 0]], [0, 1, shift[g, 1]]])
+                middle[g] = cv2.warpAffine(vb[k], M, (s, s), flags=cv2.INTER_LINEAR, borderValue=0)
+        self.fuse_stats = (int(ok.sum()), G)                                # paired groups, for checks
+        out = np.empty((3 * G, self.size, self.size), np.float32)
+        out[0::3], out[1::3], out[2::3] = A0, middle, A1
+        ns, nb, ni = self._retr
+        with ns.get_lock():
+            ns.value += int((time.perf_counter() - _t) * 1e9)
+            nb.value += int(arr_a.nbytes + (arr_b.nbytes if arr_b is not None else 0))
+            ni.value += 3 * G
+        return out
+
+    def _normalise(self, vol: np.ndarray, pad: np.ndarray) -> np.ndarray:
+        """Intensity mapping to 0-255 (input.window). shard | volume | slice as always; 8 Oct, off by default:
+        zscore    foreground (v > stack mean) z-score, [-3, 3] -> [0, 255]
+        fgref     v / (2.5 x foreground median): keeps fluid brightness RELATIVE to tissue, not to the top 1%
+        *_clahe   any of the above, then CLAHE per slice (clip input.clahe_clip 2.0, tile input.clahe_tile 8)"""
+        win = str(self.window)
+        clahe = win.endswith("_clahe")
+        if clahe:
+            win = win[:-len("_clahe")]
+        real = vol[~pad] if (pad.any() and (~pad).any()) else vol
+        if win in ("zscore", "fgref"):
+            fg = real[real > real.mean()]
+            fg = fg if fg.size else real
+            if win == "zscore":
+                mu, sd = float(fg.mean()), float(fg.std()) or 1.0
+                vol = np.clip(((vol - mu) / sd + 3.0) / 6.0, 0, 1) * 255.0
+            else:
+                vol = np.clip(vol / max(2.5 * float(np.median(fg)), 1e-6), 0, 1) * 255.0
+        elif win != "shard":                                 # shards are already windowed 0.1-99.9
+            lo_p, hi_p = self.cfg["input"]["window_pct"]
+            # "volume" = one contrast window for the whole stack, "slice" = per slice
+            axis = (1, 2) if win == "slice" else None
+            if axis is None:
+                lo, hi = np.percentile(real, lo_p), np.percentile(real, hi_p)   # blank padding never sets it
+            else:
+                lo = np.percentile(vol, lo_p, axis=axis, keepdims=True)
+                hi = np.percentile(vol, hi_p, axis=axis, keepdims=True)
+            # stretch the [lo, hi] intensity range back over the full 0-255 range
+            vol = np.clip((vol - lo) / np.maximum(hi - lo, 1e-6), 0, 1) * 255.0
+        if clahe:
+            c = cv2.createCLAHE(clipLimit=float(self.cfg["input"].get("clahe_clip", 2.0)),
+                                tileGridSize=(int(self.cfg["input"].get("clahe_tile", 8)),) * 2)
+            vol = np.stack([c.apply(s.astype(np.uint8)).astype(np.float32) for s in np.clip(vol, 0, 255)])
+        if pad.any():
+            vol[pad] = 0.0                                   # padding stays exactly blank (a constant image)
+        return vol
+
+    def _normalise_legacy(self, vol: np.ndarray, pad: np.ndarray) -> np.ndarray:
+        """The pre-8-Oct window code, verbatim: checks/window_variants_check.py proves _normalise equals it."""
         if self.window != "shard":
             lo_p, hi_p = self.cfg["input"]["window_pct"]
             # "volume" = one contrast window for the whole stack, "slice" = per slice
@@ -1145,11 +1361,11 @@ class KneeShardDataset(Dataset):
             vol = vol[:, :, ::-1].copy()
         sd = a["slice_dropout"]                       # blank a few slices: mimics gaps/artifacts
         if rng.random() < sd["p"]:
-            n_sl = len(vol) // self.ctx               # groups, not raw planes
+            _gp = getattr(self, "grp", self.ctx); n_sl = len(vol) // _gp               # groups, not raw planes
             k = max(1, int(n_sl * sd["frac"]))
             drop = rng.choice(n_sl, k, replace=False)
             for d0 in drop:                           # zero every channel of that slice
-                vol[d0 * self.ctx:(d0 + 1) * self.ctx] = 0
+                vol[d0 * _gp:(d0 + 1) * _gp] = 0
         # EXTRA TYPES (2 Oct, augmentation-strength test). Each is OFF unless its p > 0, and an
         # off type draws NOTHING from rng: the same rng goes on to pick the next slot's slices,
         # so one extra draw would silently change every run trained before these existed.
@@ -1171,6 +1387,16 @@ class KneeShardDataset(Dataset):
             for _ in range(int(co.get("n", 1))):
                 y0, x0 = rng.integers(0, s - side + 1, 2)
                 vol[:, y0:y0 + side, x0:x0 + side] = 0
+        rc = a.get("randconv") or {}
+        if rc.get("p", 0) > 0 and rng.random() < rc["p"]:
+            # RandConv (Xu 2021, 8 Oct): one random k x k filter for the whole slot (texture scrambled, geometry kept),
+            # rescaled to the slot's own mean/std, then mixed in at a random alpha. Off = no rng draw.
+            k = int(rng.choice(rc.get("kernels", [1, 3, 5])))
+            w = rng.normal(0.0, 1.0 / k, (k, k)).astype(np.float32)
+            f = np.stack([cv2.filter2D(sl, -1, w, borderType=cv2.BORDER_REFLECT) for sl in vol.astype(np.float32)])
+            f = (f - f.mean()) / (f.std() + 1e-6) * vol.std() + vol.mean()
+            al = rng.uniform(*rc.get("alpha", [0.1, 0.5]))
+            vol = (1.0 - al) * vol + al * f
         return np.clip(vol, 0, 255)
 
     def __getitem__(self, i: int):
@@ -1201,7 +1427,11 @@ class KneeShardDataset(Dataset):
                 v = blank
             else:
                 try:
-                    v = self._load(study, series, rng, n_sl)
+                    if slot in self.fuse:
+                        v = self._load_fused(study, series,
+                                             self.partner_plan.get(study, {}).get(self.fuse[slot]), rng, n_sl)
+                    else:
+                        v = self._load(study, series, rng, n_sl)
                 except Exception as e:
                     # a worker that raises kills the whole DataLoader, and at submission
                     # time that costs every study, not just this one. an unreadable
@@ -1228,7 +1458,7 @@ class KneeShardDataset(Dataset):
             # rather than normalisation. Sagittal mirrors by reversing its slice order.
             # checks/laterality_axis_check.py proves this from the data.
             if mirror:
-                v = _mirror_slot(v, slot, self.ctx)
+                v = _mirror_slot(v, slot, getattr(self, "grp", self.ctx))
             if self.aug is not None:
                 v = self._augment(v, rng)             # same warp across a slice's channels
             if self.ctx > 1:
@@ -3844,6 +4074,16 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
     # [aligned loss sum, n, shuffled loss sum, in-batch top-1 sum, n_pairs]
     aux_run = [0.0, 0, 0.0, 0.0, 0]
     clip_vals = deque(maxlen=4000)     # finite gnorms, for the distribution below
+    # training.sam: {enable, rho, adaptive}. SAM = 2 forward/backward per step (~2x step cost).
+    _sam = (cfg.get("training", {}).get("sam") or {})
+    _sam_on = bool(_sam.get("enable"))
+    _sam_rho = float(_sam.get("rho", 0.05))
+    _sam_ad = bool(_sam.get("adaptive", False))      # ASAM (Kwon 2021): rho usually ~10x larger, e.g. 0.5
+    sam_gn, sam_loss2 = deque(maxlen=200), deque(maxlen=200)
+    if _sam_on:
+        assert accum == 1, "training.sam needs accum_steps 1 (the second pass reuses the one batch)"
+        assert not aux_w, "training.sam: auxiliary losses are not recomputed in the second pass"
+        print(f"  ⛰️  SAM {'(adaptive) ' if _sam_ad else ''}rho={_sam_rho}: 2 passes per step")
 
     stop_now = [False]            # raised the moment patience runs out, so the step
                                   # loop can stop AT 4/4 rather than carrying on to
@@ -4200,6 +4440,37 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                             _p.grad.mul_(accum / _r)
                 gnorm = float("nan")
                 _clip = float(cfg["training"]["grad_clip"] or 0.0)
+                if _sam_on:
+                    # SAM (Foret 2021): step from the WORST nearby point. Grads at w -> move to
+                    # w + rho*g/||g|| (ASAM: scaled by |w|), recompute grads there, move back,
+                    # then the normal clip + step uses those second grads. The first grads are
+                    # read through 1/scale by hand: unscale_ may run only once per step, and it
+                    # must run on the SECOND grads so the GradScaler's inf check sees them.
+                    _inv = (1.0 / scaler.get_scale()) if scaler.is_enabled() else 1.0
+                    _sp = [p for p in model.parameters() if p.grad is not None]
+                    with torch.no_grad():
+                        _sc = [(p.abs() if _sam_ad else None) for p in _sp]
+                        _gn = torch.norm(torch.stack([((p.grad * s) if _sam_ad else p.grad).float().norm()
+                                                      for s, p in zip(_sc, _sp)])) * _inv
+                    if torch.isfinite(_gn):          # inf/nan first grads: plain step, GradScaler skips it
+                        with torch.no_grad():
+                            _f = _sam_rho * _inv / (_gn + 1e-12)
+                            _eps = [((p.grad * s * s) if _sam_ad else p.grad) * _f for s, p in zip(_sc, _sp)]
+                            _old = [p.detach().clone() for p in _sp]     # restore exactly, not w + e - e
+                            for p, e in zip(_sp, _eps):
+                                p.add_(e.to(p.dtype))
+                            del _eps
+                        sam_gn.append(float(_gn))
+                        opt.zero_grad(set_to_none=True)
+                        with torch.autocast("cuda", enabled=use_amp_train, dtype=amp_dtype(cfg)):
+                            _f2 = model(prepare_batch(x, cfg, device))
+                            _l2 = loss_fn(_f2[0] if isinstance(_f2, tuple) else _f2, y)
+                        scaler.scale(_l2).backward()
+                        with torch.no_grad():
+                            for p, o in zip(_sp, _old):
+                                p.copy_(o)
+                        del _old
+                        sam_loss2.append(float(_l2.detach()))
                 if _clip:
                     scaler.unscale_(opt)
                     gnorm = float(nn.utils.clip_grad_norm_(model.parameters(), _clip))
@@ -4317,6 +4588,13 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                         _extra["aux_gap"] = round(shuf - aux_run[0] / aux_run[1], 5)
                         _extra["aux_top1"] = round(aux_run[3] / aux_run[4], 4)
                     aux_run[:] = [0.0, 0, 0.0, 0.0, 0]
+                if sam_gn:
+                    # sam_gnorm: ||g|| at w (unscaled, ASAM-weighted if adaptive); sam_loss2: loss at the
+                    # perturbed point. sam_loss2 minus the row's train loss = the sharpness SAM is fighting.
+                    _extra["sam_gnorm"] = round(sum(sam_gn) / len(sam_gn), 5)
+                    _extra["sam_loss2"] = round(sum(sam_loss2) / len(sam_loss2), 5)
+                    _extra["sam_n"] = len(sam_gn)
+                    sam_gn.clear(); sam_loss2.clear()
                 train_log.log({**_extra, **ScaleProbe.row(_pb),
                                "epoch": epoch, "epoch_step": -(-it // accum),
                                "global_step": gstep, "loss": round(l, 6), "lr": lr,
