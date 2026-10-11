@@ -927,6 +927,27 @@ def _mirror_slot(v, slot: str, ctx: int = 1) -> np.ndarray:
         "axis from ImageOrientationPatient rather than assuming it." % (slot, plane))
 
 
+def window_centres(mask: np.ndarray, D: int, k: int, rng=None) -> np.ndarray:
+    """Centres c of the k 3-slice windows [c-1, c, c+1] over a concatenated D-slice stack (input.window_bag).
+
+    Eval (rng None): the public Raptor/0.949 rule verbatim: every centre strictly inside the first..last REAL slice,
+    k of them evenly spaced (k = D - 2 = every position). Training: k random centres from the same set, without
+    replacement when there are enough."""
+    valid = np.where(mask > 0)[0]
+    if len(valid) < 3:
+        valid = np.arange(min(3, D))
+    lo, hi = int(valid.min()), int(valid.max())
+    cs = [c for c in range(lo + 1, hi) if c - 1 >= lo and c + 1 <= hi]
+    if not cs:
+        cs = [max(1, min((lo + hi) // 2, D - 2))]
+    if rng is None:
+        idx = np.linspace(0, len(cs) - 1, k).round().astype(int)
+        out = np.array([cs[i] for i in idx])
+    else:
+        out = np.sort(rng.choice(cs, size=k, replace=len(cs) < k))
+    return np.clip(out, 1, D - 2)
+
+
 def _sides_from_ipp(index: pd.DataFrame) -> dict:
     """{study: 'left'|'right'} from the x of ImagePositionPatient, per study.
 
@@ -1018,6 +1039,17 @@ class KneeShardDataset(Dataset):
                 if slot_slices(cfg, s) != 3 * slot_groups(cfg, s):
                     raise ValueError(f"channel_mode {self.channel_mode}: n_slices must be 3 x slices_as_channels")
             self.grp = 3
+        # input.window_bag {train_k, eval_k} (10 Oct, the public 0.949 Raptor recipe): every slot's slices are
+        # concatenated into ONE stack (e.g. 26+22+18+12+18 = 96) and the item is k overlapping 3-slice windows
+        # [c-1, c, c+1] (stride 1, crossing slot borders as theirs do): k random centres in training, k evenly
+        # spaced over the valid range at eval (94 = every position). Item (1, k, 3, H, W).
+        self.wbag = i.get("window_bag") or None
+        if self.wbag:
+            if self.ctx > 1 or not self.per_slot or self.channel_mode != "slices" or i.get("fuse_partner"):
+                raise ValueError("input.window_bag needs per-slot n_slices with slices_as_channels == n_slices "
+                                 "(one slice per plane), no slice_context / channel_mode / fuse_partner")
+            if self.slot_chans != 1:
+                raise ValueError("input.window_bag: slices_as_channels must equal n_slices per slot (1 channel)")
         self.flip_side = i.get("laterality_flip")
         self.sides = {}
         if self.flip_side and self.flip_side not in ("left", "right"):
@@ -1418,7 +1450,7 @@ class KneeShardDataset(Dataset):
         # mirror this study if it is the side we normalise away. Unknown side = leave it.
         mirror = bool(self.flip_side) and self.sides.get(study) == self.flip_side
 
-        vols = []
+        vols, masks = [], []                            # masks: window_bag only (real-slice flags)
         for slot in self.slots:
             series = chosen.get(slot)                   # None when this study lacks that view
             n_sl = self.slot_n[slot]
@@ -1457,11 +1489,14 @@ class KneeShardDataset(Dataset):
             # horizontally reverses ANTERIOR-POSTERIOR, which is anatomical corruption
             # rather than normalisation. Sagittal mirrors by reversing its slice order.
             # checks/laterality_axis_check.py proves this from the data.
+            blank_used = v is blank                     # missing / unreadable slot (window_bag mask)
             if mirror:
                 v = _mirror_slot(v, slot, getattr(self, "grp", self.ctx))
             if self.aug is not None:
                 v = self._augment(v, rng)             # same warp across a slice's channels
-            if self.ctx > 1:
+            if self.wbag:
+                masks.append(np.full(n_sl, float(series is not None and not blank_used), np.float32))
+            elif self.ctx > 1:
                 v = v.reshape(n_sl, self.ctx, self.size, self.size)
             elif self.per_slot:
                 # group this slot's slices into its own images now, since slots with
@@ -1469,7 +1504,13 @@ class KneeShardDataset(Dataset):
                 v = v.reshape(self.slot_g[slot], self.slot_chans, self.size, self.size)
             vols.append(v)
 
-        if self.per_slot:
+        if self.wbag:
+            vol = np.concatenate(vols, axis=0)                  # (D, H, W), D = sum of the slot depths
+            k = int(self.wbag["train_k"] if self.train else self.wbag["eval_k"])
+            cs = window_centres(np.concatenate(masks), vol.shape[0], k, rng if self.train else None)
+            tri = np.stack([vol[cs - 1], vol[cs], vol[cs + 1]], 1)   # (k, 3, H, W)
+            x = torch.from_numpy(tri.astype(np.uint8)[None])      # (1, k, 3, H, W)
+        elif self.per_slot:
             # (1, total_images, channels, H, W): one pseudo-slot holding every image, which
             # is exactly the shape prepare_batch's 6-dim branch already expects per study
             x = torch.from_numpy(np.concatenate(vols, axis=0).astype(np.uint8)[None])
@@ -8360,7 +8401,10 @@ def predict_dicom_ensemble(cfgs: list, models: list, studies_df: pd.DataFrame, p
 # the 0.933 submission one of its eight members.
 LOADER_GEOMETRY_KEYS = ("slots", "n_slices", "size", "mm_per_px", "window", "window_pct",
                         "channels", "slice_context", "slice_context_stride",
-                        "laterality_flip")
+                        "laterality_flip",
+                        # 8-11 Oct decode knobs (absent = None for every older member, so old groups are unchanged)
+                        "window_bag", "slice_margin", "fallback_same_plane", "duplicate_rule", "channel_mode",
+                        "multiwindow_pct", "fuse_partner", "fuse_max_mm")
 
 
 def loader_geometry(cfg: dict) -> tuple:

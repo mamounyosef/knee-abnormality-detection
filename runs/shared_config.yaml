@@ -1,4 +1,4 @@
-# shared_config.yaml — settings common to every knee experiment.
+  # shared_config.yaml — settings common to every knee experiment.
 # Each run's config.yaml is deep-merged on top of this (the run wins).
 
 paths:
