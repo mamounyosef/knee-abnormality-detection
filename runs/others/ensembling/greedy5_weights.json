@@ -1,0 +1,96 @@
+{
+  "members": [
+    "convnext_base_v5_raptor96_local",
+    "dinov3_convnext_base_v5",
+    "convnext_base_25d_spatial",
+    "convnext_base_25d_v5_attributes",
+    "medimageinsight_davit_huge_v5_raptor96_sam"
+  ],
+  "weights_per_class": {
+    "ACL": {
+      "convnext_base_v5_raptor96_local": 0.286,
+      "dinov3_convnext_base_v5": 0.272,
+      "convnext_base_25d_spatial": 0.17,
+      "convnext_base_25d_v5_attributes": 0.15,
+      "medimageinsight_davit_huge_v5_raptor96_sam": 0.122
+    },
+    "MCL": {
+      "convnext_base_v5_raptor96_local": 0.286,
+      "dinov3_convnext_base_v5": 0.272,
+      "convnext_base_25d_spatial": 0.17,
+      "convnext_base_25d_v5_attributes": 0.15,
+      "medimageinsight_davit_huge_v5_raptor96_sam": 0.122
+    },
+    "Medial Meniscus": {
+      "convnext_base_v5_raptor96_local": 0.286,
+      "dinov3_convnext_base_v5": 0.272,
+      "convnext_base_25d_spatial": 0.17,
+      "convnext_base_25d_v5_attributes": 0.15,
+      "medimageinsight_davit_huge_v5_raptor96_sam": 0.122
+    },
+    "Lateral Meniscus": {
+      "convnext_base_v5_raptor96_local": 0.286,
+      "dinov3_convnext_base_v5": 0.272,
+      "convnext_base_25d_spatial": 0.17,
+      "convnext_base_25d_v5_attributes": 0.15,
+      "medimageinsight_davit_huge_v5_raptor96_sam": 0.122
+    },
+    "Medial OA": {
+      "convnext_base_v5_raptor96_local": 0.286,
+      "dinov3_convnext_base_v5": 0.272,
+      "convnext_base_25d_spatial": 0.17,
+      "convnext_base_25d_v5_attributes": 0.15,
+      "medimageinsight_davit_huge_v5_raptor96_sam": 0.122
+    },
+    "Lateral OA": {
+      "convnext_base_v5_raptor96_local": 0.286,
+      "dinov3_convnext_base_v5": 0.272,
+      "convnext_base_25d_spatial": 0.17,
+      "convnext_base_25d_v5_attributes": 0.15,
+      "medimageinsight_davit_huge_v5_raptor96_sam": 0.122
+    },
+    "PF OA": {
+      "convnext_base_v5_raptor96_local": 0.286,
+      "dinov3_convnext_base_v5": 0.272,
+      "convnext_base_25d_spatial": 0.17,
+      "convnext_base_25d_v5_attributes": 0.15,
+      "medimageinsight_davit_huge_v5_raptor96_sam": 0.122
+    },
+    "Effusion": {
+      "convnext_base_v5_raptor96_local": 0.286,
+      "dinov3_convnext_base_v5": 0.272,
+      "convnext_base_25d_spatial": 0.17,
+      "convnext_base_25d_v5_attributes": 0.15,
+      "medimageinsight_davit_huge_v5_raptor96_sam": 0.122
+    },
+    "Synovitis": {
+      "convnext_base_v5_raptor96_local": 0.286,
+      "dinov3_convnext_base_v5": 0.272,
+      "convnext_base_25d_spatial": 0.17,
+      "convnext_base_25d_v5_attributes": 0.15,
+      "medimageinsight_davit_huge_v5_raptor96_sam": 0.122
+    },
+    "Baker's": {
+      "convnext_base_v5_raptor96_local": 0.286,
+      "dinov3_convnext_base_v5": 0.272,
+      "convnext_base_25d_spatial": 0.17,
+      "convnext_base_25d_v5_attributes": 0.15,
+      "medimageinsight_davit_huge_v5_raptor96_sam": 0.122
+    },
+    "Contusion": {
+      "convnext_base_v5_raptor96_local": 0.286,
+      "dinov3_convnext_base_v5": 0.272,
+      "convnext_base_25d_spatial": 0.17,
+      "convnext_base_25d_v5_attributes": 0.15,
+      "medimageinsight_davit_huge_v5_raptor96_sam": 0.122
+    },
+    "Fracture": {
+      "convnext_base_v5_raptor96_local": 0.286,
+      "dinov3_convnext_base_v5": 0.272,
+      "convnext_base_25d_spatial": 0.17,
+      "convnext_base_25d_v5_attributes": 0.15,
+      "medimageinsight_davit_huge_v5_raptor96_sam": 0.122
+    }
+  },
+  "note": "12 Oct greedy_from_raptor.py full-121 build: pair 0.7/0.3 + dinov3_v5 @0.40 + spatial @0.20 + attributes @0.15; audit 0.9348, clean-121 0.9209. Cross-fit says steps 2-3 do not hold out (-0.0002); submitted as a test (user)."
+}

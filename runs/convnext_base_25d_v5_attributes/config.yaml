@@ -87,6 +87,7 @@ training:
   aux_attributes:                   # extra targets: the graded report attributes
     enable: true
     weight: 0.3                     # relative to the 12-finding BCE
+    k: 45                           # attribute columns in the csv: sizes the head at inference, where the csv is absent
   grad_clip: 3.0                    # 3.0, NEVER 1.0. 1.0 clips every step and silently
                                     # throttles the effective learning rate.
   optimizer:

@@ -805,8 +805,14 @@ def aux_attribute_count(cfg: dict) -> int:
     if not ax.get("enable"):
         return 0
     path = resolve(ax.get("path", "25_report_attributes.csv"), cfg)
+    # the csv is a TRAINING file: at inference (Kaggle) it is absent, so the head size comes from aux_attributes.k
+    if not Path(path).exists() and ax.get("k"):
+        return int(ax["k"])
     cols = pd.read_csv(path, nrows=1).columns
-    return len([c for c in cols if c not in ("StudyInstanceUID", "model", "bad")])
+    k = len([c for c in cols if c not in ("StudyInstanceUID", "model", "bad")])
+    if ax.get("k") and int(ax["k"]) != k:
+        raise SystemExit(f"[aux] aux_attributes.k is {ax['k']} but {path} has {k} attribute columns")
+    return k
 
 
 def _load_report_targets(cfg: dict):

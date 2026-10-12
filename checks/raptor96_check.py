@@ -62,15 +62,19 @@ check("A slots sag_fluid 26 / sag_plain 22 / cor_fluid 18 / cor_plain 12 / ax_fl
 check("A window_bag 12 / 94, 384 px x 0.365 mm, margin 0.06",
       i["window_bag"] == {"train_k": 12, "eval_k": 94} and i["size"] == 384 and i["mm_per_px"] == 0.365
       and i["slice_margin"] == 0.06)
-LOCAL = RUN.endswith("_local")
+LOCAL = sc.accum_steps(cfg) > 1        # the local recipe (batch 2 x accum 4); never read off the run's name
+SAM = bool((t.get("sam") or {}).get("enable"))
+if LOCAL:
+    check("A local runs carry no SAM (it needs accum 1)", not SAM)
 if LOCAL:
     check("A local: NO SAM, batch 2 x accum 4, grad checkpointing, 16 epochs, head lr 2e-3",
           not (t.get("sam") or {}).get("enable") and cfg["dataloader"]["batch_size"] == 2 and sc.accum_steps(cfg) == 4
           and t.get("grad_checkpointing") and t["epochs"] == 16
           and abs(t["optimizer"]["lr"] / t["optimizer"]["backbone_lr_mult"] - 2e-3) < 1e-9)
 else:
-    check("A SAM on, accum 1, 16 epochs, head lr 2e-3", t["sam"]["enable"] and sc.accum_steps(cfg) == 1
-          and t["epochs"] == 16 and abs(t["optimizer"]["lr"] / t["optimizer"]["backbone_lr_mult"] - 2e-3) < 1e-9)
+    check("A Modal: batch 8 x accum 1, 16 epochs, head lr 2e-3 (SAM %s)" % ("on" if SAM else "off"),
+          cfg["dataloader"]["batch_size"] == 8 and sc.accum_steps(cfg) == 1 and t["epochs"] == 16
+          and abs(t["optimizer"]["lr"] / t["optimizer"]["backbone_lr_mult"] - 2e-3) < 1e-9)
 
 with contextlib.redirect_stdout(io.StringIO()):
     L = sc.make_loaders(cfg)
@@ -189,7 +193,7 @@ try:
     c["model"] = dict(c["model"], name="resnet18", pretrained=False)
     c["input"] = dict(c["input"], size=32)
     c["dataloader"].update(batch_size=2, accum_steps=1, val_batch_size=2)
-    c["training"]["sam"] = dict(c["training"].get("sam") or {}, enable=not LOCAL)
+    c["training"]["sam"] = dict(c["training"].get("sam") or {}, enable=SAM)
     c["training"] = dict(c["training"], epochs=1)
     c["training"]["early_stopping"] = dict(c["training"]["early_stopping"], enable=False)
     c["training"]["extend"] = dict(c["training"].get("extend") or {}, enable=False)
@@ -208,8 +212,8 @@ try:
     check("G tiny window-bag run trained and validated", len(vl) >= 1 and np.isfinite(vl.val_loss).all(),
           f"{len(vl)} val rows")
     tl = pd.read_csv(tmp / "run/results/train_log.csv")
-    if LOCAL:
-        check("G no SAM in the local run", "sam_n" not in tl.columns)
+    if not SAM:
+        check("G no SAM in the run", "sam_n" not in tl.columns)
     else:
         check("G SAM ran in it", "sam_n" in tl.columns and tl.sam_n.notna().all())
 finally:

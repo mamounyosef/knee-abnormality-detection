@@ -1,0 +1,33 @@
+{
+ "fingerprint": "a3c10aa2ee24fd272299d165b8ec10c6242a743a",
+ "engine_sha1": "daa9fd53a1bbc333db88e7c4c0c072ed6b5fdd6e",
+ "notebook": "mamounhussam/knee-raptor4-a",
+ "dataset": "mamounhussam/knee-raptor4",
+ "version": "1",
+ "n_members": 4,
+ "stress_studies": 128,
+ "manifest": {
+  "blend_weights.json": 1086,
+  "DINOV3_LICENSE.md": 7569,
+  "m0_config.json": 6323,
+  "m0_def.py": 2902,
+  "m0_model.pt": 351502183,
+  "m1_config.json": 6446,
+  "m1_def.py": 3499,
+  "m1_model.pt": 1444913259,
+  "m2_config.json": 5905,
+  "m2_def.py": 3936,
+  "m2_model.pt": 350438699,
+  "m3_config.json": 6123,
+  "m3_def.py": 4503,
+  "m3_model.pt": 347766044,
+  "members.json": 526,
+  "NOTICE.md": 406,
+  "pylibjpeg-2.1.0-py3-none-any.whl": 25472,
+  "pylibjpeg_libjpeg-2.4.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl": 3409132,
+  "pylibjpeg_openjpeg-2.5.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl": 1966200,
+  "shared_code.py": 515987
+ },
+ "public": false,
+ "passed": "2026-10-12T20:08:47"
+}

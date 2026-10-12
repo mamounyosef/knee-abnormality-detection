@@ -1013,6 +1013,21 @@
       "submission_ref": 57084465,
       "runtime_seconds": null,
       "notes": "Raptor pair, logit weights 0.7 ConvNeXt / 0.3 MII, no public blend (val-346 / audit / clean +0.0018 / +0.0034 / +0.0010 vs ConvNeXt alone). Stress passed after the one-group chunk-rule fix; projected 1.72 h."
+    },
+    {
+      "members": [
+        "convnext_base_25d_18slices_v5_sam"
+      ],
+      "submitted": "2026-10-12 17:07 UTC",
+      "public_score": 0.93,
+      "private_score": null,
+      "val": 0.9185,
+      "audit58": 0.9276,
+      "kernel": "mamounhussam/knee-sam-solo-a",
+      "kernel_version": null,
+      "submission_ref": 57113938,
+      "runtime_seconds": null,
+      "notes": "SAM solo at step 5900, the LB test of SAM: its no-SAM twin convnext_base_25d_18slices_v5_aug_base scored 0.930 solo (ref 56796715)."
     }
   ]
 }

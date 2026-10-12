@@ -76,15 +76,15 @@
   },
   "elapsed": "1h51m18s",
   "submission": {
-    "submitted": null,
-    "public_score": null,
+    "submitted": "2026-10-12 17:07 UTC",
+    "public_score": 0.93,
     "private_score": null,
     "runtime_seconds": null,
     "runtime": null,
-    "kernel": null,
+    "kernel": "mamounhussam/knee-sam-solo-a",
     "kernel_version": null,
-    "submission_ref": null,
-    "checkpoint": null,
-    "notes": null
+    "submission_ref": 57113938,
+    "checkpoint": "top_step5900.pt",
+    "notes": "LB test of SAM: ties its no-SAM twin aug_base (0.930) at the same step"
   }
 }
