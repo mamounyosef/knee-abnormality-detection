@@ -198,11 +198,42 @@ def load_config(experiment_dir, config_name: str = "config.yaml", verbose: bool 
     shared = yaml.safe_load((exp_dir.parent / "shared_config.yaml").read_text(encoding="utf-8"))
     own = yaml.safe_load((exp_dir / config_name).read_text(encoding="utf-8")) or {}
     cfg = _deep_merge(shared, own)
+    # WHERE IT RUNS. A run's `local:` block is deep-merged on top ONLY when this process is not a Modal container
+    # (MODAL_TASK_ID), so one config can hold both recipes: the Modal dataloader as the base, the PC's batch /
+    # workers / grad checkpointing / cadence in `local:`. On Modal the block is dropped unapplied. A run moved between
+    # the PC and Modal needs no config edit and no rename (fold 0 crashed the PC with 26 Modal workers, 12 Oct).
+    loc = cfg.pop("local", None) or {}
+    if runtime_side() == "local" and loc:
+        cfg = _deep_merge(cfg, loc)
+        cfg["_runtime"] = {"where": "local", "local_overrides": _flat_keys(loc)}
+    else:
+        cfg["_runtime"] = {"where": runtime_side(), "local_overrides": []}
     _coerce_sci(cfg)
     cfg.setdefault("experiment", {}).setdefault("name", exp_dir.name)   # folder name is the default run name
     if verbose:
         print_config(cfg)
     return cfg
+
+
+def _flat_keys(d: dict, pre: str = "") -> list:
+    """dotted leaf keys of a nested dict: {"dataloader": {"batch_size": 2}} -> ["dataloader.batch_size"]."""
+    out = []
+    for k, v in d.items():
+        out += _flat_keys(v, f"{pre}{k}.") if isinstance(v, dict) else [f"{pre}{k}"]
+    return out
+
+
+def _where_str(cfg: dict) -> str:
+    rt = cfg.get("_runtime") or {"where": runtime_side(), "local_overrides": []}
+    if rt["where"] != "local":
+        return "MODAL container"
+    try:
+        dev = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU only"
+    except Exception:
+        dev = "?"
+    ov = rt.get("local_overrides") or []
+    return (f"LOCAL (this PC, {dev}); " + (f"local: block applied to {len(ov)} key(s): {', '.join(ov)}" if ov
+            else "no local: block in the config, the Modal settings are used as they are"))
 
 
 def amp_dtype(cfg: dict) -> torch.dtype:
@@ -244,6 +275,7 @@ def print_config(cfg: dict):
     _banner("CONFIGURATION", "\u2699\uFE0F")
 
     _kv("run", [
+        ("running on", _where_str(cfg)),
         ("experiment", cfg["experiment"]["name"]),
         ("run_id", cfg["experiment"].get("run_id", "(allocated at launch)")),
         ("model", f"{mo.get('name', '?')}  (pretrained={mo.get('pretrained')})"),
@@ -338,7 +370,11 @@ def print_config(cfg: dict):
                     f"capture={o.get('console_capture_dir')}"),
     ], "\U0001F4CB")
 
-    if m:
+    if m and (cfg.get("_runtime") or {}).get("where") == "local":
+        print()
+        print(f"  ☁️  modal (cloud): NOT this run's hardware - used only by `modal run` "
+              f"(gpu {m.get('gpu')}, {m.get('cpu')} cores)")
+    elif m:
         _kv("modal (cloud)", [
             ("gpu", m.get("gpu")),
             ("cpu / memory", f"{m.get('cpu') or 'modal default'} cores / "

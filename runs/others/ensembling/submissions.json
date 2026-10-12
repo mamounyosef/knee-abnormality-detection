@@ -1028,6 +1028,43 @@
       "submission_ref": 57113938,
       "runtime_seconds": null,
       "notes": "SAM solo at step 5900, the LB test of SAM: its no-SAM twin convnext_base_25d_18slices_v5_aug_base scored 0.930 solo (ref 56796715)."
+    },
+    {
+      "members": [
+        "convnext_base_v5_raptor96_local",
+        "medimageinsight_davit_huge_v5_raptor96_sam",
+        "dinov3_convnext_base_v5",
+        "swinv2_base_in22k_v5_warm"
+      ],
+      "submitted": "2026-10-12 18:25 UTC",
+      "public_score": null,
+      "private_score": null,
+      "val": null,
+      "audit58": 0.9335,
+      "kernel": "mamounhussam/knee-raptor4-a",
+      "kernel_version": 2,
+      "submission_ref": 57115658,
+      "runtime_seconds": null,
+      "notes": "Raptor4: manual build, weights 0.42 / 0.18 / 0.20 / 0.20 (logit), no public blend; clean-121 0.9209. Stress passed, projected 3.66 h."
+    },
+    {
+      "members": [
+        "convnext_base_v5_raptor96_local",
+        "dinov3_convnext_base_v5",
+        "convnext_base_25d_spatial",
+        "convnext_base_25d_v5_attributes",
+        "medimageinsight_davit_huge_v5_raptor96_sam"
+      ],
+      "submitted": "2026-10-12 18:56 UTC",
+      "public_score": null,
+      "private_score": null,
+      "val": null,
+      "audit58": 0.9348,
+      "kernel": "mamounhussam/knee-greedy5-a",
+      "kernel_version": null,
+      "submission_ref": 57116358,
+      "runtime_seconds": null,
+      "notes": "Greedy5: greedy_from_raptor.py full-121 build, 0.286 / 0.272 / 0.170 / 0.150 / 0.122 (logit); clean-121 0.9209. Cross-fit said its picks after dinov3 do not hold out; a test of the search. Projected 2.66 h."
     }
   ]
 }

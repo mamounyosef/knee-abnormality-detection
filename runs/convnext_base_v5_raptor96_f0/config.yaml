@@ -1,5 +1,10 @@
 # convnext_base_v5_raptor96_f0
 #
+# Runs LOCALLY (12 Oct, user), resuming from step700.pt. The base below is the Modal recipe (folds 1-4); the
+# `local:` block at the bottom swaps in the PC settings (2 x accum 4, 1 worker, grad checkpointing, slower cadence)
+# whenever it is not a Modal container, so it can move either way with no edit. No SAM.
+#
+# ---- the local version's notes ----
 # RAPTOR96 FOLD 0 of 5, LOCAL RTX 4060, NO SAM (12 Oct, user). The 5-fold mean was our biggest measured LB gain
 # (MII 0.929 -> 0.936, ConvNeXt 0.914 -> 0.918); SAM tied on the LB (0.930 vs 0.930), so the folds go without it.
 # Recipe = convnext_base_v5_raptor96_local exactly (solo LB 0.939): 5 slots / 96 slices, 12 random 3-slice windows in
@@ -36,7 +41,7 @@ input:
 
 training:
   epochs: 16
-  grad_checkpointing: true          # 8 GB card
+  grad_checkpointing: false         # H100 80 GB
   grad_clip: 3.0
   optimizer:
     name: "adamw"
@@ -58,34 +63,53 @@ training:
     enable: true
     monitor: "val_macro_auroc"
     mode: "max"
-    patience: 6                     # validations: 2,400 steps at every 400
+    patience: 6                     # validations: 1,500 steps at every 250
 
 dataloader:
-  batch_size: 2                     # 2 studies x 12 windows = 24 images per micro-batch
-  accum_steps: 4                    # 8 studies per update, as the Modal recipe
-  val_batch_size: 1                 # 94 windows
-  num_workers: 1
-  val_num_workers: 1
-  prefetch_factor: 2
-  pin_memory: false
+  batch_size: 8                     # 8 studies x 12 windows = 96 images per step (f0 local: 2 x accum 4, same 8 studies)
+  accum_steps: 1
+  val_batch_size: 4                 # 4 x 94 = 376 images per eval batch
+  num_workers: 26
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
   persistent_workers: true
   drop_last: false
 
-modal:                              # unused locally; train.py's Modal app needs it to import
+modal:
   gpu: "H100"
   cpu: 16.0
   memory_gb: 64
 
 evaluation:
-  eval_every_steps_before: 800      # epochs 1-9
-  eval_every_steps_epoch_mid_threshold: null
-  eval_every_steps_after: 400       # epoch 10 onward
-  eval_every_steps_epoch_threshold: 10
+  eval_every_steps_before: 400      # epochs 1-5
+  eval_every_steps_mid: 400         # epoch 6
+  eval_every_steps_epoch_mid_threshold: 6
+  eval_every_steps_after: 250       # epoch 7 onward (~80 s each on an H100)
+  eval_every_steps_epoch_threshold: 7
 
 output:
   checkpoint_every_steps: 100       # resume point if the PC is restarted
   keep_last_n: 1
   keep_top_k: 1
+
+# Applied ONLY when this runs on the PC (shared_code.load_config: not a Modal container). The same 8 studies per
+# update, so the recipe is unchanged; Modal ignores this block.
+local:
+  training:
+    grad_checkpointing: true        # 8 GB card
+  dataloader:
+    batch_size: 2                   # 2 studies x 12 windows = 24 images per micro-batch
+    accum_steps: 4                  # 8 studies per update, as on Modal
+    val_batch_size: 1               # 94 windows
+    num_workers: 1                  # 26 workers crashed the PC (WinError 1455, 12 Oct)
+    val_num_workers: 1
+    prefetch_factor: 2
+    pin_memory: false
+  evaluation:
+    eval_every_steps_before: 800    # ~10 min per validation locally (836 studies x 94 windows)
+    eval_every_steps_mid: 800
+    eval_every_steps_after: 400
 
 reproducibility:
   seed: 42
