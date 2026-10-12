@@ -1037,7 +1037,7 @@
         "swinv2_base_in22k_v5_warm"
       ],
       "submitted": "2026-10-12 18:25 UTC",
-      "public_score": null,
+      "public_score": 0.942,
       "private_score": null,
       "val": null,
       "audit58": 0.9335,
@@ -1056,7 +1056,7 @@
         "medimageinsight_davit_huge_v5_raptor96_sam"
       ],
       "submitted": "2026-10-12 18:56 UTC",
-      "public_score": null,
+      "public_score": 0.941,
       "private_score": null,
       "val": null,
       "audit58": 0.9348,
