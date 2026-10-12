@@ -11,6 +11,7 @@ public 0.949 input. CPU only, local shards.
   F  model: per-finding attention, train k 12 / eval k 94 follow train()/eval(), output (B, 12), gradients reach the
      attention scorer; optimizer: head groups at 2e-3, backbone at 4e-5
   G  a tiny real run_experiment (resnet18, 32 px, window bag) trains, validates on 94 windows and predicts
+  H  (MII runs) the MII weights load 402/402, no layer decay, ImageNet norm, the validation schedule
 
     python checks/raptor96_check.py [convnext_base_v5_raptor96_local]   (heavy: run it on Modal, checks/modal_check_runner.py)
 """
@@ -158,7 +159,24 @@ with torch.no_grad():
 check("F eval: k 94, output (1, 12)", m.k == 94 and tuple(o2.shape) == (1, 12))
 opt = sc.build_optimizer(m, c2)
 lrs = sorted({round(g["lr"], 9) for g in opt.param_groups})
-check("F optimizer: backbone 4e-5, head 2e-3", lrs == [4e-5, 2e-3], lrs)
+bb_lr = round(t["optimizer"]["lr"], 9)
+check("F optimizer: backbone %.0e, head 2e-3" % bb_lr, lrs == [bb_lr, 2e-3], lrs)
+del m, opt, out, o2
+
+if RUN.startswith("medimageinsight"):
+    print("H  MII")
+    import external_backbones as eb
+    import timm
+    bb = timm.create_model(cfg["model"]["name"], pretrained=False, num_classes=0, in_chans=3)
+    n_t = eb.load_medimageinsight(bb, eb.resolve_weights(rt.WEIGHTS_FILE, cfg))
+    n_p = sum(p.numel() for p in bb.parameters())
+    check("H MII weights: 402 tensors into davit_huge_fl, 360.6M params", n_t == 402 and round(n_p / 1e6, 1) == 360.6,
+          f"{n_t} tensors, {n_p / 1e6:.1f}M")
+    check("H no layer decay, ImageNet norm", t["optimizer"]["layer_decay"] is None
+          and i["norm_mean"] == [0.485, 0.456, 0.406] and i["norm_std"] == [0.229, 0.224, 0.225])
+    sched = {ep: sc.eval_interval(cfg, ep) for ep in (1, 6, 7, 16)}
+    check("H validations: 800 for epochs 1-6, then 100", sched == {1: 800, 6: 800, 7: 100, 16: 100}, sched)
+    del bb
 
 print("G  tiny real run")
 tmp = Path(tempfile.mkdtemp(prefix="raptor_"))

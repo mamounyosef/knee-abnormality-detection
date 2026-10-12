@@ -1,0 +1,18 @@
+{
+  "id": "mamounhussam/knee-raptor-pair-a",
+  "title": "knee raptor pair a",
+  "code_file": "submit.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": false,
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": [
+    "mamounhussam/knee-raptor-pair"
+  ],
+  "competition_sources": [
+    "rsna-knee-abnormality-detection"
+  ],
+  "kernel_sources": []
+}

@@ -1,0 +1,25 @@
+{
+ "fingerprint": "9edcaed10de85c9b4094a3c45942352549a22fef",
+ "engine_sha1": "daa9fd53a1bbc333db88e7c4c0c072ed6b5fdd6e",
+ "notebook": "mamounhussam/knee-raptor-pair-a",
+ "dataset": "mamounhussam/knee-raptor-pair",
+ "version": "2",
+ "n_members": 2,
+ "stress_studies": 128,
+ "manifest": {
+  "blend_weights.json": 680,
+  "m0_config.json": 6323,
+  "m0_def.py": 2902,
+  "m0_model.pt": 351502183,
+  "m1_config.json": 6446,
+  "m1_def.py": 3499,
+  "m1_model.pt": 1444913259,
+  "members.json": 277,
+  "pylibjpeg-2.1.0-py3-none-any.whl": 25472,
+  "pylibjpeg_libjpeg-2.4.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl": 3409132,
+  "pylibjpeg_openjpeg-2.5.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl": 1966200,
+  "shared_code.py": 515987
+ },
+ "public": false,
+ "passed": "2026-10-11T22:45:41"
+}

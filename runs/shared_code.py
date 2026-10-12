@@ -2531,9 +2531,14 @@ class UDRatio:
         # reinitialized head starts random and SHOULD sit at or above -3; a converged
         # pretrained trunk should only drift, so -5 or -6 is right for it, not a
         # problem. Pooling them hides both facts behind one median.
-        self.head = {n for n, _ in self.params
-                     if any(k in n.lower() for k in ("head", "classifier", ".fc."))
-                     and "backbone" not in n.lower()}
+        # Split STRUCTURALLY, as build_optimizer does: everything outside .backbone is the fresh head. The old
+        # name match ("head"/"classifier"/".fc.") missed raptor's att / clsW and called them trunk.
+        if hasattr(model, "backbone"):
+            self.head = {n for n, _ in self.params if not n.startswith("backbone.")}
+        else:
+            self.head = {n for n, _ in self.params
+                         if any(k in n.lower() for k in ("head", "classifier", ".fc."))
+                         and "backbone" not in n.lower()}
         self.snap, self.rows = None, []
 
     def active(self, gstep: int) -> bool:
@@ -4800,6 +4805,8 @@ def _run_experiment(cfg: dict, model: nn.Module, out_dir: Path, persist_fn=None,
                                          f"({_ach:.0f} of {_peak:.0f} TFLOP/s fp16/bf16)")
                         elif flops_per_img[0]:
                             _bits.append(f"{_ach:.0f} TFLOP/s (no peak figure for this card)")
+                        else:
+                            _bits.append("MFU n/a (FLOP count failed, see the [warn] line)")
                         if _sm is not None:
                             _bits.append(f"SM busy {_sm:.0f}%")
                         if _mc is not None:
@@ -4966,7 +4973,11 @@ def _measure_flops_per_image(model, x, cfg, device) -> float:
         # already runs at 160 of the B200's 178 GB - a second forward pass over the full
         # batch would OOM the run just to print a diagnostic.
         x1 = x[:1] if x.dim() >= 5 and x.shape[0] > 1 else x
-        model.eval()
+        # TRAIN mode, on the training batch: a window-bag model (raptor) expects 94 windows per study in eval()
+        # and 12 in train(), so eval() on a training batch failed the reshape and MFU was silently dropped.
+        # Buffers are snapshotted so a BatchNorm's running stats do not move from this one forward.
+        _bufs = {k: v.detach().clone() for k, v in model.named_buffers()}
+        model.train()
         with torch.no_grad():
             # count images from what the MODEL sees, never from the loader's shape:
             # x is (B, slots, D, H, W) and prepare_batch flattens it to (B*slots*D, C, H, W),
@@ -4978,14 +4989,16 @@ def _measure_flops_per_image(model, x, cfg, device) -> float:
                 model(xb)
             total = fc.get_total_flops()
             del xb
+            for k, v in model.named_buffers():
+                v.copy_(_bufs[k])
+            del _bufs
         return float(total) / max(n_img, 1)
     except Exception as e:
         # never let a diagnostic kill a training run
         print(f"  [warn] could not count FLOPs: {type(e).__name__}: {e}")
         return 0.0
     finally:
-        if was_training:
-            model.train()
+        model.train(was_training)
         if device.type == "cuda":
             torch.cuda.empty_cache()
             # the probe's own allocation must not masquerade as a training peak
@@ -8989,7 +9002,11 @@ def verify_stress_output(user: str, notebook_slug: str, n_members: int, n_studie
                                 % (proj_h, HIDDEN_TEST_STUDIES, secs / max(n_studies, 1), pub_h,
                                    HIDDEN_RUNTIME_LIMIT_H))
         ch = re.search(r"decode chunks (\d+)", txt)
-        if not ch or int(ch.group(1)) < 2:
+        # Chunking only exists with 2+ geometry groups (shared decode); ONE group decodes every study in one pass on
+        # the hidden set too, so there is no between-chunk path to exercise and the rule cannot apply.
+        dp = re.search(r"over (\d+) decode pass", txt)
+        one_group = dp is not None and int(dp.group(1)) == 1
+        if not one_group and (not ch or int(ch.group(1)) < 2):
             problems.append("the run used %s decode chunk(s); a stress run must cross at least 2"
                             % (ch.group(1) if ch else "an unknown number of"))
     import shutil as _sh

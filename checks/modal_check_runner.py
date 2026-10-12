@@ -23,7 +23,11 @@ image = sc.modal_image().add_local_dir(str(ROOT / "checks"), "/root/checks", ign
 shards = modal.Volume.from_name("knee-shards")
 
 
-@app.function(image=image, cpu=8.0, memory=32768, timeout=3600, volumes={"/shards": shards}, retries=0)
+runs_vol = modal.Volume.from_name("knee-runs")    # /runs/pretrained holds external weights (MII)
+
+
+@app.function(image=image, cpu=8.0, memory=65536, timeout=3600, volumes={"/shards": shards, "/runs": runs_vol},
+              retries=0)
 def run_check(name: str, args: str = ""):
     import os
     import runpy

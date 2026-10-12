@@ -1,951 +1,1018 @@
 {
- "_note": "Ensembles have no training_summary.json of their own (they are not a run), so every ensemble submission is recorded here instead. Same fields as a run's `submission` block.",
- "submissions": [
-  {
-   "members": [
-    "convnext_small_4slot",
-    "convnext_base_4slot",
-    "mricore_vitb"
-   ],
-   "submitted": "2026-08-23 16:37 UTC",
-   "public_score": 0.912,
-   "private_score": null,
-   "val": 0.8983,
-   "audit58": 0.8923,
-   "kernel": "mamounhussam/knee-ensemble-3-submit",
-   "kernel_version": 1,
-   "submission_ref": 55719956,
-   "runtime_seconds": null,
-   "notes": "First ensemble submission. +0.004 over the 0.908 convnext_small_4slot baseline; the val gain (+0.0043) carried to the leaderboard almost exactly."
-  },
-  {
-   "members": [
-    "convnext_small_4slot",
-    "convnext_base_4slot",
-    "mricore_vitb",
-    "radimagenet_resnet50"
-   ],
-   "submitted": "2026-08-23 21:53 UTC",
-   "public_score": 0.913,
-   "private_score": null,
-   "val": 0.9001,
-   "audit58": 0.8928,
-   "kernel": "mamounhussam/knee-ensemble-4-submit",
-   "kernel_version": 1,
-   "submission_ref": 55726041,
-   "runtime_seconds": 36.5,
-   "runtime": "36.5 s for the 3 public studies = 12.17 s/study. Heavily inflated: model load and CUDA init are amortized over only 3 studies. Even taken at face value the 9h cap fits ~2662 studies against the ~1300 in the real test set, so the rerun has ~2x headroom.",
-   "notes": "convnext_small_25d is deliberately absent. 2.5D is a LOADER setting (slice_context: neighbours), so it cannot share member 0's single DICOM decode pass - it would need a second pass to buy +0.0004 on val. predict_dicom_ensemble now rejects it explicitly instead of silently scoring the wrong pixels. Scored 0.913, the best leaderboard result so far: +0.001 over the 3-model. val moved +0.0018 for +0.001 LB, so the gain is real but small and well inside what one more member can be expected to give."
-  },
-  {
-   "members": [
-    "convnext_small_relabel",
-    "convnext_base_relabel",
-    "mricore_vitb_relabel",
-    "radimagenet_resnet50_relabel"
-   ],
-   "submitted": "2026-08-25 12:27 UTC",
-   "public_score": 0.919,
-   "private_score": null,
-   "val": 0.911,
-   "audit58": 0.9125,
-   "kernel": "mamounhussam/knee-ensemble-4-relabel-submit",
-   "kernel_version": 1,
-   "submission_ref": 55770195,
-   "runtime_seconds": 486,
-   "runtime": "8.1 min push->kernel complete (0.14 h of the 9 h cap). FASTER than the single convnext_small_relabel submission (14.2 min) because all four members share one DICOM decode pass - only the forward passes multiply.",
-   "notes": "Same four architectures as the 0.913 ensemble, every member retrained on the qwen-2.4T medium-effort labels. +0.006 LB (0.913 -> 0.919), +0.0105 val, +0.0197 audit-58. The per-member gains were additive rather than redundant. Note convnext_base_relabel ALONE scored 0.918, so the ensemble now adds only +0.001 over its best member - the members have become more correlated as the labels improved."
-  },
-  {
-   "ref": 56234763,
-   "date": "2026-09-14 15:55",
-   "slug": "knee-ensemble-6-25d18-flat",
-   "members": [
-    "convnext_base_relabel",
-    "mricore_vitb_cross_attention",
-    "mricore_vitb_mae_cross_attention",
-    "dinov3_convnext_base",
-    "convnext_base_25d_18slices",
-    "swinv2_base_in22k"
-   ],
-   "blend": "flat",
-   "val_flat": 0.9158,
-   "public_score": 0.932,
-   "s_per_study": 13.401,
-   "decode_passes": 2,
-   "notes": "BEST SO FAR, +0.001 over the 0.931 six. The ONLY change is convnext_large -> convnext_base_25d_18slices, a non-overlapping 2.5D member at 24 passes/study instead of 96. It is 336px where the rest are 512, so this is the first submission to use predict_dicom_ensemble_grouped (decode once per geometry group, blend at the end). Cheaper AND better: 13.401 s/study against 15.85, ~15% faster, while swapping out a 196M-parameter model for an 88M one at a quarter of its passes. val predicted only +0.0002; the LB moved +0.001, so val UNDER-called this one. NOTE: the Kaggle description text wrongly names convnext_base_25d_group3 - the bundle shipped 25d_18slices, verified 6/6 in the kernel log. The NOTE string was not updated with MEMBERS."
-  },
-  {
-   "date": "2026-09-20",
-   "slug": "knee-eight-perfinding",
-   "kernel": "mamounhussam/knee-eight-perfinding-submit",
-   "kernel_version": 2,
-   "ref": 56403779,
-   "members": [
-    "convnext_base_relabel",
-    "mricore_vitb_cross_attention",
-    "mricore_vitb_mae_cross_attention",
-    "dinov3_convnext_base",
-    "convnext_base_25d_18slices",
-    "swinv2_base_in22k",
-    "convnext_base_25d_poolattn",
-    "convnext_base_25d_perfinding_slots_and_pooling"
-   ],
-   "blend": "flat",
-   "val_flat": 0.917,
-   "audit58": 0.9173,
-   "public_score": 0.932,
-   "private_score": null,
-   "s_per_study": 23.89,
-   "decode_passes": 3,
-   "commit_run_minutes": 15.2,
-   "notes": "THE 0.932 SEVEN PLUS AN EIGHTH, FLAT. The only change is adding convnext_base_25d_perfinding_slots_and_pooling, which pools each finding over only the views that can show it. It joins FLAT rather than nested: its logit correlation with the seven is 0.848 mean / 0.740 min where the other 2.5D ConvNeXt siblings sit at 0.95-0.99, so it is not a near-duplicate. Measured over 84 placements, flat +0.0006 val and every nested form +0.0003 to +0.0004; cross-fitted 0.9176 against the shipped 0.9172. Shipped SOLO it scored 0.915 against its parent's 0.914 while val had it 0.0049 BELOW that parent, so val understates this member. RUNTIME: it is 6 slots with per-slot slice counts so it does NOT share the seven's decode group - 3 decode passes, 23.890 s/study against the 21.689 s that was observed to take 5.7 h, so about 6.3 h of the 9 h cap. Measured on a free kernel run first, exactly because of that extra decode group. SCORED 0.932, EXACTLY the seven-member score. Adding convnext_base_25d_perfinding_slots_and_pooling flat moved the leaderboard by 0.000, against the +0.0006 val and +0.0004 cross-fitted that justified it. So its slot is NEUTRAL, not positive: the ensemble already covered whatever that member knows, even though its logit correlation with the seven was only 0.848 mean / 0.740 min. Decorrelation bought nothing here."
-  },
-  {
-   "ref": 56406266,
-   "date": "2026-09-20",
-   "slug": "knee-eight-laterality",
-   "kernel": "mamounhussam/knee-eight-laterality-submit",
-   "kernel_version": 1,
-   "members": [
-    "convnext_base_relabel",
-    "mricore_vitb_cross_attention",
-    "mricore_vitb_mae_cross_attention",
-    "dinov3_convnext_base",
-    "convnext_base_25d_all_knees_same_orientation",
-    "swinv2_base_in22k",
-    "convnext_base_25d_poolattn",
-    "convnext_base_25d_perfinding_slots_and_pooling"
-   ],
-   "blend": "flat",
-   "val_flat": 0.9169,
-   "audit58": 0.9173,
-   "public_score": 0.933,
-   "private_score": null,
-   "s_per_study": 23.89,
-   "decode_passes": 3,
-   "commit_run_minutes": 10.2,
-   "notes": "BEST SUBMISSION SO FAR, 0.933. ONE change from the 0.932 eight: convnext_base_25d_18slices replaced by convnext_base_25d_all_knees_same_orientation, which mirrors every LEFT knee so all studies face the same way, the mirror axis chosen per plane (sagittal reverses SLICE ORDER, coronal and axial reverse WIDTH). Validation scored the swap at -0.0001 and the leaderboard at +0.001. TAKEN WITH submission 56403779, which scored 0.932 - exactly the seven-member score - the two ensembles separate the two changes cleanly: adding the per-finding member bought 0.000 and swapping the laterality member bought +0.001. Laterality is the thing that is working. This is the THIRD consecutive time validation under-called laterality: the run solo was -0.0002 on val and +0.005 on the leaderboard (0.919 vs its parent's 0.914), and the swap was -0.0001 on val and +0.001 on the leaderboard."
-  },
-  {
-   "submission_ref": 56443547,
-   "kernel": "mamounhussam/knee-nine-spatial-2gpu-submit",
-   "members": [
-    "convnext_base_relabel",
-    "mricore_vitb_cross_attention",
-    "mricore_vitb_mae_cross_attention",
-    "dinov3_convnext_base",
-    "convnext_base_25d_all_knees_same_orientation",
-    "swinv2_base_in22k",
-    "convnext_base_25d_poolattn",
-    "convnext_base_25d_perfinding_slots_and_pooling",
-    "convnext_base_25d_spatial"
-   ],
-   "public_score": 0.932,
-   "submitted": "2026-09-21",
-   "notes": "0.933 eight + convnext_base_25d_spatial. The audit-58 bet (audit +0.0018, val -0.0002); LOST -0.001. First submission on both T4s.",
-   "private_score": null
-  },
-  {
-   "submission_ref": 56443932,
-   "kernel": "mamounhussam/knee-eight-full-swap-submit",
-   "members": [
-    "convnext_base_full_all_knees_same_orientation",
-    "mricore_vitb_cross_attention",
-    "mricore_vitb_mae_cross_attention",
-    "dinov3_convnext_base",
-    "convnext_base_25d_all_knees_same_orientation",
-    "swinv2_base_in22k",
-    "convnext_base_25d_poolattn",
-    "convnext_base_25d_perfinding_slots_and_pooling"
-   ],
-   "public_score": 0.934,
-   "submitted": "2026-09-21",
-   "notes": "0.933 eight with convnext_base_relabel -> convnext_base_full_all_knees_same_orientation. +0.001.",
-   "private_score": null
-  },
-  {
-   "submission_ref": 56444173,
-   "kernel": "mamounhussam/knee-nine-medimageinsight-submit",
-   "members": [
-    "convnext_base_relabel",
-    "mricore_vitb_cross_attention",
-    "mricore_vitb_mae_cross_attention",
-    "dinov3_convnext_base",
-    "convnext_base_25d_all_knees_same_orientation",
-    "swinv2_base_in22k",
-    "convnext_base_25d_poolattn",
-    "convnext_base_25d_perfinding_slots_and_pooling",
-    "medimageinsight_davit_huge_336"
-   ],
-   "public_score": 0.934,
-   "submitted": "2026-09-21",
-   "notes": "0.933 eight + medimageinsight_davit_huge_336. +0.001.",
-   "private_score": null
-  },
-  {
-   "submission_ref": 56459152,
-   "kernel": "mamounhussam/knee-nine-full-medimageinsight-submit",
-   "members": [
-    "convnext_base_full_all_knees_same_orientation",
-    "mricore_vitb_cross_attention",
-    "mricore_vitb_mae_cross_attention",
-    "dinov3_convnext_base",
-    "convnext_base_25d_all_knees_same_orientation",
-    "swinv2_base_in22k",
-    "convnext_base_25d_poolattn",
-    "convnext_base_25d_perfinding_slots_and_pooling",
-    "medimageinsight_davit_huge_336"
-   ],
-   "public_score": null,
-   "submitted": "2026-09-22",
-   "notes": "DEGRADED - ignore any score. Process split OOM'd, a child died, later batches blocked an hour each and fell back to 0.5; medimageinsight contributed nothing.",
-   "private_score": null
-  },
-  {
-   "submission_ref": 56461328,
-   "kernel": "mamounhussam/knee-nine-full-medimageinsight-submit",
-   "members": [
-    "convnext_base_full_all_knees_same_orientation",
-    "mricore_vitb_cross_attention",
-    "mricore_vitb_mae_cross_attention",
-    "dinov3_convnext_base",
-    "convnext_base_25d_all_knees_same_orientation",
-    "swinv2_base_in22k",
-    "convnext_base_25d_poolattn",
-    "convnext_base_25d_perfinding_slots_and_pooling",
-    "medimageinsight_davit_huge_336"
-   ],
-   "public_score": 0.935,
-   "submitted": "2026-09-22",
-   "notes": "BEST. Both changes at once, after the process-split fix; the two isolating submissions (0.934 each) show they add.",
-   "private_score": null
-  },
-  {
-   "submission_ref": 56468176,
-   "kernel": "mamounhussam/knee-ten-perslice480-submit",
-   "members": [
-    "convnext_base_full_all_knees_same_orientation",
-    "mricore_vitb_cross_attention",
-    "mricore_vitb_mae_cross_attention",
-    "dinov3_convnext_base",
-    "convnext_base_25d_all_knees_same_orientation",
-    "swinv2_base_in22k",
-    "convnext_base_25d_poolattn",
-    "convnext_base_25d_perfinding_slots_and_pooling",
-    "medimageinsight_davit_huge_336",
-    "medimageinsight_davit_huge_perslice_480_warm"
-   ],
-   "public_score": 0.935,
-   "submitted": "2026-09-22",
-   "notes": "0.935 nine + medimageinsight_davit_huge_perslice_480_warm, ADDED. Scored 0.935, exactly the nine: val's +0.0007 bought 0.000.",
-   "private_score": null
-  },
-  {
-   "submission_ref": 56472575,
-   "kernel": "mamounhussam/knee-nine-fulldata-swap-submit",
-   "members": [
-    "convnext_base_full_all_knees_same_orientation",
-    "mricore_vitb_cross_attention",
-    "mricore_vitb_mae_cross_attention_fulldata_flip",
-    "dinov3_convnext_base",
-    "convnext_base_25d_all_knees_same_orientation",
-    "swinv2_base_in22k",
-    "convnext_base_25d_poolattn_fulldata_flip",
-    "convnext_base_25d_perfinding_slots_and_pooling",
-    "medimageinsight_davit_huge_336_fulldata"
-   ],
-   "public_score": 0.937,
-   "submitted": "2026-09-22",
-   "notes": "NEW BEST, 0.937 (+0.002). The 0.935 nine with mricore_vitb_mae_cross_attention, convnext_base_25d_poolattn and medimageinsight_davit_huge_336 swapped for their full-data (+mirror) retrains, final steps 6050/3850/4400. Full data has now paid every time it has been tried.",
-   "private_score": null
-  },
-  {
-   "submission_ref": 56489550,
-   "kernel": "mamounhussam/knee-ten-fulldata-swap-submit",
-   "kernel_version": 1,
-   "submitted": "2026-09-23",
-   "public_score": 0.938,
-   "private_score": null,
-   "members": [
-    "convnext_base_full_all_knees_same_orientation",
-    "mricore_vitb_cross_attention",
-    "mricore_vitb_mae_cross_attention_fulldata_flip",
-    "dinov3_convnext_base",
-    "convnext_base_25d_all_knees_same_orientation_fulldata",
-    "swinv2_base_in22k",
-    "convnext_base_25d_poolattn_fulldata_flip",
-    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
-    "medimageinsight_davit_huge_336_fulldata",
-    "medimageinsight_davit_huge_perslice_480_warm"
-   ],
-   "notes": "0.937 nine with two more full-data swaps (all_knees 6600, perfinding+flip 3300) plus the 480 warm as a tenth. Six of nine originals now full-data. 5 decode passes, 29.755 s/study serial. Public 0.938 (+0.001 over the 0.937 nine): NEW BEST."
-  },
-  {
-   "submission_ref": 56500443,
-   "kernel": "mamounhussam/knee-eleven-coatnet-submit",
-   "kernel_version": 1,
-   "submitted": "2026-09-23",
-   "public_score": 0.937,
-   "private_score": null,
-   "members": [
-    "convnext_base_full_all_knees_same_orientation",
-    "mricore_vitb_cross_attention",
-    "mricore_vitb_mae_cross_attention_fulldata_flip",
-    "dinov3_convnext_base",
-    "convnext_base_25d_all_knees_same_orientation_fulldata",
-    "swinv2_base_in22k",
-    "convnext_base_25d_poolattn_fulldata_flip",
-    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
-    "medimageinsight_davit_huge_336_fulldata",
-    "medimageinsight_davit_huge_perslice_480_warm",
-    "coatnet_rmlp2_384"
-   ],
-   "notes": "The 0.938 ten + coatnet_rmlp2_384 (step 6700). CoAtNet solo LB 0.918; offline add val +0.0001 (CI -0.0005..+0.0007), audit +0.0007. Gate clean: 11/11 members, 2 GPUs, 6 decode passes, 33.5 s/study serial (8.8 h single-card at 946 studies, ~5 h on two). Public 0.937 (-0.001 vs the 0.938 ten): CoAtNet does not help on top of the ten."
-  },
-  {
-   "submission_ref": 56504398,
-   "kernel": "mamounhussam/knee-eleven-effnetv2-submit",
-   "kernel_version": 1,
-   "submitted": "2026-09-24",
-   "public_score": 0.937,
-   "private_score": null,
-   "members": [
-    "convnext_base_full_all_knees_same_orientation",
-    "mricore_vitb_cross_attention",
-    "mricore_vitb_mae_cross_attention_fulldata_flip",
-    "dinov3_convnext_base",
-    "convnext_base_25d_all_knees_same_orientation_fulldata",
-    "swinv2_base_in22k",
-    "convnext_base_25d_poolattn_fulldata_flip",
-    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
-    "medimageinsight_davit_huge_336_fulldata",
-    "medimageinsight_davit_huge_perslice_480_warm",
-    "efficientnetv2_l_384"
-   ],
-   "notes": "The 0.938 ten + efficientnetv2_l_384 (step 3900). Best single add of 53 clean runs offline: val +0.0003, audit -0.0001. Gate clean: 11/11 members, 2 GPUs, 6 decode passes, 32.7 s/study serial. The first upload hit Kaggle's private-storage quota (403 on create); the old sign-bridge dataset (~108 GB) was deleted with the user's OK. Public 0.937 (-0.001 vs the 0.938 ten)."
-  },
-  {
-   "submission_ref": 56531949,
-   "kernel": "mamounhussam/convnext-base-25d-18slices-mglabels-raw-submit",
-   "kernel_version": 1,
-   "submitted": "2026-09-25",
-   "public_score": 0.916,
-   "private_score": null,
-   "members": [
-    "convnext_base_25d_18slices_mglabels_raw"
-   ],
-   "notes": "Solo, MedGemma-blended labels, UNCALIBRATED average (17_*_qwen-mg-raw). Step 3900, val 0.9086, audit 0.9092. Public 0.916 (+0.002 vs parent convnext_base_25d_18slices 0.914). Kernel 16.2 min."
-  },
-  {
-   "submission_ref": 56532108,
-   "kernel": "mamounhussam/knee-convnext-base-25d-18slices-mglabels-submit",
-   "kernel_version": 1,
-   "submitted": "2026-09-25",
-   "public_score": 0.906,
-   "private_score": null,
-   "members": [
-    "convnext_base_25d_18slices_mglabels"
-   ],
-   "notes": "Solo, MedGemma-blended labels, CALIBRATED (17_*_qwen-mg). Step 5000, val 0.9223 (on its own labels), audit 0.9078. Public 0.906 (-0.008 vs parent 0.914). Calibration hurt on the leaderboard despite better Brier."
-  },
-  {
-   "submission_ref": 56554409,
-   "kernel": "mamounhussam/knee-convnext-base-25d-18slices-mglabels-raw-submit",
-   "kernel_version": 2,
-   "submitted": "2026-09-25",
-   "public_score": 0.916,
-   "private_score": null,
-   "members": [
-    "convnext_base_25d_18slices_mglabels_raw (weight average of steps 4000-5100)"
-   ],
-   "notes": "Uniform weight average of 12 checkpoints (steps 4000-5100, modal_scripts/avg_checkpoints.py): val 0.9083, audit 0.9125 vs step 3900's 0.9086 / 0.9092. Public 0.916, identical to the step-3900 submission (56531949): averaging moved nothing visible at 3 decimals."
-  },
-  {
-   "submission_ref": 56589011,
-   "kernel": "mamounhussam/knee-convnext-base-25d-18slices-oof-submit",
-   "kernel_version": 1,
-   "submitted": "2026-09-27",
-   "public_score": 0.905,
-   "private_score": null,
-   "members": [
-    "convnext_base_25d_18slices_oof"
-   ],
-   "notes": "Solo, trained LOCALLY (RTX 4060) on 18_* labels: 17_*-raw + 30% out-of-fold convnext_base_25d_18slices logits, all 12 findings (label audit 0.9396). Best-val step 2900, val 0.9281 (own labels), audit 0.9052. Public 0.905 (-0.011 vs the MedGemma twin 0.916): out-of-fold same-architecture labels HURT."
-  },
-  {
-   "submission_ref": 56633125,
-   "kernel": "mamounhussam/knee-convnext-base-25d-18slices-ens-submit",
-   "kernel_version": 1,
-   "submitted": "2026-09-28",
-   "public_score": 0.903,
-   "private_score": null,
-   "members": [
-    "convnext_base_25d_18slices_ens"
-   ],
-   "notes": "Solo, trained LOCALLY (RTX 4060) on 20_* labels: 17_*-raw + 30% of the 0.938 ensemble's flat-mean logits (10 members), all 12 findings. Best-val step 2900, val 0.9155 (own ensemble-blended labels), audit 0.9029. Kernel 9.1 min. Public 0.903 (-0.013 vs the MedGemma twin 0.916): ensemble-prediction labels HURT, like the out-of-fold ones."
-  },
-  {
-   "submission_ref": 56647776,
-   "kernel": "mamounhussam/knee-cb25d-allknees-fulldata-v3-submit",
-   "kernel_version": 1,
-   "submitted": "2026-09-28",
-   "public_score": 0.906,
-   "private_score": null,
-   "members": [
-    "convnext_base_25d_all_knees_same_orientation_fulldata_v3_labels"
-   ],
-   "notes": "Solo, trained LOCALLY (RTX 4060): ensemble member convnext_base_25d_all_knees_same_orientation_fulldata retrained on v3 labels (17_train_full_qwen-mg-raw), final step 6600, no val. Public 0.906, far below the split-data v2 version's 0.919 (the v2 full-data member was never scored solo, so no like-for-like pair). First submit attempt hit a Kaggle 500 and did not count. CAVEAT found the same day: every local run before the 28 Sep fix replayed epoch 1's augmentation (Windows-spawned loader workers never saw the epoch counter), so this score is not evidence about v3 labels."
-  },
-  {
-   "submission_ref": 56648621,
-   "kernel": "mamounhussam/knee-ten-v3-labels-25d-submit",
-   "kernel_version": 1,
-   "submitted": "2026-09-28",
-   "public_score": 0.938,
-   "private_score": null,
-   "members": [
-    "convnext_base_full_all_knees_same_orientation",
-    "mricore_vitb_cross_attention",
-    "mricore_vitb_mae_cross_attention_fulldata_flip",
-    "dinov3_convnext_base",
-    "convnext_base_25d_all_knees_same_orientation_fulldata_v3_labels",
-    "swinv2_base_in22k",
-    "convnext_base_25d_poolattn_fulldata_flip",
-    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
-    "medimageinsight_davit_huge_336_fulldata",
-    "medimageinsight_davit_huge_perslice_480_warm"
-   ],
-   "notes": "The 0.938 ten with convnext_base_25d_all_knees_same_orientation_fulldata swapped for its local v3-label retrain. Public 0.938, a TIE with the original ten (56489550) even though the swapped member was trained with the frozen-augmentation bug and scored only 0.906 solo. Flat logit average of 10."
-  },
-  {
-   "submission_ref": 56668449,
-   "kernel": "mamounhussam/knee-cb25d18-mgraw-localcheck-submit",
-   "kernel_version": 2,
-   "submitted": "2026-09-29",
-   "public_score": 0.915,
-   "private_score": null,
-   "members": [
-    "convnext_base_25d_18slices_mglabels_raw_localcheck"
-   ],
-   "notes": "Solo. LOCAL replica (RTX 4060, after the augmentation-seed and partial-step fixes) of convnext_base_25d_18slices_mglabels_raw (Modal, 0.916): identical labels, split, settings. top_step3900.pt, val 0.9083 vs Modal 0.9086 at the same step. Public 0.915 vs 0.916: local training now matches Modal within leaderboard rounding."
-  },
-  {
-   "submission_ref": 56701302,
-   "kernel": "mamounhussam/knee-cb25d18-oof-seedfix-submit",
-   "kernel_version": 1,
-   "submitted": "2026-09-30",
-   "public_score": 0.922,
-   "private_score": null,
-   "members": [
-    "convnext_base_25d_18slices_oof_seedfix"
-   ],
-   "notes": "Solo. Out-of-fold labels (18_*: v3 + 30% out-of-fold convnext_base_25d_18slices logits, all 12 findings), retrained LOCALLY after the augmentation-seed fix; otherwise identical to the v3 local replica (0.915). best.pt step 5000, own-label val 0.9372, audit 0.9153 (replica 0.9084). Public 0.922 (+0.007 over v3's 0.915/0.916): the BEST single convnext_base_25d model so far; the old 0.905 was the bug, not the labels."
-  },
-  {
-   "submission_ref": 56716531,
-   "kernel": "mamounhussam/knee-cb25d18-ens-seedfix-submit",
-   "kernel_version": 1,
-   "submitted": "2026-09-30",
-   "public_score": 0.921,
-   "private_score": null,
-   "members": [
-    "convnext_base_25d_18slices_ens_seedfix"
-   ],
-   "notes": "Solo. Ensemble-prediction labels (20_*: v3 + 30% of the 0.938 ensemble's logits, all 12 findings), retrained LOCALLY after the augmentation-seed fix. top_step3900.pt (val peak), own-label val 0.9281, audit 0.9127. Public 0.921 vs out-of-fold labels 0.922 and v3 0.915: both model-prediction label sets beat v3 by ~0.006-0.007; the old 0.903 was the bug."
-  },
-  {
-   "submission_ref": 56717588,
-   "kernel": "mamounhussam/knee-cb25d18-ens-seedfix-submit",
-   "kernel_version": 2,
-   "submitted": "2026-09-30",
-   "public_score": 0.922,
-   "private_score": null,
-   "members": [
-    "convnext_base_25d_18slices_ens_seedfix"
-   ],
-   "notes": "Solo, same run as 56716531 but step5000.pt: the audit peak (0.9169) at val 0.9278 vs step 3900's 0.9281 / 0.9127. Public 0.922 vs 0.921: audit picked the better checkpoint, by 0.001 (noise level). Backup at C:\\temp1\\checkpoint_backups."
-  },
-  {
-   "submission_ref": 56718464,
-   "kernel": "mamounhussam/medimageinsight-davit-huge-336-fulldata-submit",
-   "kernel_version": 1,
-   "submitted": "2026-09-30",
-   "public_score": 0.927,
-   "private_score": null,
-   "members": [
-    "medimageinsight_davit_huge_336_fulldata"
-   ],
-   "notes": "Solo, first time scored alone. Full data (train+val+audit), v2 labels, final step 4400, no val. Public 0.927 vs its split-data parent medimageinsight_davit_huge_336 0.929: full data gave no gain (-0.002, within the +/-0.007 single-score noise). Kernel 13.2 min."
-  },
-  {
-   "submission_ref": 56747511,
-   "kernel": "mamounhussam/knee-mii-336-v3-5folds-submit",
-   "kernel_version": 1,
-   "submitted": "2026-10-01",
-   "public_score": 0.936,
-   "private_score": null,
-   "members": [
-    "medimageinsight_davit_huge_336_v3_f0",
-    "medimageinsight_davit_huge_336_v3_f1",
-    "medimageinsight_davit_huge_336_v3_f2",
-    "medimageinsight_davit_huge_336_v3_f3",
-    "medimageinsight_davit_huge_336_v3_f4"
-   ],
-   "notes": "The 5 MedImageInsight v3-label fold models (best-val steps 2700/3500/3400/2700/3200), flat logit mean, one architecture. Public 0.936: +0.007 over the single split MII (0.929), +0.009 over the full-data MII (0.927), +0.018 over the ConvNeXt 5-fold ensemble (0.918), and only 0.002 below the 10-member 0.938 ensemble. Audit-58 of the fold mean 0.9252. Kernel 28.4 min. Built with submit_ensemble.py configs/mii_v3_folds.py."
-  },
-  {
-   "submission_ref": 56749586,
-   "kernel": "mamounhussam/knee-cb25d18-oof-convnext-mii-w30-submit",
-   "kernel_version": 1,
-   "submitted": "2026-10-01",
-   "public_score": 0.922,
-   "private_score": null,
-   "members": [
-    "convnext_base_25d_18slices_oof_convnext_mii_labels_w30"
-   ],
-   "notes": "Solo. Modal H100. Labels 22_*-w30: v3 70% + ConvNeXt folds 15% + MII folds 15% (label audit 0.9414). top_step3900 (val peak), val 0.9360 own labels, audit 0.9172. Public 0.922, a TIE with the ConvNeXt-only-teacher twin convnext_base_25d_18slices_oof_seedfix (0.922, audit 0.9153). Kernel 15.2 min."
-  },
-  {
-   "submission_ref": 56749747,
-   "kernel": "mamounhussam/knee-cb25d18-oof-convnext-mii-w50-submit",
-   "kernel_version": 1,
-   "submitted": "2026-10-01",
-   "public_score": 0.927,
-   "private_score": null,
-   "members": [
-    "convnext_base_25d_18slices_oof_convnext_mii_labels_w50"
-   ],
-   "notes": "Solo. Modal H100. Labels 22_*-w50: v3 50% + ConvNeXt folds 25% + MII folds 25% (label audit 0.9453). top_step5000 (val peak), val 0.9598 own labels, audit 0.9201. Public 0.927: BEST convnext_base_25d single, +0.005 over its w30 twin and the ConvNeXt-only-teacher twin (both 0.922), +0.011 over v3 labels (0.916). Kernel 10.1 min."
-  },
-  {
-   "submission_ref": 56753549,
-   "kernel": "mamounhussam/knee-ten-mii-5folds-submit",
-   "kernel_version": null,
-   "submitted": "2026-10-01",
-   "public_score": 0.5,
-   "private_score": null,
-   "members": [
-    "convnext_base_full_all_knees_same_orientation",
-    "mricore_vitb_cross_attention",
-    "mricore_vitb_mae_cross_attention_fulldata_flip",
-    "dinov3_convnext_base",
-    "convnext_base_25d_all_knees_same_orientation_fulldata",
-    "swinv2_base_in22k",
-    "convnext_base_25d_poolattn_fulldata_flip",
-    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
-    "medimageinsight_davit_huge_perslice_480_warm",
-    "medimageinsight_davit_huge_336_v3_f0",
-    "medimageinsight_davit_huge_336_v3_f1",
-    "medimageinsight_davit_huge_336_v3_f2",
-    "medimageinsight_davit_huge_336_v3_f3",
-    "medimageinsight_davit_huge_336_v3_f4"
-   ],
-   "notes": "FAILED: public 0.500 = every hidden-test prediction fell back to neutral. The ten with the full-data MII replaced by the 5 MII v3 folds (14 flat). The commit run (3 studies, ONE chunk) passed the gate, but the new offload-between-groups code only reloads weights from the SECOND chunk on, which 3 studies never reach; the 946-study rerun (~30 chunks) ended in ~1h20m instead of ~5h. A wasted attempt: no multi-chunk (STRESS) run was done before submitting."
-  },
-  {
-   "submission_ref": 56754762,
-   "kernel": "mamounhussam/knee-cb25d18-oof-convnext-mii-w60-submit",
-   "kernel_version": 1,
-   "submitted": "2026-10-01",
-   "public_score": 0.928,
-   "private_score": null,
-   "members": [
-    "convnext_base_25d_18slices_oof_convnext_mii_labels_w60"
-   ],
-   "notes": "Solo. Modal H100. Labels 22_*-w60: v3 40% + ConvNeXt folds 30% + MII folds 30% (label audit 0.9458). top_step5300 (val peak), val 0.9722 own labels, audit 0.9191. Public 0.928 vs w50 0.927: +0.001, a tie within leaderboard noise (audit had w60 -0.0010). By the rule fixed before submitting (a tie within ~0.003 keeps the more conservative weight), the label set stays w50. Unflipped, like w30/w50. Kernel 12.2 min."
-  },
-  {
-   "members": [
-    "convnext_base_full_all_knees_same_orientation",
-    "mricore_vitb_cross_attention",
-    "mricore_vitb_mae_cross_attention_fulldata_flip",
-    "dinov3_convnext_base",
-    "convnext_base_25d_all_knees_same_orientation_fulldata",
-    "swinv2_base_in22k",
-    "convnext_base_25d_poolattn_fulldata_flip",
-    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
-    "medimageinsight_davit_huge_perslice_480_warm",
-    "medimageinsight_davit_huge_336_v3_f0",
-    "medimageinsight_davit_huge_336_v3_f1",
-    "medimageinsight_davit_huge_336_v3_f2",
-    "medimageinsight_davit_huge_336_v3_f3",
-    "medimageinsight_davit_huge_336_v3_f4"
-   ],
-   "submitted": "2026-10-02 08:31 UTC",
-   "public_score": 0.942,
-   "private_score": null,
-   "val": null,
-   "audit58": 0.9268,
-   "kernel": "mamounhussam/knee-ten-mii-5folds-submit",
-   "kernel_version": null,
-   "submission_ref": 56769791,
-   "runtime_seconds": null,
-   "runtime": "stress run 4: 17.1 s/study over 128 studies, projected ~4.7 h on the 946 hidden studies; RAM peak 53%",
-   "notes": "Second attempt at the 14-member ensemble (the first, 56753549, scored 0.500 from a host-RAM crash). Submitted from stress stamp 63014019c018 without rebuilding: Kaggle dataset matched the stamp's 49 files, kernel ran the stress-tested engine 0fb97a22e13f, output checks passed. Flat logit mean; audit58 0.9268 is the flat ten+5-fold audit (ten_mii_folds_audit.py). To beat: 0.938. SCORED 0.942: NEW BEST, +0.004 over the 0.938 ten."
-  },
-  {
-   "members": [
-    "convnext_base_25d_warm_v5"
-   ],
-   "submitted": "2026-10-03 11:21 UTC",
-   "public_score": 0.928,
-   "private_score": null,
-   "val": null,
-   "audit58": 0.9215,
-   "kernel": "mamounhussam/knee-cb25d-warm-v5-submit",
-   "kernel_version": null,
-   "submission_ref": 56796592,
-   "runtime_seconds": null,
-   "notes": "Warm-start test: old v2 model fine-tuned 4 epochs on v4 labels (v5 split, flipped), last step 2000. Paired with convnext_base_25d_18slices_v5_aug_base (from scratch). Val leaky, audit 0.9215 vs 0.9209."
-  },
-  {
-   "members": [
-    "convnext_base_25d_18slices_v5_aug_base"
-   ],
-   "submitted": "2026-10-03",
-   "public_score": 0.93,
-   "private_score": null,
-   "val": 0.9174,
-   "audit58": 0.9209,
-   "kernel": "mamounhussam/knee-cb25d18-v5-aug-base-submit",
-   "kernel_version": null,
-   "submission_ref": 56796715,
-   "runtime_seconds": null,
-   "notes": "From-scratch twin of convnext_base_25d_warm_v5: v4 labels, v5 split, flipped, step 5900 (val peak)."
-  },
-  {
-   "members": [
-    "convnext_base_v5",
-    "mricore_vitb_cross_attention",
-    "mricore_vitb_mae_cross_attention_fulldata_flip",
-    "dinov3_convnext_base_v5",
-    "convnext_base_25d_18slices_v5_aug_base",
-    "swinv2_base_in22k",
-    "convnext_base_25d_poolattn_v5",
-    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
-    "medimageinsight_davit_huge_perslice_480_warm",
-    "medimageinsight_davit_huge_336_v3_f0",
-    "medimageinsight_davit_huge_336_v3_f1",
-    "medimageinsight_davit_huge_336_v3_f2",
-    "medimageinsight_davit_huge_336_v3_f3",
-    "medimageinsight_davit_huge_336_v3_f4"
-   ],
-   "submitted": "2026-10-03",
-   "public_score": 0.942,
-   "private_score": null,
-   "val": null,
-   "audit58": 0.9289,
-   "kernel": "mamounhussam/knee-relabel-b1-submit",
-   "kernel_version": null,
-   "submission_ref": 56805570,
-   "runtime_seconds": null,
-   "runtime": "stress: 17.6 s/study over 128 studies, ~4.9 h projected on 946; RAM peak 17.6/33.7 GB",
-   "notes": "Relabel batch 1: the 0.942 fourteen with dinov3_convnext_base_v5, convnext_base_v5, convnext_base_25d_18slices_v5_aug_base, convnext_base_25d_poolattn_v5 (step 3700) swapped in. From stress stamp 6ccdad5d92bb. audit58 0.9289 = split-analogue estimate. Scored 0.942: tie with the 0.942 fourteen."
-  },
-  {
-   "members": [
-    "convnext_base_v5",
-    "mricore_vitb_cross_attention_v5",
-    "mricore_vitb_mae_cross_attention_v5",
-    "dinov3_convnext_base_v5",
-    "convnext_base_25d_18slices_v5_aug_base",
-    "swinv2_base_in22k",
-    "convnext_base_25d_poolattn_v5",
-    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
-    "medimageinsight_davit_huge_perslice_480_warm",
-    "medimageinsight_davit_huge_336_v3_f0",
-    "medimageinsight_davit_huge_336_v3_f1",
-    "medimageinsight_davit_huge_336_v3_f2",
-    "medimageinsight_davit_huge_336_v3_f3",
-    "medimageinsight_davit_huge_336_v3_f4"
-   ],
-   "submitted": "2026-10-04",
-   "public_score": 0.942,
-   "private_score": null,
-   "val": null,
-   "audit58": 0.93,
-   "kernel": "mamounhussam/knee-relabel-b2-submit",
-   "kernel_version": 2,
-   "submission_ref": 56824782,
-   "runtime_seconds": null,
-   "runtime": "stress: 17.8 s/study over 128 studies (37m54s), ~4.7 h projected on 946; RAM peak 16.3/33.7 GB",
-   "notes": "Relabel batch 2: the batch-1 fourteen (0.942) with mricore_vitb_cross_attention_v5 (step 6480) and mricore_vitb_mae_cross_attention_v5 (step 3300) swapped in. From stress stamp b4ae8ed14ec0. audit58 0.9300 = split-analogue estimate (+0.0010 over batch 1). Scored 0.942: tie with batches 0 and 1."
-  },
-  {
-   "members": [
-    "swinv2_base_in22k_v5_warm"
-   ],
-   "submitted": "2026-10-04",
-   "public_score": 0.934,
-   "private_score": null,
-   "val": 0.9152,
-   "audit58": 0.9278,
-   "kernel": "mamounhussam/knee-swinv2-v5-warm-submit",
-   "kernel_version": 1,
-   "submission_ref": 56831420,
-   "runtime_seconds": null,
-   "runtime": "commit run 16.3 min (3 visible studies)",
-   "notes": "SwinV2 v5 solo: warm start from swinv2_base_in22k, v4 labels, 4,279 studies, flipped, step 2000 (clean-121 peak 0.9152). Old SwinV2 solo audit 0.9101."
-  },
-  {
-   "members": [
-    "convnext_base_v5",
-    "mricore_vitb_cross_attention_v5",
-    "mricore_vitb_mae_cross_attention_v5",
-    "dinov3_convnext_base_v5",
-    "convnext_base_25d_full_v5",
-    "swinv2_base_in22k_v5_warm",
-    "convnext_base_25d_poolattn_v5",
-    "convnext_base_25d_perfinding_v5",
-    "medimageinsight_davit_huge_perslice_480_warm",
-    "medimageinsight_davit_huge_336_v3_f0",
-    "medimageinsight_davit_huge_336_v3_f1",
-    "medimageinsight_davit_huge_336_v3_f2",
-    "medimageinsight_davit_huge_336_v3_f3",
-    "medimageinsight_davit_huge_336_v3_f4",
-    "convnext_base_25d_v5_spec_trauma",
-    "convnext_base_25d_v5_spec_pfoa",
-    "convnext_base_25d_v5_spec_fluid",
-    "mricore_vitb_cross_attention"
-   ],
-   "submitted": "2026-10-05",
-   "public_score": 0.941,
-   "private_score": null,
-   "val": null,
-   "audit58": null,
-   "kernel": "mamounhussam/knee-relabel-b3-submit",
-   "kernel_version": 3,
-   "submission_ref": 56835355,
-   "runtime_seconds": null,
-   "runtime": "stress #2: 18.9 s/study over 128 studies (40m14s), ~5.0 h projected on 946; RAM peak 16.1/33.7 GB",
-   "blend_weights": "relabel_b3_weights.json (spec_trauma 1 on Fracture/Contusion, spec_pfoa 2 on PF OA, spec_fluid 1 on Effusion/Synovitis/Baker's; others 1)",
-   "notes": "Relabel batch 3: batch-2 fourteen with swinv2_base_in22k_v5_warm (2000), convnext_base_25d_full_v5 (6600), convnext_base_25d_perfinding_v5 (3000); + 3 specialists on their own findings; + old-label mricore_vitb_cross_attention for diversity. From stress stamp f42133575a31 (stress #1 failed on the partial-head-group alignment; engine fixed)."
-  },
-  {
-   "members": [
-    "PUBLIC PIPELINE ALONE (yamadan96/rsna-knee-d4-public0946 code, Stage 3 RadImageNet removed): 20 DINOv2-small slot readers, 5 A5 folds, 4 Raptor CoAtNet views, CoAtNet residual-gated / Global96 / D4 / Repair-v1"
-   ],
-   "submitted": "2026-10-05",
-   "public_score": 0.937,
-   "private_score": null,
-   "val": null,
-   "audit58": null,
-   "kernel": "mamounhussam/knee-public-alone",
-   "kernel_version": 1,
-   "submission_ref": 56851117,
-   "runtime_seconds": null,
-   "runtime": "public-only 128-study tests: 43.3 min sequential / 37.6 min parallel CoAt readers (~4.3 h on 946)",
-   "blend_weights": null,
-   "note": "Measures the prize-safe public side alone, to set the blend weight of the combined notebook. Parallel CoAt readers, cap 8 h."
-  },
-  {
-   "members": [
-    "convnext_base_v5",
-    "mricore_vitb_cross_attention_v5",
-    "mricore_vitb_mae_cross_attention_v5",
-    "dinov3_convnext_base_v5",
-    "convnext_base_25d_18slices_v5_aug_base",
-    "convnext_base_25d_poolattn_v5",
-    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
-    "medimageinsight_davit_huge_336_v3_f0",
-    "medimageinsight_davit_huge_336_v3_f1",
-    "+ PUBLIC PIPELINE (prize-safe, Stage 3 RadImageNet removed), rank blend w 0.5"
-   ],
-   "submitted": "2026-10-05",
-   "public_score": 0.94,
-   "private_score": null,
-   "val": null,
-   "audit58": "ours-only offline (scaffold analogues): 0.9293 vs 0.9305 for the 14",
-   "kernel": "mamounhussam/knee-combined-b2cut-submit",
-   "kernel_version": 2,
-   "submission_ref": 56851528,
-   "runtime_seconds": null,
-   "runtime": "stress 54cd84fd057c: 9/9 members, public 128/128 in 35.5 min (parallel CoAt readers), projected 6.15 h on 946 (public 4.37 h)",
-   "blend_weights": "per finding (1-0.5) rank(ours) + 0.5 rank(public)",
-   "note": "COMBINED: batch 2 trimmed to 9 (no SwinV2, no MII-480, MII folds f0-f1) + prize-safe public pipeline."
-  },
-  {
-   "members": [
-    "convnext_base_v5",
-    "mricore_vitb_cross_attention_v5",
-    "dinov3_convnext_base_v5",
-    "convnext_base_25d_18slices_v5_aug_base",
-    "swinv2_base_in22k_v5_warm",
-    "convnext_base_25d_poolattn_v5",
-    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
-    "medimageinsight_davit_huge_336_v3_f0",
-    "medimageinsight_davit_huge_336_v3_f1",
-    "+ PUBLIC PIPELINE (prize-safe), rank blend w 0.5"
-   ],
-   "submitted": "2026-10-05",
-   "public_score": null,
-   "private_score": null,
-   "val": null,
-   "audit58": "ours-only offline (scaffold): 0.9311 (+0.0006 vs 14), clean-121 0.9176 (+0.0020)",
-   "kernel": "mamounhussam/knee-seta-submit-b",
-   "kernel_version": 1,
-   "submission_ref": 56857028,
-   "runtime_seconds": null,
-   "runtime": "stress 8db425358c6c: projected 6.93 h (ours 2.24 + public 4.44, sequential)",
-   "blend_weights": "per finding 0.5 rank(ours) + 0.5 rank(public)",
-   "note": "COMBINED SET A (members by leave-one-out value). Original kernel knee-combined-seta-submit errored at start 3x with empty logs; same stamped notebook pushed as a new kernel. Hidden rerun failed: Kaggle 'system error'."
-  },
-  {
-   "members": [
-    "convnext_base_v5",
-    "mricore_vitb_cross_attention_v5",
-    "dinov3_convnext_base_v5",
-    "convnext_base_25d_18slices_v5_aug_base",
-    "swinv2_base_in22k_v5_warm",
-    "convnext_base_25d_poolattn_v5",
-    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
-    "medimageinsight_davit_huge_336_v3_f0",
-    "medimageinsight_davit_huge_336_v3_f1",
-    "+ PUBLIC PIPELINE (prize-safe), rank blend w 0.5"
-   ],
-   "submitted": "2026-10-05",
-   "public_score": null,
-   "private_score": null,
-   "val": null,
-   "audit58": "ours-only offline (scaffold): 0.9311 (+0.0006 vs 14), clean-121 0.9176 (+0.0020)",
-   "kernel": "mamounhussam/knee-seta-submit-b",
-   "kernel_version": 1,
-   "submission_ref": 56857307,
-   "runtime_seconds": null,
-   "runtime": "stress 8db425358c6c: projected 6.93 h (ours 2.24 + public 4.44, sequential)",
-   "blend_weights": "per finding 0.5 rank(ours) + 0.5 rank(public)",
-   "note": "RESUBMIT of 56857028 (Kaggle system error), same kernel version. Exceeded the allowed runtime (no score)."
-  },
-  {
-   "members": [
-    "convnext_base_v5",
-    "dinov3_convnext_base_v5",
-    "convnext_base_25d_18slices_v5_aug_base",
-    "convnext_base_25d_poolattn_full_v5",
-    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
-    "medimageinsight_davit_huge_336_v3_f0",
-    "public pipeline (no RadImageNet; Global96 and Repair-v1 skipped), rank blend w 0.5"
-   ],
-   "submitted": "2026-10-05",
-   "public_score": 0.943,
-   "private_score": null,
-   "val": null,
-   "audit58": "ours-only offline: 0.9312 (+0.0007 vs 14), clean-121 0.9171 (+0.0015)",
-   "kernel": "mamounhussam/knee-combined-fit-a",
-   "kernel_version": 1,
-   "submission_ref": 56861632,
-   "runtime_seconds": null,
-   "runtime": "no stress (user override); commit run 16.3 min on 3 studies; ours first, public capped to 8.2 h - elapsed",
-   "blend_weights": "per finding 0.5 rank(ours) + 0.5 rank(public)",
-   "note": "Sized for ~1300 hidden studies; ORDER last: ours writes the submission first, public blends only if it finishes."
-  },
-  {
-   "members": [
-    "convnext_base_v5",
-    "dinov3_convnext_base_v5",
-    "convnext_base_25d_18slices_v5_aug_base",
-    "convnext_base_25d_poolattn_full_v5",
-    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
-    "medimageinsight_davit_huge_336_v3_f0",
-    "medimageinsight_davit_huge_336_v3_f4",
-    "mricore_vitb_cross_attention_v5",
-    "swinv2_base_in22k_v5_warm",
-    "public pipeline (trimmed), rank blend w 0.5"
-   ],
-   "submitted": "2026-10-06",
-   "public_score": null,
-   "private_score": null,
-   "val": null,
-   "audit58": "not scored offline as a set (3 members added by leave-one-out value)",
-   "kernel": "mamounhussam/knee-combined-fit9-a",
-   "kernel_version": 1,
-   "submission_ref": 56873740,
-   "runtime_seconds": null,
-   "runtime": "no stress (user approved); commit run 13.2 min; ours ~3.2 h est + trimmed public ~4.3 h est",
-   "blend_weights": "per finding 0.5 rank(ours) + 0.5 rank(public)",
-   "note": "RESUBMIT of 56873456 (Kaggle system error), same kernel version."
-  },
-  {
-   "members": [
-    "convnext_base_v5",
-    "dinov3_convnext_base_v5",
-    "convnext_base_25d_18slices_v5_aug_base",
-    "convnext_base_25d_poolattn_full_v5",
-    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
-    "medimageinsight_davit_huge_336_v3_f0",
-    "medimageinsight_davit_huge_336_v3_f4",
-    "mricore_vitb_cross_attention_v5",
-    "swinv2_base_in22k_v5_warm",
-    "convnext_base_25d_v5_joint_zoom_030 (top_step1500, joint findings only)",
-    "public pipeline (trimmed), rank blend w 0.5"
-   ],
-   "submitted": "2026-10-06",
-   "public_score": null,
-   "private_score": null,
-   "val": null,
-   "audit58": "fit-10 analogue 0.9324 / clean-121 0.9193 (zoom +0.0013 / +0.0005)",
-   "kernel": "mamounhussam/knee-combined-fit10-a",
-   "kernel_version": 1,
-   "submission_ref": 56882130,
-   "runtime_seconds": null,
-   "runtime": "fp16 inference (KNEE_INFER_HALF); commit run 27.4 min; no stress (user approved)",
-   "blend_weights": "per finding 0.5 rank(ours) + 0.5 rank(public)",
-   "note": "fit-9 + 0.30 mm joint zoom voting on ACL, menisci, medial/lateral OA (fit10_weights.json)."
-  },
-  {
-   "members": [
-    "convnext_base_v5",
-    "dinov3_convnext_base_v5",
-    "convnext_base_25d_18slices_v5_aug_base",
-    "convnext_base_25d_poolattn_full_v5",
-    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
-    "medimageinsight_davit_huge_336_v3_f0",
-    "medimageinsight_davit_huge_336_v3_f4",
-    "mricore_vitb_cross_attention_v5",
-    "swinv2_base_in22k_v5_warm",
-    "convnext_base_25d_v5_joint_zoom_030 (top_step1500, joint findings only)",
-    "public pipeline (trimmed), rank blend w 0.5"
-   ],
-   "submitted": "2026-10-06",
-   "public_score": null,
-   "private_score": null,
-   "val": null,
-   "audit58": "fit-10 analogue 0.9324 / clean-121 0.9193 (zoom +0.0013 / +0.0005)",
-   "kernel": "mamounhussam/knee-combined-fit10-w04",
-   "kernel_version": 1,
-   "submission_ref": 56885292,
-   "runtime_seconds": null,
-   "runtime": "fp16 inference (KNEE_INFER_HALF); commit run 27.4 min; no stress (user approved)",
-   "blend_weights": "per finding 0.6 rank(ours) + 0.4 rank(public)",
-   "note": "fit-10 resubmitted with PUBLIC_W 0.4 (resubmit_blend_weight.py), same dataset as 56882130."
-  },
-  {
-   "members": [
-    "convnext_base_v5",
-    "dinov3_convnext_base_v5",
-    "convnext_base_25d_18slices_v5_aug_base",
-    "convnext_base_25d_poolattn_full_v5",
-    "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
-    "medimageinsight_davit_huge_336_v3_f0",
-    "medimageinsight_davit_huge_336_v3_f4",
-    "mricore_vitb_cross_attention_v5",
-    "swinv2_base_in22k_v5_warm",
-    "convnext_base_25d_v5_joint_zoom_030 (top_step1500, joint findings only)",
-    "public pipeline (trimmed), rank blend w 0.5"
-   ],
-   "submitted": "2026-10-06",
-   "public_score": null,
-   "private_score": null,
-   "val": null,
-   "audit58": "fit-10 analogue 0.9324 / clean-121 0.9193 (zoom +0.0013 / +0.0005)",
-   "kernel": "mamounhussam/knee-combined-fit10-w06",
-   "kernel_version": 1,
-   "submission_ref": 56885231,
-   "runtime_seconds": null,
-   "runtime": "fp16 inference (KNEE_INFER_HALF); commit run 27.4 min; no stress (user approved)",
-   "blend_weights": "per finding 0.4 rank(ours) + 0.6 rank(public)",
-   "note": "fit-10 resubmitted with PUBLIC_W 0.6 (resubmit_blend_weight.py), same dataset as 56882130."
-  }
- ]
+  "_note": "Ensembles have no training_summary.json of their own (they are not a run), so every ensemble submission is recorded here instead. Same fields as a run's `submission` block.",
+  "submissions": [
+    {
+      "members": [
+        "convnext_small_4slot",
+        "convnext_base_4slot",
+        "mricore_vitb"
+      ],
+      "submitted": "2026-08-23 16:37 UTC",
+      "public_score": 0.912,
+      "private_score": null,
+      "val": 0.8983,
+      "audit58": 0.8923,
+      "kernel": "mamounhussam/knee-ensemble-3-submit",
+      "kernel_version": 1,
+      "submission_ref": 55719956,
+      "runtime_seconds": null,
+      "notes": "First ensemble submission. +0.004 over the 0.908 convnext_small_4slot baseline; the val gain (+0.0043) carried to the leaderboard almost exactly."
+    },
+    {
+      "members": [
+        "convnext_small_4slot",
+        "convnext_base_4slot",
+        "mricore_vitb",
+        "radimagenet_resnet50"
+      ],
+      "submitted": "2026-08-23 21:53 UTC",
+      "public_score": 0.913,
+      "private_score": null,
+      "val": 0.9001,
+      "audit58": 0.8928,
+      "kernel": "mamounhussam/knee-ensemble-4-submit",
+      "kernel_version": 1,
+      "submission_ref": 55726041,
+      "runtime_seconds": 36.5,
+      "runtime": "36.5 s for the 3 public studies = 12.17 s/study. Heavily inflated: model load and CUDA init are amortized over only 3 studies. Even taken at face value the 9h cap fits ~2662 studies against the ~1300 in the real test set, so the rerun has ~2x headroom.",
+      "notes": "convnext_small_25d is deliberately absent. 2.5D is a LOADER setting (slice_context: neighbours), so it cannot share member 0's single DICOM decode pass - it would need a second pass to buy +0.0004 on val. predict_dicom_ensemble now rejects it explicitly instead of silently scoring the wrong pixels. Scored 0.913, the best leaderboard result so far: +0.001 over the 3-model. val moved +0.0018 for +0.001 LB, so the gain is real but small and well inside what one more member can be expected to give."
+    },
+    {
+      "members": [
+        "convnext_small_relabel",
+        "convnext_base_relabel",
+        "mricore_vitb_relabel",
+        "radimagenet_resnet50_relabel"
+      ],
+      "submitted": "2026-08-25 12:27 UTC",
+      "public_score": 0.919,
+      "private_score": null,
+      "val": 0.911,
+      "audit58": 0.9125,
+      "kernel": "mamounhussam/knee-ensemble-4-relabel-submit",
+      "kernel_version": 1,
+      "submission_ref": 55770195,
+      "runtime_seconds": 486,
+      "runtime": "8.1 min push->kernel complete (0.14 h of the 9 h cap). FASTER than the single convnext_small_relabel submission (14.2 min) because all four members share one DICOM decode pass - only the forward passes multiply.",
+      "notes": "Same four architectures as the 0.913 ensemble, every member retrained on the qwen-2.4T medium-effort labels. +0.006 LB (0.913 -> 0.919), +0.0105 val, +0.0197 audit-58. The per-member gains were additive rather than redundant. Note convnext_base_relabel ALONE scored 0.918, so the ensemble now adds only +0.001 over its best member - the members have become more correlated as the labels improved."
+    },
+    {
+      "ref": 56234763,
+      "date": "2026-09-14 15:55",
+      "slug": "knee-ensemble-6-25d18-flat",
+      "members": [
+        "convnext_base_relabel",
+        "mricore_vitb_cross_attention",
+        "mricore_vitb_mae_cross_attention",
+        "dinov3_convnext_base",
+        "convnext_base_25d_18slices",
+        "swinv2_base_in22k"
+      ],
+      "blend": "flat",
+      "val_flat": 0.9158,
+      "public_score": 0.932,
+      "s_per_study": 13.401,
+      "decode_passes": 2,
+      "notes": "BEST SO FAR, +0.001 over the 0.931 six. The ONLY change is convnext_large -> convnext_base_25d_18slices, a non-overlapping 2.5D member at 24 passes/study instead of 96. It is 336px where the rest are 512, so this is the first submission to use predict_dicom_ensemble_grouped (decode once per geometry group, blend at the end). Cheaper AND better: 13.401 s/study against 15.85, ~15% faster, while swapping out a 196M-parameter model for an 88M one at a quarter of its passes. val predicted only +0.0002; the LB moved +0.001, so val UNDER-called this one. NOTE: the Kaggle description text wrongly names convnext_base_25d_group3 - the bundle shipped 25d_18slices, verified 6/6 in the kernel log. The NOTE string was not updated with MEMBERS."
+    },
+    {
+      "date": "2026-09-20",
+      "slug": "knee-eight-perfinding",
+      "kernel": "mamounhussam/knee-eight-perfinding-submit",
+      "kernel_version": 2,
+      "ref": 56403779,
+      "members": [
+        "convnext_base_relabel",
+        "mricore_vitb_cross_attention",
+        "mricore_vitb_mae_cross_attention",
+        "dinov3_convnext_base",
+        "convnext_base_25d_18slices",
+        "swinv2_base_in22k",
+        "convnext_base_25d_poolattn",
+        "convnext_base_25d_perfinding_slots_and_pooling"
+      ],
+      "blend": "flat",
+      "val_flat": 0.917,
+      "audit58": 0.9173,
+      "public_score": 0.932,
+      "private_score": null,
+      "s_per_study": 23.89,
+      "decode_passes": 3,
+      "commit_run_minutes": 15.2,
+      "notes": "THE 0.932 SEVEN PLUS AN EIGHTH, FLAT. The only change is adding convnext_base_25d_perfinding_slots_and_pooling, which pools each finding over only the views that can show it. It joins FLAT rather than nested: its logit correlation with the seven is 0.848 mean / 0.740 min where the other 2.5D ConvNeXt siblings sit at 0.95-0.99, so it is not a near-duplicate. Measured over 84 placements, flat +0.0006 val and every nested form +0.0003 to +0.0004; cross-fitted 0.9176 against the shipped 0.9172. Shipped SOLO it scored 0.915 against its parent's 0.914 while val had it 0.0049 BELOW that parent, so val understates this member. RUNTIME: it is 6 slots with per-slot slice counts so it does NOT share the seven's decode group - 3 decode passes, 23.890 s/study against the 21.689 s that was observed to take 5.7 h, so about 6.3 h of the 9 h cap. Measured on a free kernel run first, exactly because of that extra decode group. SCORED 0.932, EXACTLY the seven-member score. Adding convnext_base_25d_perfinding_slots_and_pooling flat moved the leaderboard by 0.000, against the +0.0006 val and +0.0004 cross-fitted that justified it. So its slot is NEUTRAL, not positive: the ensemble already covered whatever that member knows, even though its logit correlation with the seven was only 0.848 mean / 0.740 min. Decorrelation bought nothing here."
+    },
+    {
+      "ref": 56406266,
+      "date": "2026-09-20",
+      "slug": "knee-eight-laterality",
+      "kernel": "mamounhussam/knee-eight-laterality-submit",
+      "kernel_version": 1,
+      "members": [
+        "convnext_base_relabel",
+        "mricore_vitb_cross_attention",
+        "mricore_vitb_mae_cross_attention",
+        "dinov3_convnext_base",
+        "convnext_base_25d_all_knees_same_orientation",
+        "swinv2_base_in22k",
+        "convnext_base_25d_poolattn",
+        "convnext_base_25d_perfinding_slots_and_pooling"
+      ],
+      "blend": "flat",
+      "val_flat": 0.9169,
+      "audit58": 0.9173,
+      "public_score": 0.933,
+      "private_score": null,
+      "s_per_study": 23.89,
+      "decode_passes": 3,
+      "commit_run_minutes": 10.2,
+      "notes": "BEST SUBMISSION SO FAR, 0.933. ONE change from the 0.932 eight: convnext_base_25d_18slices replaced by convnext_base_25d_all_knees_same_orientation, which mirrors every LEFT knee so all studies face the same way, the mirror axis chosen per plane (sagittal reverses SLICE ORDER, coronal and axial reverse WIDTH). Validation scored the swap at -0.0001 and the leaderboard at +0.001. TAKEN WITH submission 56403779, which scored 0.932 - exactly the seven-member score - the two ensembles separate the two changes cleanly: adding the per-finding member bought 0.000 and swapping the laterality member bought +0.001. Laterality is the thing that is working. This is the THIRD consecutive time validation under-called laterality: the run solo was -0.0002 on val and +0.005 on the leaderboard (0.919 vs its parent's 0.914), and the swap was -0.0001 on val and +0.001 on the leaderboard."
+    },
+    {
+      "submission_ref": 56443547,
+      "kernel": "mamounhussam/knee-nine-spatial-2gpu-submit",
+      "members": [
+        "convnext_base_relabel",
+        "mricore_vitb_cross_attention",
+        "mricore_vitb_mae_cross_attention",
+        "dinov3_convnext_base",
+        "convnext_base_25d_all_knees_same_orientation",
+        "swinv2_base_in22k",
+        "convnext_base_25d_poolattn",
+        "convnext_base_25d_perfinding_slots_and_pooling",
+        "convnext_base_25d_spatial"
+      ],
+      "public_score": 0.932,
+      "submitted": "2026-09-21",
+      "notes": "0.933 eight + convnext_base_25d_spatial. The audit-58 bet (audit +0.0018, val -0.0002); LOST -0.001. First submission on both T4s.",
+      "private_score": null
+    },
+    {
+      "submission_ref": 56443932,
+      "kernel": "mamounhussam/knee-eight-full-swap-submit",
+      "members": [
+        "convnext_base_full_all_knees_same_orientation",
+        "mricore_vitb_cross_attention",
+        "mricore_vitb_mae_cross_attention",
+        "dinov3_convnext_base",
+        "convnext_base_25d_all_knees_same_orientation",
+        "swinv2_base_in22k",
+        "convnext_base_25d_poolattn",
+        "convnext_base_25d_perfinding_slots_and_pooling"
+      ],
+      "public_score": 0.934,
+      "submitted": "2026-09-21",
+      "notes": "0.933 eight with convnext_base_relabel -> convnext_base_full_all_knees_same_orientation. +0.001.",
+      "private_score": null
+    },
+    {
+      "submission_ref": 56444173,
+      "kernel": "mamounhussam/knee-nine-medimageinsight-submit",
+      "members": [
+        "convnext_base_relabel",
+        "mricore_vitb_cross_attention",
+        "mricore_vitb_mae_cross_attention",
+        "dinov3_convnext_base",
+        "convnext_base_25d_all_knees_same_orientation",
+        "swinv2_base_in22k",
+        "convnext_base_25d_poolattn",
+        "convnext_base_25d_perfinding_slots_and_pooling",
+        "medimageinsight_davit_huge_336"
+      ],
+      "public_score": 0.934,
+      "submitted": "2026-09-21",
+      "notes": "0.933 eight + medimageinsight_davit_huge_336. +0.001.",
+      "private_score": null
+    },
+    {
+      "submission_ref": 56459152,
+      "kernel": "mamounhussam/knee-nine-full-medimageinsight-submit",
+      "members": [
+        "convnext_base_full_all_knees_same_orientation",
+        "mricore_vitb_cross_attention",
+        "mricore_vitb_mae_cross_attention",
+        "dinov3_convnext_base",
+        "convnext_base_25d_all_knees_same_orientation",
+        "swinv2_base_in22k",
+        "convnext_base_25d_poolattn",
+        "convnext_base_25d_perfinding_slots_and_pooling",
+        "medimageinsight_davit_huge_336"
+      ],
+      "public_score": null,
+      "submitted": "2026-09-22",
+      "notes": "DEGRADED - ignore any score. Process split OOM'd, a child died, later batches blocked an hour each and fell back to 0.5; medimageinsight contributed nothing.",
+      "private_score": null
+    },
+    {
+      "submission_ref": 56461328,
+      "kernel": "mamounhussam/knee-nine-full-medimageinsight-submit",
+      "members": [
+        "convnext_base_full_all_knees_same_orientation",
+        "mricore_vitb_cross_attention",
+        "mricore_vitb_mae_cross_attention",
+        "dinov3_convnext_base",
+        "convnext_base_25d_all_knees_same_orientation",
+        "swinv2_base_in22k",
+        "convnext_base_25d_poolattn",
+        "convnext_base_25d_perfinding_slots_and_pooling",
+        "medimageinsight_davit_huge_336"
+      ],
+      "public_score": 0.935,
+      "submitted": "2026-09-22",
+      "notes": "BEST. Both changes at once, after the process-split fix; the two isolating submissions (0.934 each) show they add.",
+      "private_score": null
+    },
+    {
+      "submission_ref": 56468176,
+      "kernel": "mamounhussam/knee-ten-perslice480-submit",
+      "members": [
+        "convnext_base_full_all_knees_same_orientation",
+        "mricore_vitb_cross_attention",
+        "mricore_vitb_mae_cross_attention",
+        "dinov3_convnext_base",
+        "convnext_base_25d_all_knees_same_orientation",
+        "swinv2_base_in22k",
+        "convnext_base_25d_poolattn",
+        "convnext_base_25d_perfinding_slots_and_pooling",
+        "medimageinsight_davit_huge_336",
+        "medimageinsight_davit_huge_perslice_480_warm"
+      ],
+      "public_score": 0.935,
+      "submitted": "2026-09-22",
+      "notes": "0.935 nine + medimageinsight_davit_huge_perslice_480_warm, ADDED. Scored 0.935, exactly the nine: val's +0.0007 bought 0.000.",
+      "private_score": null
+    },
+    {
+      "submission_ref": 56472575,
+      "kernel": "mamounhussam/knee-nine-fulldata-swap-submit",
+      "members": [
+        "convnext_base_full_all_knees_same_orientation",
+        "mricore_vitb_cross_attention",
+        "mricore_vitb_mae_cross_attention_fulldata_flip",
+        "dinov3_convnext_base",
+        "convnext_base_25d_all_knees_same_orientation",
+        "swinv2_base_in22k",
+        "convnext_base_25d_poolattn_fulldata_flip",
+        "convnext_base_25d_perfinding_slots_and_pooling",
+        "medimageinsight_davit_huge_336_fulldata"
+      ],
+      "public_score": 0.937,
+      "submitted": "2026-09-22",
+      "notes": "NEW BEST, 0.937 (+0.002). The 0.935 nine with mricore_vitb_mae_cross_attention, convnext_base_25d_poolattn and medimageinsight_davit_huge_336 swapped for their full-data (+mirror) retrains, final steps 6050/3850/4400. Full data has now paid every time it has been tried.",
+      "private_score": null
+    },
+    {
+      "submission_ref": 56489550,
+      "kernel": "mamounhussam/knee-ten-fulldata-swap-submit",
+      "kernel_version": 1,
+      "submitted": "2026-09-23",
+      "public_score": 0.938,
+      "private_score": null,
+      "members": [
+        "convnext_base_full_all_knees_same_orientation",
+        "mricore_vitb_cross_attention",
+        "mricore_vitb_mae_cross_attention_fulldata_flip",
+        "dinov3_convnext_base",
+        "convnext_base_25d_all_knees_same_orientation_fulldata",
+        "swinv2_base_in22k",
+        "convnext_base_25d_poolattn_fulldata_flip",
+        "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+        "medimageinsight_davit_huge_336_fulldata",
+        "medimageinsight_davit_huge_perslice_480_warm"
+      ],
+      "notes": "0.937 nine with two more full-data swaps (all_knees 6600, perfinding+flip 3300) plus the 480 warm as a tenth. Six of nine originals now full-data. 5 decode passes, 29.755 s/study serial. Public 0.938 (+0.001 over the 0.937 nine): NEW BEST."
+    },
+    {
+      "submission_ref": 56500443,
+      "kernel": "mamounhussam/knee-eleven-coatnet-submit",
+      "kernel_version": 1,
+      "submitted": "2026-09-23",
+      "public_score": 0.937,
+      "private_score": null,
+      "members": [
+        "convnext_base_full_all_knees_same_orientation",
+        "mricore_vitb_cross_attention",
+        "mricore_vitb_mae_cross_attention_fulldata_flip",
+        "dinov3_convnext_base",
+        "convnext_base_25d_all_knees_same_orientation_fulldata",
+        "swinv2_base_in22k",
+        "convnext_base_25d_poolattn_fulldata_flip",
+        "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+        "medimageinsight_davit_huge_336_fulldata",
+        "medimageinsight_davit_huge_perslice_480_warm",
+        "coatnet_rmlp2_384"
+      ],
+      "notes": "The 0.938 ten + coatnet_rmlp2_384 (step 6700). CoAtNet solo LB 0.918; offline add val +0.0001 (CI -0.0005..+0.0007), audit +0.0007. Gate clean: 11/11 members, 2 GPUs, 6 decode passes, 33.5 s/study serial (8.8 h single-card at 946 studies, ~5 h on two). Public 0.937 (-0.001 vs the 0.938 ten): CoAtNet does not help on top of the ten."
+    },
+    {
+      "submission_ref": 56504398,
+      "kernel": "mamounhussam/knee-eleven-effnetv2-submit",
+      "kernel_version": 1,
+      "submitted": "2026-09-24",
+      "public_score": 0.937,
+      "private_score": null,
+      "members": [
+        "convnext_base_full_all_knees_same_orientation",
+        "mricore_vitb_cross_attention",
+        "mricore_vitb_mae_cross_attention_fulldata_flip",
+        "dinov3_convnext_base",
+        "convnext_base_25d_all_knees_same_orientation_fulldata",
+        "swinv2_base_in22k",
+        "convnext_base_25d_poolattn_fulldata_flip",
+        "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+        "medimageinsight_davit_huge_336_fulldata",
+        "medimageinsight_davit_huge_perslice_480_warm",
+        "efficientnetv2_l_384"
+      ],
+      "notes": "The 0.938 ten + efficientnetv2_l_384 (step 3900). Best single add of 53 clean runs offline: val +0.0003, audit -0.0001. Gate clean: 11/11 members, 2 GPUs, 6 decode passes, 32.7 s/study serial. The first upload hit Kaggle's private-storage quota (403 on create); the old sign-bridge dataset (~108 GB) was deleted with the user's OK. Public 0.937 (-0.001 vs the 0.938 ten)."
+    },
+    {
+      "submission_ref": 56531949,
+      "kernel": "mamounhussam/convnext-base-25d-18slices-mglabels-raw-submit",
+      "kernel_version": 1,
+      "submitted": "2026-09-25",
+      "public_score": 0.916,
+      "private_score": null,
+      "members": [
+        "convnext_base_25d_18slices_mglabels_raw"
+      ],
+      "notes": "Solo, MedGemma-blended labels, UNCALIBRATED average (17_*_qwen-mg-raw). Step 3900, val 0.9086, audit 0.9092. Public 0.916 (+0.002 vs parent convnext_base_25d_18slices 0.914). Kernel 16.2 min."
+    },
+    {
+      "submission_ref": 56532108,
+      "kernel": "mamounhussam/knee-convnext-base-25d-18slices-mglabels-submit",
+      "kernel_version": 1,
+      "submitted": "2026-09-25",
+      "public_score": 0.906,
+      "private_score": null,
+      "members": [
+        "convnext_base_25d_18slices_mglabels"
+      ],
+      "notes": "Solo, MedGemma-blended labels, CALIBRATED (17_*_qwen-mg). Step 5000, val 0.9223 (on its own labels), audit 0.9078. Public 0.906 (-0.008 vs parent 0.914). Calibration hurt on the leaderboard despite better Brier."
+    },
+    {
+      "submission_ref": 56554409,
+      "kernel": "mamounhussam/knee-convnext-base-25d-18slices-mglabels-raw-submit",
+      "kernel_version": 2,
+      "submitted": "2026-09-25",
+      "public_score": 0.916,
+      "private_score": null,
+      "members": [
+        "convnext_base_25d_18slices_mglabels_raw (weight average of steps 4000-5100)"
+      ],
+      "notes": "Uniform weight average of 12 checkpoints (steps 4000-5100, modal_scripts/avg_checkpoints.py): val 0.9083, audit 0.9125 vs step 3900's 0.9086 / 0.9092. Public 0.916, identical to the step-3900 submission (56531949): averaging moved nothing visible at 3 decimals."
+    },
+    {
+      "submission_ref": 56589011,
+      "kernel": "mamounhussam/knee-convnext-base-25d-18slices-oof-submit",
+      "kernel_version": 1,
+      "submitted": "2026-09-27",
+      "public_score": 0.905,
+      "private_score": null,
+      "members": [
+        "convnext_base_25d_18slices_oof"
+      ],
+      "notes": "Solo, trained LOCALLY (RTX 4060) on 18_* labels: 17_*-raw + 30% out-of-fold convnext_base_25d_18slices logits, all 12 findings (label audit 0.9396). Best-val step 2900, val 0.9281 (own labels), audit 0.9052. Public 0.905 (-0.011 vs the MedGemma twin 0.916): out-of-fold same-architecture labels HURT."
+    },
+    {
+      "submission_ref": 56633125,
+      "kernel": "mamounhussam/knee-convnext-base-25d-18slices-ens-submit",
+      "kernel_version": 1,
+      "submitted": "2026-09-28",
+      "public_score": 0.903,
+      "private_score": null,
+      "members": [
+        "convnext_base_25d_18slices_ens"
+      ],
+      "notes": "Solo, trained LOCALLY (RTX 4060) on 20_* labels: 17_*-raw + 30% of the 0.938 ensemble's flat-mean logits (10 members), all 12 findings. Best-val step 2900, val 0.9155 (own ensemble-blended labels), audit 0.9029. Kernel 9.1 min. Public 0.903 (-0.013 vs the MedGemma twin 0.916): ensemble-prediction labels HURT, like the out-of-fold ones."
+    },
+    {
+      "submission_ref": 56647776,
+      "kernel": "mamounhussam/knee-cb25d-allknees-fulldata-v3-submit",
+      "kernel_version": 1,
+      "submitted": "2026-09-28",
+      "public_score": 0.906,
+      "private_score": null,
+      "members": [
+        "convnext_base_25d_all_knees_same_orientation_fulldata_v3_labels"
+      ],
+      "notes": "Solo, trained LOCALLY (RTX 4060): ensemble member convnext_base_25d_all_knees_same_orientation_fulldata retrained on v3 labels (17_train_full_qwen-mg-raw), final step 6600, no val. Public 0.906, far below the split-data v2 version's 0.919 (the v2 full-data member was never scored solo, so no like-for-like pair). First submit attempt hit a Kaggle 500 and did not count. CAVEAT found the same day: every local run before the 28 Sep fix replayed epoch 1's augmentation (Windows-spawned loader workers never saw the epoch counter), so this score is not evidence about v3 labels."
+    },
+    {
+      "submission_ref": 56648621,
+      "kernel": "mamounhussam/knee-ten-v3-labels-25d-submit",
+      "kernel_version": 1,
+      "submitted": "2026-09-28",
+      "public_score": 0.938,
+      "private_score": null,
+      "members": [
+        "convnext_base_full_all_knees_same_orientation",
+        "mricore_vitb_cross_attention",
+        "mricore_vitb_mae_cross_attention_fulldata_flip",
+        "dinov3_convnext_base",
+        "convnext_base_25d_all_knees_same_orientation_fulldata_v3_labels",
+        "swinv2_base_in22k",
+        "convnext_base_25d_poolattn_fulldata_flip",
+        "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+        "medimageinsight_davit_huge_336_fulldata",
+        "medimageinsight_davit_huge_perslice_480_warm"
+      ],
+      "notes": "The 0.938 ten with convnext_base_25d_all_knees_same_orientation_fulldata swapped for its local v3-label retrain. Public 0.938, a TIE with the original ten (56489550) even though the swapped member was trained with the frozen-augmentation bug and scored only 0.906 solo. Flat logit average of 10."
+    },
+    {
+      "submission_ref": 56668449,
+      "kernel": "mamounhussam/knee-cb25d18-mgraw-localcheck-submit",
+      "kernel_version": 2,
+      "submitted": "2026-09-29",
+      "public_score": 0.915,
+      "private_score": null,
+      "members": [
+        "convnext_base_25d_18slices_mglabels_raw_localcheck"
+      ],
+      "notes": "Solo. LOCAL replica (RTX 4060, after the augmentation-seed and partial-step fixes) of convnext_base_25d_18slices_mglabels_raw (Modal, 0.916): identical labels, split, settings. top_step3900.pt, val 0.9083 vs Modal 0.9086 at the same step. Public 0.915 vs 0.916: local training now matches Modal within leaderboard rounding."
+    },
+    {
+      "submission_ref": 56701302,
+      "kernel": "mamounhussam/knee-cb25d18-oof-seedfix-submit",
+      "kernel_version": 1,
+      "submitted": "2026-09-30",
+      "public_score": 0.922,
+      "private_score": null,
+      "members": [
+        "convnext_base_25d_18slices_oof_seedfix"
+      ],
+      "notes": "Solo. Out-of-fold labels (18_*: v3 + 30% out-of-fold convnext_base_25d_18slices logits, all 12 findings), retrained LOCALLY after the augmentation-seed fix; otherwise identical to the v3 local replica (0.915). best.pt step 5000, own-label val 0.9372, audit 0.9153 (replica 0.9084). Public 0.922 (+0.007 over v3's 0.915/0.916): the BEST single convnext_base_25d model so far; the old 0.905 was the bug, not the labels."
+    },
+    {
+      "submission_ref": 56716531,
+      "kernel": "mamounhussam/knee-cb25d18-ens-seedfix-submit",
+      "kernel_version": 1,
+      "submitted": "2026-09-30",
+      "public_score": 0.921,
+      "private_score": null,
+      "members": [
+        "convnext_base_25d_18slices_ens_seedfix"
+      ],
+      "notes": "Solo. Ensemble-prediction labels (20_*: v3 + 30% of the 0.938 ensemble's logits, all 12 findings), retrained LOCALLY after the augmentation-seed fix. top_step3900.pt (val peak), own-label val 0.9281, audit 0.9127. Public 0.921 vs out-of-fold labels 0.922 and v3 0.915: both model-prediction label sets beat v3 by ~0.006-0.007; the old 0.903 was the bug."
+    },
+    {
+      "submission_ref": 56717588,
+      "kernel": "mamounhussam/knee-cb25d18-ens-seedfix-submit",
+      "kernel_version": 2,
+      "submitted": "2026-09-30",
+      "public_score": 0.922,
+      "private_score": null,
+      "members": [
+        "convnext_base_25d_18slices_ens_seedfix"
+      ],
+      "notes": "Solo, same run as 56716531 but step5000.pt: the audit peak (0.9169) at val 0.9278 vs step 3900's 0.9281 / 0.9127. Public 0.922 vs 0.921: audit picked the better checkpoint, by 0.001 (noise level). Backup at C:\\temp1\\checkpoint_backups."
+    },
+    {
+      "submission_ref": 56718464,
+      "kernel": "mamounhussam/medimageinsight-davit-huge-336-fulldata-submit",
+      "kernel_version": 1,
+      "submitted": "2026-09-30",
+      "public_score": 0.927,
+      "private_score": null,
+      "members": [
+        "medimageinsight_davit_huge_336_fulldata"
+      ],
+      "notes": "Solo, first time scored alone. Full data (train+val+audit), v2 labels, final step 4400, no val. Public 0.927 vs its split-data parent medimageinsight_davit_huge_336 0.929: full data gave no gain (-0.002, within the +/-0.007 single-score noise). Kernel 13.2 min."
+    },
+    {
+      "submission_ref": 56747511,
+      "kernel": "mamounhussam/knee-mii-336-v3-5folds-submit",
+      "kernel_version": 1,
+      "submitted": "2026-10-01",
+      "public_score": 0.936,
+      "private_score": null,
+      "members": [
+        "medimageinsight_davit_huge_336_v3_f0",
+        "medimageinsight_davit_huge_336_v3_f1",
+        "medimageinsight_davit_huge_336_v3_f2",
+        "medimageinsight_davit_huge_336_v3_f3",
+        "medimageinsight_davit_huge_336_v3_f4"
+      ],
+      "notes": "The 5 MedImageInsight v3-label fold models (best-val steps 2700/3500/3400/2700/3200), flat logit mean, one architecture. Public 0.936: +0.007 over the single split MII (0.929), +0.009 over the full-data MII (0.927), +0.018 over the ConvNeXt 5-fold ensemble (0.918), and only 0.002 below the 10-member 0.938 ensemble. Audit-58 of the fold mean 0.9252. Kernel 28.4 min. Built with submit_ensemble.py configs/mii_v3_folds.py."
+    },
+    {
+      "submission_ref": 56749586,
+      "kernel": "mamounhussam/knee-cb25d18-oof-convnext-mii-w30-submit",
+      "kernel_version": 1,
+      "submitted": "2026-10-01",
+      "public_score": 0.922,
+      "private_score": null,
+      "members": [
+        "convnext_base_25d_18slices_oof_convnext_mii_labels_w30"
+      ],
+      "notes": "Solo. Modal H100. Labels 22_*-w30: v3 70% + ConvNeXt folds 15% + MII folds 15% (label audit 0.9414). top_step3900 (val peak), val 0.9360 own labels, audit 0.9172. Public 0.922, a TIE with the ConvNeXt-only-teacher twin convnext_base_25d_18slices_oof_seedfix (0.922, audit 0.9153). Kernel 15.2 min."
+    },
+    {
+      "submission_ref": 56749747,
+      "kernel": "mamounhussam/knee-cb25d18-oof-convnext-mii-w50-submit",
+      "kernel_version": 1,
+      "submitted": "2026-10-01",
+      "public_score": 0.927,
+      "private_score": null,
+      "members": [
+        "convnext_base_25d_18slices_oof_convnext_mii_labels_w50"
+      ],
+      "notes": "Solo. Modal H100. Labels 22_*-w50: v3 50% + ConvNeXt folds 25% + MII folds 25% (label audit 0.9453). top_step5000 (val peak), val 0.9598 own labels, audit 0.9201. Public 0.927: BEST convnext_base_25d single, +0.005 over its w30 twin and the ConvNeXt-only-teacher twin (both 0.922), +0.011 over v3 labels (0.916). Kernel 10.1 min."
+    },
+    {
+      "submission_ref": 56753549,
+      "kernel": "mamounhussam/knee-ten-mii-5folds-submit",
+      "kernel_version": null,
+      "submitted": "2026-10-01",
+      "public_score": 0.5,
+      "private_score": null,
+      "members": [
+        "convnext_base_full_all_knees_same_orientation",
+        "mricore_vitb_cross_attention",
+        "mricore_vitb_mae_cross_attention_fulldata_flip",
+        "dinov3_convnext_base",
+        "convnext_base_25d_all_knees_same_orientation_fulldata",
+        "swinv2_base_in22k",
+        "convnext_base_25d_poolattn_fulldata_flip",
+        "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+        "medimageinsight_davit_huge_perslice_480_warm",
+        "medimageinsight_davit_huge_336_v3_f0",
+        "medimageinsight_davit_huge_336_v3_f1",
+        "medimageinsight_davit_huge_336_v3_f2",
+        "medimageinsight_davit_huge_336_v3_f3",
+        "medimageinsight_davit_huge_336_v3_f4"
+      ],
+      "notes": "FAILED: public 0.500 = every hidden-test prediction fell back to neutral. The ten with the full-data MII replaced by the 5 MII v3 folds (14 flat). The commit run (3 studies, ONE chunk) passed the gate, but the new offload-between-groups code only reloads weights from the SECOND chunk on, which 3 studies never reach; the 946-study rerun (~30 chunks) ended in ~1h20m instead of ~5h. A wasted attempt: no multi-chunk (STRESS) run was done before submitting."
+    },
+    {
+      "submission_ref": 56754762,
+      "kernel": "mamounhussam/knee-cb25d18-oof-convnext-mii-w60-submit",
+      "kernel_version": 1,
+      "submitted": "2026-10-01",
+      "public_score": 0.928,
+      "private_score": null,
+      "members": [
+        "convnext_base_25d_18slices_oof_convnext_mii_labels_w60"
+      ],
+      "notes": "Solo. Modal H100. Labels 22_*-w60: v3 40% + ConvNeXt folds 30% + MII folds 30% (label audit 0.9458). top_step5300 (val peak), val 0.9722 own labels, audit 0.9191. Public 0.928 vs w50 0.927: +0.001, a tie within leaderboard noise (audit had w60 -0.0010). By the rule fixed before submitting (a tie within ~0.003 keeps the more conservative weight), the label set stays w50. Unflipped, like w30/w50. Kernel 12.2 min."
+    },
+    {
+      "members": [
+        "convnext_base_full_all_knees_same_orientation",
+        "mricore_vitb_cross_attention",
+        "mricore_vitb_mae_cross_attention_fulldata_flip",
+        "dinov3_convnext_base",
+        "convnext_base_25d_all_knees_same_orientation_fulldata",
+        "swinv2_base_in22k",
+        "convnext_base_25d_poolattn_fulldata_flip",
+        "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+        "medimageinsight_davit_huge_perslice_480_warm",
+        "medimageinsight_davit_huge_336_v3_f0",
+        "medimageinsight_davit_huge_336_v3_f1",
+        "medimageinsight_davit_huge_336_v3_f2",
+        "medimageinsight_davit_huge_336_v3_f3",
+        "medimageinsight_davit_huge_336_v3_f4"
+      ],
+      "submitted": "2026-10-02 08:31 UTC",
+      "public_score": 0.942,
+      "private_score": null,
+      "val": null,
+      "audit58": 0.9268,
+      "kernel": "mamounhussam/knee-ten-mii-5folds-submit",
+      "kernel_version": null,
+      "submission_ref": 56769791,
+      "runtime_seconds": null,
+      "runtime": "stress run 4: 17.1 s/study over 128 studies, projected ~4.7 h on the 946 hidden studies; RAM peak 53%",
+      "notes": "Second attempt at the 14-member ensemble (the first, 56753549, scored 0.500 from a host-RAM crash). Submitted from stress stamp 63014019c018 without rebuilding: Kaggle dataset matched the stamp's 49 files, kernel ran the stress-tested engine 0fb97a22e13f, output checks passed. Flat logit mean; audit58 0.9268 is the flat ten+5-fold audit (ten_mii_folds_audit.py). To beat: 0.938. SCORED 0.942: NEW BEST, +0.004 over the 0.938 ten."
+    },
+    {
+      "members": [
+        "convnext_base_25d_warm_v5"
+      ],
+      "submitted": "2026-10-03 11:21 UTC",
+      "public_score": 0.928,
+      "private_score": null,
+      "val": null,
+      "audit58": 0.9215,
+      "kernel": "mamounhussam/knee-cb25d-warm-v5-submit",
+      "kernel_version": null,
+      "submission_ref": 56796592,
+      "runtime_seconds": null,
+      "notes": "Warm-start test: old v2 model fine-tuned 4 epochs on v4 labels (v5 split, flipped), last step 2000. Paired with convnext_base_25d_18slices_v5_aug_base (from scratch). Val leaky, audit 0.9215 vs 0.9209."
+    },
+    {
+      "members": [
+        "convnext_base_25d_18slices_v5_aug_base"
+      ],
+      "submitted": "2026-10-03",
+      "public_score": 0.93,
+      "private_score": null,
+      "val": 0.9174,
+      "audit58": 0.9209,
+      "kernel": "mamounhussam/knee-cb25d18-v5-aug-base-submit",
+      "kernel_version": null,
+      "submission_ref": 56796715,
+      "runtime_seconds": null,
+      "notes": "From-scratch twin of convnext_base_25d_warm_v5: v4 labels, v5 split, flipped, step 5900 (val peak)."
+    },
+    {
+      "members": [
+        "convnext_base_v5",
+        "mricore_vitb_cross_attention",
+        "mricore_vitb_mae_cross_attention_fulldata_flip",
+        "dinov3_convnext_base_v5",
+        "convnext_base_25d_18slices_v5_aug_base",
+        "swinv2_base_in22k",
+        "convnext_base_25d_poolattn_v5",
+        "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+        "medimageinsight_davit_huge_perslice_480_warm",
+        "medimageinsight_davit_huge_336_v3_f0",
+        "medimageinsight_davit_huge_336_v3_f1",
+        "medimageinsight_davit_huge_336_v3_f2",
+        "medimageinsight_davit_huge_336_v3_f3",
+        "medimageinsight_davit_huge_336_v3_f4"
+      ],
+      "submitted": "2026-10-03",
+      "public_score": 0.942,
+      "private_score": null,
+      "val": null,
+      "audit58": 0.9289,
+      "kernel": "mamounhussam/knee-relabel-b1-submit",
+      "kernel_version": null,
+      "submission_ref": 56805570,
+      "runtime_seconds": null,
+      "runtime": "stress: 17.6 s/study over 128 studies, ~4.9 h projected on 946; RAM peak 17.6/33.7 GB",
+      "notes": "Relabel batch 1: the 0.942 fourteen with dinov3_convnext_base_v5, convnext_base_v5, convnext_base_25d_18slices_v5_aug_base, convnext_base_25d_poolattn_v5 (step 3700) swapped in. From stress stamp 6ccdad5d92bb. audit58 0.9289 = split-analogue estimate. Scored 0.942: tie with the 0.942 fourteen."
+    },
+    {
+      "members": [
+        "convnext_base_v5",
+        "mricore_vitb_cross_attention_v5",
+        "mricore_vitb_mae_cross_attention_v5",
+        "dinov3_convnext_base_v5",
+        "convnext_base_25d_18slices_v5_aug_base",
+        "swinv2_base_in22k",
+        "convnext_base_25d_poolattn_v5",
+        "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+        "medimageinsight_davit_huge_perslice_480_warm",
+        "medimageinsight_davit_huge_336_v3_f0",
+        "medimageinsight_davit_huge_336_v3_f1",
+        "medimageinsight_davit_huge_336_v3_f2",
+        "medimageinsight_davit_huge_336_v3_f3",
+        "medimageinsight_davit_huge_336_v3_f4"
+      ],
+      "submitted": "2026-10-04",
+      "public_score": 0.942,
+      "private_score": null,
+      "val": null,
+      "audit58": 0.93,
+      "kernel": "mamounhussam/knee-relabel-b2-submit",
+      "kernel_version": 2,
+      "submission_ref": 56824782,
+      "runtime_seconds": null,
+      "runtime": "stress: 17.8 s/study over 128 studies (37m54s), ~4.7 h projected on 946; RAM peak 16.3/33.7 GB",
+      "notes": "Relabel batch 2: the batch-1 fourteen (0.942) with mricore_vitb_cross_attention_v5 (step 6480) and mricore_vitb_mae_cross_attention_v5 (step 3300) swapped in. From stress stamp b4ae8ed14ec0. audit58 0.9300 = split-analogue estimate (+0.0010 over batch 1). Scored 0.942: tie with batches 0 and 1."
+    },
+    {
+      "members": [
+        "swinv2_base_in22k_v5_warm"
+      ],
+      "submitted": "2026-10-04",
+      "public_score": 0.934,
+      "private_score": null,
+      "val": 0.9152,
+      "audit58": 0.9278,
+      "kernel": "mamounhussam/knee-swinv2-v5-warm-submit",
+      "kernel_version": 1,
+      "submission_ref": 56831420,
+      "runtime_seconds": null,
+      "runtime": "commit run 16.3 min (3 visible studies)",
+      "notes": "SwinV2 v5 solo: warm start from swinv2_base_in22k, v4 labels, 4,279 studies, flipped, step 2000 (clean-121 peak 0.9152). Old SwinV2 solo audit 0.9101."
+    },
+    {
+      "members": [
+        "convnext_base_v5",
+        "mricore_vitb_cross_attention_v5",
+        "mricore_vitb_mae_cross_attention_v5",
+        "dinov3_convnext_base_v5",
+        "convnext_base_25d_full_v5",
+        "swinv2_base_in22k_v5_warm",
+        "convnext_base_25d_poolattn_v5",
+        "convnext_base_25d_perfinding_v5",
+        "medimageinsight_davit_huge_perslice_480_warm",
+        "medimageinsight_davit_huge_336_v3_f0",
+        "medimageinsight_davit_huge_336_v3_f1",
+        "medimageinsight_davit_huge_336_v3_f2",
+        "medimageinsight_davit_huge_336_v3_f3",
+        "medimageinsight_davit_huge_336_v3_f4",
+        "convnext_base_25d_v5_spec_trauma",
+        "convnext_base_25d_v5_spec_pfoa",
+        "convnext_base_25d_v5_spec_fluid",
+        "mricore_vitb_cross_attention"
+      ],
+      "submitted": "2026-10-05",
+      "public_score": 0.941,
+      "private_score": null,
+      "val": null,
+      "audit58": null,
+      "kernel": "mamounhussam/knee-relabel-b3-submit",
+      "kernel_version": 3,
+      "submission_ref": 56835355,
+      "runtime_seconds": null,
+      "runtime": "stress #2: 18.9 s/study over 128 studies (40m14s), ~5.0 h projected on 946; RAM peak 16.1/33.7 GB",
+      "blend_weights": "relabel_b3_weights.json (spec_trauma 1 on Fracture/Contusion, spec_pfoa 2 on PF OA, spec_fluid 1 on Effusion/Synovitis/Baker's; others 1)",
+      "notes": "Relabel batch 3: batch-2 fourteen with swinv2_base_in22k_v5_warm (2000), convnext_base_25d_full_v5 (6600), convnext_base_25d_perfinding_v5 (3000); + 3 specialists on their own findings; + old-label mricore_vitb_cross_attention for diversity. From stress stamp f42133575a31 (stress #1 failed on the partial-head-group alignment; engine fixed)."
+    },
+    {
+      "members": [
+        "PUBLIC PIPELINE ALONE (yamadan96/rsna-knee-d4-public0946 code, Stage 3 RadImageNet removed): 20 DINOv2-small slot readers, 5 A5 folds, 4 Raptor CoAtNet views, CoAtNet residual-gated / Global96 / D4 / Repair-v1"
+      ],
+      "submitted": "2026-10-05",
+      "public_score": 0.937,
+      "private_score": null,
+      "val": null,
+      "audit58": null,
+      "kernel": "mamounhussam/knee-public-alone",
+      "kernel_version": 1,
+      "submission_ref": 56851117,
+      "runtime_seconds": null,
+      "runtime": "public-only 128-study tests: 43.3 min sequential / 37.6 min parallel CoAt readers (~4.3 h on 946)",
+      "blend_weights": null,
+      "note": "Measures the prize-safe public side alone, to set the blend weight of the combined notebook. Parallel CoAt readers, cap 8 h."
+    },
+    {
+      "members": [
+        "convnext_base_v5",
+        "mricore_vitb_cross_attention_v5",
+        "mricore_vitb_mae_cross_attention_v5",
+        "dinov3_convnext_base_v5",
+        "convnext_base_25d_18slices_v5_aug_base",
+        "convnext_base_25d_poolattn_v5",
+        "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+        "medimageinsight_davit_huge_336_v3_f0",
+        "medimageinsight_davit_huge_336_v3_f1",
+        "+ PUBLIC PIPELINE (prize-safe, Stage 3 RadImageNet removed), rank blend w 0.5"
+      ],
+      "submitted": "2026-10-05",
+      "public_score": 0.94,
+      "private_score": null,
+      "val": null,
+      "audit58": "ours-only offline (scaffold analogues): 0.9293 vs 0.9305 for the 14",
+      "kernel": "mamounhussam/knee-combined-b2cut-submit",
+      "kernel_version": 2,
+      "submission_ref": 56851528,
+      "runtime_seconds": null,
+      "runtime": "stress 54cd84fd057c: 9/9 members, public 128/128 in 35.5 min (parallel CoAt readers), projected 6.15 h on 946 (public 4.37 h)",
+      "blend_weights": "per finding (1-0.5) rank(ours) + 0.5 rank(public)",
+      "note": "COMBINED: batch 2 trimmed to 9 (no SwinV2, no MII-480, MII folds f0-f1) + prize-safe public pipeline."
+    },
+    {
+      "members": [
+        "convnext_base_v5",
+        "mricore_vitb_cross_attention_v5",
+        "dinov3_convnext_base_v5",
+        "convnext_base_25d_18slices_v5_aug_base",
+        "swinv2_base_in22k_v5_warm",
+        "convnext_base_25d_poolattn_v5",
+        "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+        "medimageinsight_davit_huge_336_v3_f0",
+        "medimageinsight_davit_huge_336_v3_f1",
+        "+ PUBLIC PIPELINE (prize-safe), rank blend w 0.5"
+      ],
+      "submitted": "2026-10-05",
+      "public_score": null,
+      "private_score": null,
+      "val": null,
+      "audit58": "ours-only offline (scaffold): 0.9311 (+0.0006 vs 14), clean-121 0.9176 (+0.0020)",
+      "kernel": "mamounhussam/knee-seta-submit-b",
+      "kernel_version": 1,
+      "submission_ref": 56857028,
+      "runtime_seconds": null,
+      "runtime": "stress 8db425358c6c: projected 6.93 h (ours 2.24 + public 4.44, sequential)",
+      "blend_weights": "per finding 0.5 rank(ours) + 0.5 rank(public)",
+      "note": "COMBINED SET A (members by leave-one-out value). Original kernel knee-combined-seta-submit errored at start 3x with empty logs; same stamped notebook pushed as a new kernel. Hidden rerun failed: Kaggle 'system error'."
+    },
+    {
+      "members": [
+        "convnext_base_v5",
+        "mricore_vitb_cross_attention_v5",
+        "dinov3_convnext_base_v5",
+        "convnext_base_25d_18slices_v5_aug_base",
+        "swinv2_base_in22k_v5_warm",
+        "convnext_base_25d_poolattn_v5",
+        "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+        "medimageinsight_davit_huge_336_v3_f0",
+        "medimageinsight_davit_huge_336_v3_f1",
+        "+ PUBLIC PIPELINE (prize-safe), rank blend w 0.5"
+      ],
+      "submitted": "2026-10-05",
+      "public_score": null,
+      "private_score": null,
+      "val": null,
+      "audit58": "ours-only offline (scaffold): 0.9311 (+0.0006 vs 14), clean-121 0.9176 (+0.0020)",
+      "kernel": "mamounhussam/knee-seta-submit-b",
+      "kernel_version": 1,
+      "submission_ref": 56857307,
+      "runtime_seconds": null,
+      "runtime": "stress 8db425358c6c: projected 6.93 h (ours 2.24 + public 4.44, sequential)",
+      "blend_weights": "per finding 0.5 rank(ours) + 0.5 rank(public)",
+      "note": "RESUBMIT of 56857028 (Kaggle system error), same kernel version. Exceeded the allowed runtime (no score)."
+    },
+    {
+      "members": [
+        "convnext_base_v5",
+        "dinov3_convnext_base_v5",
+        "convnext_base_25d_18slices_v5_aug_base",
+        "convnext_base_25d_poolattn_full_v5",
+        "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+        "medimageinsight_davit_huge_336_v3_f0",
+        "public pipeline (no RadImageNet; Global96 and Repair-v1 skipped), rank blend w 0.5"
+      ],
+      "submitted": "2026-10-05",
+      "public_score": 0.943,
+      "private_score": null,
+      "val": null,
+      "audit58": "ours-only offline: 0.9312 (+0.0007 vs 14), clean-121 0.9171 (+0.0015)",
+      "kernel": "mamounhussam/knee-combined-fit-a",
+      "kernel_version": 1,
+      "submission_ref": 56861632,
+      "runtime_seconds": null,
+      "runtime": "no stress (user override); commit run 16.3 min on 3 studies; ours first, public capped to 8.2 h - elapsed",
+      "blend_weights": "per finding 0.5 rank(ours) + 0.5 rank(public)",
+      "note": "Sized for ~1300 hidden studies; ORDER last: ours writes the submission first, public blends only if it finishes."
+    },
+    {
+      "members": [
+        "convnext_base_v5",
+        "dinov3_convnext_base_v5",
+        "convnext_base_25d_18slices_v5_aug_base",
+        "convnext_base_25d_poolattn_full_v5",
+        "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+        "medimageinsight_davit_huge_336_v3_f0",
+        "medimageinsight_davit_huge_336_v3_f4",
+        "mricore_vitb_cross_attention_v5",
+        "swinv2_base_in22k_v5_warm",
+        "public pipeline (trimmed), rank blend w 0.5"
+      ],
+      "submitted": "2026-10-06",
+      "public_score": null,
+      "private_score": null,
+      "val": null,
+      "audit58": "not scored offline as a set (3 members added by leave-one-out value)",
+      "kernel": "mamounhussam/knee-combined-fit9-a",
+      "kernel_version": 1,
+      "submission_ref": 56873740,
+      "runtime_seconds": null,
+      "runtime": "no stress (user approved); commit run 13.2 min; ours ~3.2 h est + trimmed public ~4.3 h est",
+      "blend_weights": "per finding 0.5 rank(ours) + 0.5 rank(public)",
+      "note": "RESUBMIT of 56873456 (Kaggle system error), same kernel version."
+    },
+    {
+      "members": [
+        "convnext_base_v5",
+        "dinov3_convnext_base_v5",
+        "convnext_base_25d_18slices_v5_aug_base",
+        "convnext_base_25d_poolattn_full_v5",
+        "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+        "medimageinsight_davit_huge_336_v3_f0",
+        "medimageinsight_davit_huge_336_v3_f4",
+        "mricore_vitb_cross_attention_v5",
+        "swinv2_base_in22k_v5_warm",
+        "convnext_base_25d_v5_joint_zoom_030 (top_step1500, joint findings only)",
+        "public pipeline (trimmed), rank blend w 0.5"
+      ],
+      "submitted": "2026-10-06",
+      "public_score": null,
+      "private_score": null,
+      "val": null,
+      "audit58": "fit-10 analogue 0.9324 / clean-121 0.9193 (zoom +0.0013 / +0.0005)",
+      "kernel": "mamounhussam/knee-combined-fit10-a",
+      "kernel_version": 1,
+      "submission_ref": 56882130,
+      "runtime_seconds": null,
+      "runtime": "fp16 inference (KNEE_INFER_HALF); commit run 27.4 min; no stress (user approved)",
+      "blend_weights": "per finding 0.5 rank(ours) + 0.5 rank(public)",
+      "note": "fit-9 + 0.30 mm joint zoom voting on ACL, menisci, medial/lateral OA (fit10_weights.json)."
+    },
+    {
+      "members": [
+        "convnext_base_v5",
+        "dinov3_convnext_base_v5",
+        "convnext_base_25d_18slices_v5_aug_base",
+        "convnext_base_25d_poolattn_full_v5",
+        "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+        "medimageinsight_davit_huge_336_v3_f0",
+        "medimageinsight_davit_huge_336_v3_f4",
+        "mricore_vitb_cross_attention_v5",
+        "swinv2_base_in22k_v5_warm",
+        "convnext_base_25d_v5_joint_zoom_030 (top_step1500, joint findings only)",
+        "public pipeline (trimmed), rank blend w 0.5"
+      ],
+      "submitted": "2026-10-06",
+      "public_score": null,
+      "private_score": null,
+      "val": null,
+      "audit58": "fit-10 analogue 0.9324 / clean-121 0.9193 (zoom +0.0013 / +0.0005)",
+      "kernel": "mamounhussam/knee-combined-fit10-w04",
+      "kernel_version": 1,
+      "submission_ref": 56885292,
+      "runtime_seconds": null,
+      "runtime": "fp16 inference (KNEE_INFER_HALF); commit run 27.4 min; no stress (user approved)",
+      "blend_weights": "per finding 0.6 rank(ours) + 0.4 rank(public)",
+      "note": "fit-10 resubmitted with PUBLIC_W 0.4 (resubmit_blend_weight.py), same dataset as 56882130."
+    },
+    {
+      "members": [
+        "convnext_base_v5",
+        "dinov3_convnext_base_v5",
+        "convnext_base_25d_18slices_v5_aug_base",
+        "convnext_base_25d_poolattn_full_v5",
+        "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+        "medimageinsight_davit_huge_336_v3_f0",
+        "medimageinsight_davit_huge_336_v3_f4",
+        "mricore_vitb_cross_attention_v5",
+        "swinv2_base_in22k_v5_warm",
+        "convnext_base_25d_v5_joint_zoom_030 (top_step1500, joint findings only)",
+        "public pipeline (trimmed), rank blend w 0.5"
+      ],
+      "submitted": "2026-10-06",
+      "public_score": null,
+      "private_score": null,
+      "val": null,
+      "audit58": "fit-10 analogue 0.9324 / clean-121 0.9193 (zoom +0.0013 / +0.0005)",
+      "kernel": "mamounhussam/knee-combined-fit10-w06",
+      "kernel_version": 1,
+      "submission_ref": 56885231,
+      "runtime_seconds": null,
+      "runtime": "fp16 inference (KNEE_INFER_HALF); commit run 27.4 min; no stress (user approved)",
+      "blend_weights": "per finding 0.4 rank(ours) + 0.6 rank(public)",
+      "note": "fit-10 resubmitted with PUBLIC_W 0.6 (resubmit_blend_weight.py), same dataset as 56882130."
+    },
+    {
+      "members": [
+        "convnext_base_v5_raptor96_local"
+      ],
+      "submitted": "2026-10-11 09:41 UTC",
+      "public_score": 0.939,
+      "private_score": null,
+      "val": 0.9213,
+      "audit58": 0.9272,
+      "kernel": "mamounhussam/knee-raptor96-solo-a",
+      "kernel_version": 1,
+      "submission_ref": 57069993,
+      "runtime_seconds": null,
+      "notes": "Raptor96 solo (public 0.949 input recipe on ConvNeXt-B), step 9000, no public blend. Best single on the LB: +0.010 over medimageinsight_davit_huge_336 (0.929)."
+    },
+    {
+      "members": [
+        "convnext_base_v5",
+        "dinov3_convnext_base_v5",
+        "convnext_base_v5_raptor96_local",
+        "convnext_base_25d_poolattn_full_v5",
+        "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
+        "medimageinsight_davit_huge_336_v3_f0",
+        "public 0.949 pipeline"
+      ],
+      "submitted": "2026-10-11 10:54 UTC",
+      "public_score": 0.943,
+      "private_score": null,
+      "val": null,
+      "audit58": null,
+      "kernel": "mamounhussam/knee-combined-raptor-a",
+      "kernel_version": 2,
+      "submission_ref": 57071682,
+      "runtime_seconds": null,
+      "notes": "The 0.943 combined recipe with raptor96_local in place of convnext_base_25d_18slices_v5_aug_base. Stress stamp dd15fa1fbff1; ours 2.06 h + public 5.53 h projected. 0.943 = no change on the LB (local S6 swapP was +0.0012 audit / +0.0013 clean)."
+    },
+    {
+      "members": [
+        "medimageinsight_davit_huge_v5_raptor96_sam"
+      ],
+      "submitted": "2026-10-11 15:50 UTC",
+      "public_score": 0.937,
+      "private_score": null,
+      "val": 0.9195,
+      "audit58": 0.9271,
+      "kernel": "mamounhussam/knee-mii-raptor96-solo-a",
+      "kernel_version": 1,
+      "submission_ref": 57078891,
+      "runtime_seconds": null,
+      "notes": "MII raptor96 SAM solo, step 5300; stress projected 1.45 h."
+    },
+    {
+      "members": [
+        "convnext_base_v5_raptor96_local",
+        "medimageinsight_davit_huge_v5_raptor96_sam"
+      ],
+      "submitted": "2026-10-11 20:00 UTC",
+      "public_score": 0.94,
+      "private_score": null,
+      "val": 0.931,
+      "audit58": 0.9305,
+      "kernel": "mamounhussam/knee-raptor-pair-a",
+      "kernel_version": null,
+      "submission_ref": 57084465,
+      "runtime_seconds": null,
+      "notes": "Raptor pair, logit weights 0.7 ConvNeXt / 0.3 MII, no public blend (val-346 / audit / clean +0.0018 / +0.0034 / +0.0010 vs ConvNeXt alone). Stress passed after the one-group chunk-rule fix; projected 1.72 h."
+    }
+  ]
 }
