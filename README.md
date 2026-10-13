@@ -82,11 +82,22 @@ cached predictions ──► ensemble search on audit-58 / clean-121 ──► o
 
 ### 1. Labels (`data_code/02` to `28`)
 
-- Reports translated to English, then labelled by an LLM into 12 soft scores (`03_label_reports.py`). A second
-  model (MedGemma) is averaged in for 5 findings reports describe poorly.
-- Each training study then gets its **out-of-fold** prediction from 5-fold image models blended in (`18`, `20`, `22`,
-  `28`). The 58 panel-labelled studies keep their panel labels and are never trained on in split runs.
-- The final default labels (`28_*_w50r10`) add the Raptor96 folds as a further 10% teacher.
+Every report is first translated to English by Qwen3.8-Max (`02_translate_reports.py`), then turned into 12 soft
+scores (probabilities) per study. Each version builds on the one before. "Audit-58" is the AUROC of the labels
+themselves against the 58 panel-labelled studies:
+
+| Version | Labelled by | How | Audit-58 |
+| --- | --- | --- | --- |
+| v1 | Qwen3.8-27B (LLM, reports only) | translated report -> 12 probabilities, reasoning effort low | 0.895 |
+| v2 | Qwen3.8-Max, 2.4T parameters (LLM, reports only) | same prompt, reasoning effort medium (`03_label_reports.py`) | 0.911 |
+| v3 | v2 + MedGemma 1.5 (vision-language model, images) | MedGemma's image opinion averaged 50/50 in logit space on Effusion, Synovitis, Baker's, Lateral Meniscus, Lateral OA (`17`) | 0.931 |
+| v4 ("w50") | v3 + two image-model teachers | 50% v3 + 50% out-of-fold predictions of 5-fold ConvNeXt and 5-fold MedImageInsight models (`22`) | 0.945 |
+| w50r10 (final default) | v4 + Raptor96 folds | v4 moved 10% toward the Raptor96 5-fold out-of-fold predictions (`28`) | 0.947 |
+
+"Out-of-fold" means each study's prediction comes from the one fold model that never trained on it. The 58
+panel-labelled studies always keep their panel labels. On the leaderboard, the same model scored 0.914 on v2,
+0.916 on v3 and 0.927 on v4 (0.922 with only a 30% teacher weight). Labeller ideas that did not
+beat the noise floor are listed under "What did not help".
 
 ### 2. Preprocessing (`data_code/07`, `modal_scripts/modal_preprocess.py`)
 
