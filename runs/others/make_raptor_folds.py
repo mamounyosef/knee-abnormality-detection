@@ -6,7 +6,7 @@ only three things change per fold:
   dataloader   the Modal recipe of convnext_base_v5_raptor96: batch 8 x accum 1 (= f0's 2 x 4: the same 8 studies per
                update), val batch 4, 26 workers, no grad checkpointing (H100 80 GB)
   validations  cheap on an H100 (~80 s for 836 studies x 94 windows): the raptor Modal cadence, every 400 steps to
-               epoch 6, then every 250; patience 6 (1,500 steps, = f0's 6 x 400 within a validation)
+               epoch 6, then every 100 (user: late validations always every 100); patience 6 (600 steps)
 The .py files are copied with the run name swapped.
 
     python runs/others/make_raptor_folds.py
@@ -33,7 +33,7 @@ EVALUATION = """evaluation:
   eval_every_steps_before: 400      # epochs 1-5
   eval_every_steps_mid: 400         # epoch 6
   eval_every_steps_epoch_mid_threshold: 6
-  eval_every_steps_after: 250       # epoch 7 onward (~80 s each on an H100)
+  eval_every_steps_after: 100       # epoch 7 onward (~80 s each on an H100); always 100 (user)
   eval_every_steps_epoch_threshold: 7
 """
 
@@ -54,7 +54,7 @@ for k in range(1, 5):
     c = c.replace(block(c, "evaluation"), EVALUATION + "\n")
     c = c.replace("modal:                              # unused locally; train.py's Modal app needs it to import", "modal:")
     c = re.sub(r"^  grad_checkpointing: true.*\n", "  grad_checkpointing: false         # H100 80 GB\n", c, flags=re.M)
-    c = re.sub(r"^    patience: 6 .*$", "    patience: 6                     # validations: 1,500 steps at every 250", c, flags=re.M)
+    c = re.sub(r"^    patience: 6 .*$", "    patience: 6                     # validations: 600 steps at every 100", c, flags=re.M)
     head = (f"# {name}\n#\n# RAPTOR96 FOLD {k} of 5 on MODAL (H100), NO SAM (12 Oct, user: folds 1-4 on Modal, fold 0 locally).\n"
             f"# Written by runs/others/make_raptor_folds.py from {SRC}: identical recipe; only the fold's data, the Modal\n"
             f"# dataloader (batch 8 x accum 1, the same 8 studies per update) and the cheaper validation cadence differ.\n"

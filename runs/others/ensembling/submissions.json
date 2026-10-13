@@ -1065,6 +1065,48 @@
       "submission_ref": 57116358,
       "runtime_seconds": null,
       "notes": "Greedy5: greedy_from_raptor.py full-121 build, 0.286 / 0.272 / 0.170 / 0.150 / 0.122 (logit); clean-121 0.9209. Cross-fit said its picks after dinov3 do not hold out; a test of the search. Projected 2.66 h."
+    },
+    {
+      "members": [
+        "convnext_base_v5_raptor96_local",
+        "medimageinsight_davit_huge_v5_raptor96_sam",
+        "dinov3_convnext_base_v5",
+        "swinv2_base_in22k_v5_warm",
+        "convnext_base_v5_raptor96_f0",
+        "convnext_base_v5_raptor96_f1",
+        "convnext_base_v5_raptor96_f2",
+        "convnext_base_v5_raptor96_f3",
+        "convnext_base_v5_raptor96_f4"
+      ],
+      "submitted": "2026-10-13 09:01 UTC",
+      "public_score": null,
+      "private_score": null,
+      "val": null,
+      "audit58": 0.934,
+      "kernel": "mamounhussam/knee-raptor4-folds-a",
+      "kernel_version": null,
+      "submission_ref": 57137580,
+      "runtime_seconds": null,
+      "notes": "Raptor4 x0.9 + the 5 raptor96 folds at 0.02 each (logit): 0.378 / 0.162 / 0.18 / 0.18 / 0.02 x5; clean-121 0.9210 (raptor4 0.9335 / 0.9209). Stress passed, projected 4.17 h."
+    },
+    {
+      "members": [
+        "convnext_base_v5_raptor96_f0",
+        "convnext_base_v5_raptor96_f1",
+        "convnext_base_v5_raptor96_f2",
+        "convnext_base_v5_raptor96_f3",
+        "convnext_base_v5_raptor96_f4"
+      ],
+      "submitted": "2026-10-13 09:07 UTC",
+      "public_score": null,
+      "private_score": null,
+      "val": null,
+      "audit58": 0.9257,
+      "kernel": "mamounhussam/knee-raptor-folds-a",
+      "kernel_version": null,
+      "submission_ref": 57137756,
+      "runtime_seconds": null,
+      "notes": "The 5 raptor96 folds alone, flat logit mean, best-val steps 7000/6960/6250/6928/5250; clean-121 0.9131, OOF-4342 0.9193 (single raptor 0.9272 / 0.9163, LB 0.939). Stress passed, projected 1.54 h."
     }
   ]
 }

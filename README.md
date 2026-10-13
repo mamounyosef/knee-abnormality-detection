@@ -1,1 +1,171 @@
-# knee_abnormality_detection
+# RSNA Knee Abnormality Detection
+
+Our solution to the [RSNA Knee Abnormality Detection](https://www.kaggle.com/competitions/rsna-knee-abnormality-detection)
+Kaggle competition (July to October 2026). Given a knee MRI study, the task is to predict a confidence score for
+each of **12 abnormalities**. The score is the **macro-averaged area under the ROC curve (AUROC)** across all 12.
+
+**Best public leaderboard score: 0.943** (top of the board: 0.964). The best single model scores 0.939.
+
+| Final picks | Public LB | What it is |
+| --- | --- | --- |
+| Combined fit-10 | 0.943 | 10 of our models, blended 60 / 40 in rank space with a public pipeline (its non-commercial stage removed) |
+| Raptor4 | 0.942 | 4 of our own models only, weighted logit mean, no public code |
+
+---
+
+## The problem in plain words
+
+A knee MRI study is a set of 3D scans (series) taken from three directions (sagittal, coronal, axial), each with
+several contrasts. Every study needs a score for:
+
+| Group | Findings |
+| --- | --- |
+| Ligaments | ACL tear, MCL tear |
+| Menisci (the two cartilage "shock absorbers") | Medial Meniscus, Lateral Meniscus |
+| Osteoarthritis (cartilage wear) | Medial OA, Lateral OA, PF OA (behind the kneecap) |
+| Fluid and soft tissue | Effusion (excess joint fluid), Synovitis (inflamed joint lining), Baker's cyst |
+| Bone injury | Contusion (bone bruise), Fracture |
+
+It is a **code competition**: inference runs offline inside a Kaggle notebook on 2 x T4 GPUs, within **9 hours** for
+about 1,300 hidden studies.
+
+**What makes it hard:** 4,407 training studies, but only **58 have image-level labels** (from an expert panel).
+Every other study comes with only its original **radiology report**, in 9 languages (English 39%). Reports are
+not available at test time. So most of the work is (1) turning reports into training labels and (2) training image
+models on those noisy labels.
+
+## Results
+
+### Milestones
+
+| Public LB | What |
+| --- | --- |
+| 0.914 -> 0.918 | One ConvNeXt -> 5 folds of it |
+| 0.916 -> 0.927 | Same model, LLM report labels -> labels blended 50% with out-of-fold model predictions ("teacher" labels) |
+| 0.928 -> 0.932 | Mixed-architecture ensembles (ConvNeXt, DINOv3, SwinV2, MRI-CORE ViT with cross-slice attention) |
+| 0.938 | 10 members, 6 of them retrained on full data (train + validation + audit) |
+| 0.942 | 14 members, incl. 5 MedImageInsight folds and the teacher labels |
+| 0.943 | Our ensemble rank-blended with a prize-safe version of a public pipeline |
+| 0.929 -> 0.939 | Best single model: MedImageInsight -> **Raptor96** ConvNeXt |
+| 0.942 | Raptor4: Raptor96 ConvNeXt + Raptor96 MedImageInsight + DINOv3 + SwinV2, no public code |
+
+### What mattered most
+
+1. **Labels from reports.** A large LLM reading the (translated) reports gets 0.895 AUROC against the panel labels.
+   Blending in out-of-fold image-model predictions at 50% raised the leaderboard by +0.011 (0.916 to 0.927).
+2. **Architecture diversity over data-split diversity.** 5 folds of one ConvNeXt gave +0.004 over a single model.
+   Mixing ConvNeXt, DINOv3, SwinV2, MRI-CORE and MedImageInsight gave about 4x that.
+3. **More slices, smarter pooling (Raptor96).** 96 slices from 5 series, a bag of 3-slice windows and a per-finding
+   attention head: 0.929 to 0.939 for the best single model.
+4. **Full-data retrains.** Training on train + val + audit paid every time it was tried (+0.002 to +0.016).
+
+### What did not help (measured, then closed)
+
+| Idea | Result |
+| --- | --- |
+| AUC-M loss + PESG optimiser | best 0.9023 vs 0.9049 baseline |
+| Stacking (logistic regression on member logits) | loses to a constrained weight search out of fold |
+| SAM optimiser | +0.0077 on audit, tie on the leaderboard (0.930 vs 0.930) |
+| Few-shot prompts, labeler ensembles, self-consistency, re-translation | all inside the labeler noise floor (3.3% of decisions) |
+| Greedy ensemble search over 100 candidates | in-sample +0.0069, held out -0.0002 |
+| Raptor96 5 folds | fold mean below the single full-split model, no gain inside the ensemble |
+| SWA, mirror test-time augmentation, RandConv, multi-window inputs | flat or negative |
+
+## How it works
+
+```text
+reports ──► translate ──► LLM labels (12 soft scores) ──► + out-of-fold teacher predictions ──► training labels
+DICOM   ──► per-series resample (0.40 mm/px, 512 px, N real slices, uint8) ──► shards on cloud volumes
+shards + labels ──► runs/<experiment> (one shared engine) ──► checkpoints + cached val/audit predictions
+cached predictions ──► ensemble search on audit-58 / clean-121 ──► one Kaggle notebook (2 x T4, shared decode)
+```
+
+### 1. Labels (`data_code/02` to `28`)
+
+- Reports translated to English, then labelled by an LLM into 12 soft scores (`03_label_reports.py`). A second
+  model (MedGemma) is averaged in for 5 findings reports describe poorly.
+- Each training study then gets its **out-of-fold** prediction from 5-fold image models blended in (`18`, `20`, `22`,
+  `28`). The 58 panel-labelled studies keep their panel labels and are never trained on in split runs.
+- The final default labels (`28_*_w50r10`) add the Raptor96 folds as a further 10% teacher.
+
+### 2. Preprocessing (`data_code/07`, `modal_scripts/modal_preprocess.py`)
+
+Every series is resampled in-plane to a fixed spacing (no interpolation through the slices: N evenly spaced real
+slices are picked), windowed per volume to uint8 and stored as one shard per study. Left knees are mirrored so
+"medial" is always on the same side of the image.
+
+### 3. Training (`runs/`)
+
+- `runs/shared_code.py` is the single engine: dataset, augmentations, models, train loop, metrics, checkpointing,
+  logging, cloud glue and the Kaggle inference path.
+- `runs/shared_config.yaml` holds the shared defaults. Each `runs/<experiment>/config.yaml` holds only what
+  differs, deep-merged on top. `train.py` stays thin.
+- Training ran on [Modal](https://modal.com) (H100 / H200), with an RTX 4060 for small local runs. A config's
+  `local:` block swaps in PC-sized settings automatically, so a run can move between the two without edits.
+
+**Raptor96, the strongest recipe:** 5 series slots (sagittal fluid + plain, coronal fluid + plain, axial fluid),
+96 slices, 384 px at 0.365 mm/px, a ConvNeXt-Base (or MedImageInsight DaViT-Huge) trunk applied to 3-slice
+windows (12 random windows in training, all 94 at evaluation), and a per-finding attention head over the windows.
+
+### 4. Validation
+
+The leaderboard is graded by panel labels, so model choices were scored on two surfaces no member trained on:
+
+- **audit-58**: the 58 panel-labelled studies;
+- **clean-121**: audit-58 plus 63 held-out studies with report labels.
+
+Paired bootstrap over studies gives the probability that a change is real. A held-out cross-fit checks searches
+for overfitting.
+
+### 5. Inference (`runs/others/ensembling/`)
+
+`submit_ensemble.py` packages any set of checkpoints into one Kaggle dataset and notebook:
+
+- members grouped by input geometry, with each study decoded once and shared across groups;
+- members split across the two T4 cards, in fp16;
+- a **stress gate**: a 128-study commit run must pass and project under the 9 h cap before a real submission is
+  allowed.
+
+## Repository layout
+
+```text
+data/            derived CSVs (labels, splits, folds), numbered by the script that wrote them
+data_code/       numbered pipeline: EDA, report labelling, splits, folds, teacher labels
+modal_scripts/   download, preprocessing, shard sync, checkpoint and run sync for Modal
+runs/
+  shared_code.py       the engine
+  shared_config.yaml   shared defaults
+  <experiment>/        config.yaml (only what varies), train.py, results/ (logs, summaries)
+  others/              cross-run analysis, ensembling, submission tooling
+checks/          tests for engine features and run configs (most run on Modal CPU)
+other_md/        progress log (outline.md), medical glossary, research notes
+runs_summary.md  scoreboard of every run and ensemble
+```
+
+Checkpoints and image shards are not in the repository (hundreds of GB).
+
+## Reproducing
+
+1. Download the competition data and preprocess it into shards (`modal_scripts/modal_download.py`,
+   `modal_scripts/modal_preprocess.py`).
+2. Build labels and splits with the numbered `data_code/` scripts, in order.
+3. Train a run: `python -m modal run runs/<experiment>/train.py` (or `python runs/<experiment>/train.py` locally).
+4. Score combinations from the cached predictions (`runs/others/ensembling/`), then stress-test and submit with
+   `python runs/others/ensembling/submit_ensemble.py runs/others/ensembling/configs/<name>_stress.py` and its
+   `_submit.py` twin.
+
+Kaggle and Modal credentials are read from the environment, never from files in this repository.
+
+## Acknowledgements and licences
+
+Code: Apache 2.0 (see `LICENSE`). Pretrained weights keep their own licences:
+
+- **Built with DINOv3.** DINOv3 weights by Meta AI are used under the DINOv3 License; a copy ships with every
+  submission that includes them.
+- MedImageInsight (Microsoft), MRI-CORE, and ImageNet-pretrained ConvNeXt / SwinV2 from
+  [timm](https://github.com/huggingface/pytorch-image-models).
+- RadImageNet weights are non-commercial and were never used in a prize-eligible submission.
+- The combined submissions blend in a public Kaggle pipeline (with its non-commercial stage removed). Credit to
+  its authors and to the Kaggle community notebooks this work learned from.
+- Thanks to RSNA and Kaggle for the dataset, the first RSNA AI Challenge to pair every study with its radiology
+  report.

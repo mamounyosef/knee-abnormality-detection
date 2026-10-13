@@ -1,6 +1,7 @@
 # convnext_base_v5_raptor96_f0
 #
-# Runs LOCALLY (12 Oct, user), resuming from step700.pt. The base below is the Modal recipe (folds 1-4); the
+# 13 Oct (user): MOVED TO MODAL from the step-6000 state (local last.pt, pushed as step6000.pt), validating every
+# 100 steps from there. Before that it ran LOCALLY (12 Oct) from step700.pt. The base below is the Modal recipe (folds 1-4); the
 # `local:` block at the bottom swaps in the PC settings (2 x accum 4, 1 worker, grad checkpointing, slower cadence)
 # whenever it is not a Modal container, so it can move either way with no edit. No SAM.
 #
@@ -63,7 +64,7 @@ training:
     enable: true
     monitor: "val_macro_auroc"
     mode: "max"
-    patience: 6                     # validations: 1,500 steps at every 250
+    patience: 6                     # validations: 600 steps at every 100
 
 dataloader:
   batch_size: 8                     # 8 studies x 12 windows = 96 images per step (f0 local: 2 x accum 4, same 8 studies)
@@ -85,7 +86,7 @@ evaluation:
   eval_every_steps_before: 400      # epochs 1-5
   eval_every_steps_mid: 400         # epoch 6
   eval_every_steps_epoch_mid_threshold: 6
-  eval_every_steps_after: 250       # epoch 7 onward (~80 s each on an H100)
+  eval_every_steps_after: 100       # epoch 7 onward (~80 s each on an H100); user: late validations ALWAYS every 100
   eval_every_steps_epoch_threshold: 7
 
 output:
@@ -109,7 +110,7 @@ local:
   evaluation:
     eval_every_steps_before: 800    # ~10 min per validation locally (836 studies x 94 windows)
     eval_every_steps_mid: 800
-    eval_every_steps_after: 400
+    eval_every_steps_after: 100     # late validations every 100, also on the PC (user, 13 Oct)
 
 reproducibility:
   seed: 42

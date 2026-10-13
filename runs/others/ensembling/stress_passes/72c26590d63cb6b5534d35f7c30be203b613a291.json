@@ -1,0 +1,33 @@
+{
+ "fingerprint": "72c26590d63cb6b5534d35f7c30be203b613a291",
+ "engine_sha1": "f5f931d15237ac0b4d109f98c1cb0b7f76eef846",
+ "notebook": "mamounhussam/knee-raptor-folds-a",
+ "dataset": "mamounhussam/knee-raptor-folds",
+ "version": "1",
+ "n_members": 5,
+ "stress_studies": 128,
+ "manifest": {
+  "m0_config.json": 6835,
+  "m0_def.py": 2890,
+  "m0_model.pt": 351502311,
+  "m1_config.json": 6425,
+  "m1_def.py": 2890,
+  "m1_model.pt": 351502247,
+  "m2_config.json": 6425,
+  "m2_def.py": 2890,
+  "m2_model.pt": 351502247,
+  "m3_config.json": 6425,
+  "m3_def.py": 2890,
+  "m3_model.pt": 351502247,
+  "m4_config.json": 6425,
+  "m4_def.py": 2890,
+  "m4_model.pt": 351502247,
+  "members.json": 648,
+  "pylibjpeg-2.1.0-py3-none-any.whl": 25472,
+  "pylibjpeg_libjpeg-2.4.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl": 3409132,
+  "pylibjpeg_openjpeg-2.5.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl": 1966200,
+  "shared_code.py": 518255
+ },
+ "public": false,
+ "passed": "2026-10-13T11:48:56"
+}
