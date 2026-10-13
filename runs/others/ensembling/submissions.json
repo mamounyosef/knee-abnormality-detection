@@ -1079,7 +1079,7 @@
         "convnext_base_v5_raptor96_f4"
       ],
       "submitted": "2026-10-13 09:01 UTC",
-      "public_score": null,
+      "public_score": 0.942,
       "private_score": null,
       "val": null,
       "audit58": 0.934,
@@ -1098,7 +1098,7 @@
         "convnext_base_v5_raptor96_f4"
       ],
       "submitted": "2026-10-13 09:07 UTC",
-      "public_score": null,
+      "public_score": 0.937,
       "private_score": null,
       "val": null,
       "audit58": 0.9257,
