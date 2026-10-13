@@ -92,7 +92,6 @@ themselves against the 58 panel-labelled studies:
 | v2 | Qwen3.8-Max, 2.4T parameters (LLM, reports only) | same prompt, reasoning effort medium (`03_label_reports.py`) | 0.911 |
 | v3 | v2 + MedGemma 1.5 (vision-language model, images) | MedGemma's image opinion averaged 50/50 in logit space on Effusion, Synovitis, Baker's, Lateral Meniscus, Lateral OA (`17`) | 0.931 |
 | v4 ("w50") | v3 + two image-model teachers | 50% v3 + 50% out-of-fold predictions of 5-fold ConvNeXt and 5-fold MedImageInsight models (`22`) | 0.945 |
-| w50r10 (final default) | v4 + Raptor96 folds | v4 moved 10% toward the Raptor96 5-fold out-of-fold predictions (`28`) | 0.947 |
 
 "Out-of-fold" means each study's prediction comes from the one fold model that never trained on it. The 58
 panel-labelled studies always keep their panel labels. On the leaderboard, the same model scored 0.914 on v2,
