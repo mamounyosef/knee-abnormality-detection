@@ -1,6 +1,6 @@
 """manual_build.py - score a HAND-PICKED build order on audit-58 and clean-121, one step at a time (12 Oct, user).
 
-Same members, surfaces and eligibility rules as greedy_from_raptor.py (imported from it, so the two cannot drift).
+Same members, surfaces and eligibility rules as greedy_from_96slices_per_finding_attn.py (imported from it, so the two cannot drift).
 Each step is (member, share): P' = (1 - share) P + share c in logit space. A step whose member is "-name" removes that
 member and renormalises. Every step prints both surfaces with the paired-bootstrap P(better) vs the previous step and
 vs the start. Edit STEPS and run.
@@ -12,13 +12,13 @@ from pathlib import Path
 
 import numpy as np
 
-sys.argv = [sys.argv[0]]                         # greedy_from_raptor parses argv; no cross-fit on import
+sys.argv = [sys.argv[0]]                         # greedy_from_96slices_per_finding_attn parses argv; no cross-fit on import
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-src = (HERE / "greedy_from_raptor.py").read_text(encoding="utf-8")
-g = {"__name__": "gfr", "__file__": str(HERE / "greedy_from_raptor.py")}
+src = (HERE / "greedy_from_96slices_per_finding_attn.py").read_text(encoding="utf-8")
+g = {"__name__": "gfr", "__file__": str(HERE / "greedy_from_96slices_per_finding_attn.py")}
 exec(compile(src[:src.index("\n# ---------------------------------------------------------------- greedy")],
-             "greedy_from_raptor.py", "exec"), g)
+             "greedy_from_96slices_per_finding_attn.py", "exec"), g)
 POOL, mac, IA, IC, Y, A58, START, rt, solo, aucs = (g[k] for k in
                                                     ("POOL", "mac", "IA", "IC", "Y", "A58", "START", "rt", "solo", "aucs"))
 rng = np.random.default_rng(0)

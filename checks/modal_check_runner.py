@@ -5,7 +5,7 @@ and linked to /root/data/shards, and sc.load_config is wrapped with sc.remote_cf
 points at the container paths. CPU only: torch.cuda stays unavailable.
 
     (select the Modal profile first)
-    python -m modal run checks/modal_check_runner.py --name raptor96_check.py
+    python -m modal run checks/modal_check_runner.py --name 96slices_per_finding_attn_check.py
 """
 import sys
 from pathlib import Path

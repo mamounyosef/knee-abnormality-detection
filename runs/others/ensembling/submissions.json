@@ -949,7 +949,7 @@
     },
     {
       "members": [
-        "convnext_base_v5_raptor96_local"
+        "convnext_base_v5_96slices_per_finding_attn"
       ],
       "submitted": "2026-10-11 09:41 UTC",
       "public_score": 0.939,
@@ -960,13 +960,13 @@
       "kernel_version": 1,
       "submission_ref": 57069993,
       "runtime_seconds": null,
-      "notes": "Raptor96 solo (public 0.949 input recipe on ConvNeXt-B), step 9000, no public blend. Best single on the LB: +0.010 over medimageinsight_davit_huge_336 (0.929)."
+      "notes": "PerFindingAttn-96 solo (public 0.949 input recipe on ConvNeXt-B), step 9000, no public blend. Best single on the LB: +0.010 over medimageinsight_davit_huge_336 (0.929)."
     },
     {
       "members": [
         "convnext_base_v5",
         "dinov3_convnext_base_v5",
-        "convnext_base_v5_raptor96_local",
+        "convnext_base_v5_96slices_per_finding_attn",
         "convnext_base_25d_poolattn_full_v5",
         "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip",
         "medimageinsight_davit_huge_336_v3_f0",
@@ -981,11 +981,11 @@
       "kernel_version": 2,
       "submission_ref": 57071682,
       "runtime_seconds": null,
-      "notes": "The 0.943 combined recipe with raptor96_local in place of convnext_base_25d_18slices_v5_aug_base. Stress stamp dd15fa1fbff1; ours 2.06 h + public 5.53 h projected. 0.943 = no change on the LB (local S6 swapP was +0.0012 audit / +0.0013 clean)."
+      "notes": "The 0.943 combined recipe with convnext_base_v5_96slices_per_finding_attn in place of convnext_base_25d_18slices_v5_aug_base. Stress stamp dd15fa1fbff1; ours 2.06 h + public 5.53 h projected. 0.943 = no change on the LB (local S6 swapP was +0.0012 audit / +0.0013 clean)."
     },
     {
       "members": [
-        "medimageinsight_davit_huge_v5_raptor96_sam"
+        "medimageinsight_davit_huge_v5_96slices_per_finding_attn_sam"
       ],
       "submitted": "2026-10-11 15:50 UTC",
       "public_score": 0.937,
@@ -996,12 +996,12 @@
       "kernel_version": 1,
       "submission_ref": 57078891,
       "runtime_seconds": null,
-      "notes": "MII raptor96 SAM solo, step 5300; stress projected 1.45 h."
+      "notes": "MII PerFindingAttn-96 SAM solo, step 5300; stress projected 1.45 h."
     },
     {
       "members": [
-        "convnext_base_v5_raptor96_local",
-        "medimageinsight_davit_huge_v5_raptor96_sam"
+        "convnext_base_v5_96slices_per_finding_attn",
+        "medimageinsight_davit_huge_v5_96slices_per_finding_attn_sam"
       ],
       "submitted": "2026-10-11 20:00 UTC",
       "public_score": 0.94,
@@ -1012,7 +1012,7 @@
       "kernel_version": null,
       "submission_ref": 57084465,
       "runtime_seconds": null,
-      "notes": "Raptor pair, logit weights 0.7 ConvNeXt / 0.3 MII, no public blend (val-346 / audit / clean +0.0018 / +0.0034 / +0.0010 vs ConvNeXt alone). Stress passed after the one-group chunk-rule fix; projected 1.72 h."
+      "notes": "PerFindingAttn-96 pair, logit weights 0.7 ConvNeXt / 0.3 MII, no public blend (val-346 / audit / clean +0.0018 / +0.0034 / +0.0010 vs ConvNeXt alone). Stress passed after the one-group chunk-rule fix; projected 1.72 h."
     },
     {
       "members": [
@@ -1031,8 +1031,8 @@
     },
     {
       "members": [
-        "convnext_base_v5_raptor96_local",
-        "medimageinsight_davit_huge_v5_raptor96_sam",
+        "convnext_base_v5_96slices_per_finding_attn",
+        "medimageinsight_davit_huge_v5_96slices_per_finding_attn_sam",
         "dinov3_convnext_base_v5",
         "swinv2_base_in22k_v5_warm"
       ],
@@ -1045,15 +1045,15 @@
       "kernel_version": 2,
       "submission_ref": 57115658,
       "runtime_seconds": null,
-      "notes": "Raptor4: manual build, weights 0.42 / 0.18 / 0.20 / 0.20 (logit), no public blend; clean-121 0.9209. Stress passed, projected 3.66 h."
+      "notes": "Ens4: manual build, weights 0.42 / 0.18 / 0.20 / 0.20 (logit), no public blend; clean-121 0.9209. Stress passed, projected 3.66 h."
     },
     {
       "members": [
-        "convnext_base_v5_raptor96_local",
+        "convnext_base_v5_96slices_per_finding_attn",
         "dinov3_convnext_base_v5",
         "convnext_base_25d_spatial",
         "convnext_base_25d_v5_attributes",
-        "medimageinsight_davit_huge_v5_raptor96_sam"
+        "medimageinsight_davit_huge_v5_96slices_per_finding_attn_sam"
       ],
       "submitted": "2026-10-12 18:56 UTC",
       "public_score": 0.941,
@@ -1064,19 +1064,19 @@
       "kernel_version": null,
       "submission_ref": 57116358,
       "runtime_seconds": null,
-      "notes": "Greedy5: greedy_from_raptor.py full-121 build, 0.286 / 0.272 / 0.170 / 0.150 / 0.122 (logit); clean-121 0.9209. Cross-fit said its picks after dinov3 do not hold out; a test of the search. Projected 2.66 h."
+      "notes": "Greedy5: greedy_from_96slices_per_finding_attn.py full-121 build, 0.286 / 0.272 / 0.170 / 0.150 / 0.122 (logit); clean-121 0.9209. Cross-fit said its picks after dinov3 do not hold out; a test of the search. Projected 2.66 h."
     },
     {
       "members": [
-        "convnext_base_v5_raptor96_local",
-        "medimageinsight_davit_huge_v5_raptor96_sam",
+        "convnext_base_v5_96slices_per_finding_attn",
+        "medimageinsight_davit_huge_v5_96slices_per_finding_attn_sam",
         "dinov3_convnext_base_v5",
         "swinv2_base_in22k_v5_warm",
-        "convnext_base_v5_raptor96_f0",
-        "convnext_base_v5_raptor96_f1",
-        "convnext_base_v5_raptor96_f2",
-        "convnext_base_v5_raptor96_f3",
-        "convnext_base_v5_raptor96_f4"
+        "convnext_base_v5_96slices_per_finding_attn_f0",
+        "convnext_base_v5_96slices_per_finding_attn_f1",
+        "convnext_base_v5_96slices_per_finding_attn_f2",
+        "convnext_base_v5_96slices_per_finding_attn_f3",
+        "convnext_base_v5_96slices_per_finding_attn_f4"
       ],
       "submitted": "2026-10-13 09:01 UTC",
       "public_score": 0.942,
@@ -1087,15 +1087,15 @@
       "kernel_version": null,
       "submission_ref": 57137580,
       "runtime_seconds": null,
-      "notes": "Raptor4 x0.9 + the 5 raptor96 folds at 0.02 each (logit): 0.378 / 0.162 / 0.18 / 0.18 / 0.02 x5; clean-121 0.9210 (raptor4 0.9335 / 0.9209). Stress passed, projected 4.17 h."
+      "notes": "Ens4 x0.9 + the 5 PerFindingAttn-96 folds at 0.02 each (logit): 0.378 / 0.162 / 0.18 / 0.18 / 0.02 x5; clean-121 0.9210 (ens4 0.9335 / 0.9209). Stress passed, projected 4.17 h."
     },
     {
       "members": [
-        "convnext_base_v5_raptor96_f0",
-        "convnext_base_v5_raptor96_f1",
-        "convnext_base_v5_raptor96_f2",
-        "convnext_base_v5_raptor96_f3",
-        "convnext_base_v5_raptor96_f4"
+        "convnext_base_v5_96slices_per_finding_attn_f0",
+        "convnext_base_v5_96slices_per_finding_attn_f1",
+        "convnext_base_v5_96slices_per_finding_attn_f2",
+        "convnext_base_v5_96slices_per_finding_attn_f3",
+        "convnext_base_v5_96slices_per_finding_attn_f4"
       ],
       "submitted": "2026-10-13 09:07 UTC",
       "public_score": 0.937,
@@ -1106,7 +1106,7 @@
       "kernel_version": null,
       "submission_ref": 57137756,
       "runtime_seconds": null,
-      "notes": "The 5 raptor96 folds alone, flat logit mean, best-val steps 7000/6960/6250/6928/5250; clean-121 0.9131, OOF-4342 0.9193 (single raptor 0.9272 / 0.9163, LB 0.939). Stress passed, projected 1.54 h."
+      "notes": "The 5 PerFindingAttn-96 folds alone, flat logit mean, best-val steps 7000/6960/6250/6928/5250; clean-121 0.9131, OOF-4342 0.9193 (single 96slices_per_finding_attn 0.9272 / 0.9163, LB 0.939). Stress passed, projected 1.54 h."
     }
   ]
 }

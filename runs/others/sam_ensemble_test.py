@@ -27,7 +27,7 @@ g2 = {"__file__": str(HERE / "round2_teacher_audit.py"), "__name__": "r2_audit"}
 exec(compile(src2[:src2.index("\ndef logit(p):")], "round2_teacher_audit.py", "exec"), g2)
 best_npz = g2["best_npz"]
 PARENT = sys.argv[2] if len(sys.argv) > 2 else "convnext_base_25d_18slices_v5_aug_base"   # the member swapP replaces
-RAPTOR = "convnext_base_v5_raptor96_local"
+ATTN96 = "convnext_base_v5_96slices_per_finding_attn"
 S6 = ["convnext_base_v5", "dinov3_convnext_base_v5", "convnext_base_25d_18slices_v5_aug_base", "convnext_base_25d_poolattn_v5",
       "convnext_base_25d_perfinding_slots_and_pooling_fulldata_flip", "medimageinsight_davit_huge_336_v3_f0"]
 rng = np.random.default_rng(0)
@@ -55,7 +55,7 @@ def full_auc(y, p):
 
 data = {}
 for s, (ids, Y) in SURF.items():
-    P = {m: g["get"](m, ids).loc[ids, T].astype(float).to_numpy() for m in dict.fromkeys(BASE + [NEW, PARENT, RAPTOR])}
+    P = {m: g["get"](m, ids).loc[ids, T].astype(float).to_numpy() for m in dict.fromkeys(BASE + [NEW, PARENT, ATTN96])}
     y = Y.loc[ids, T].to_numpy().astype(int)
     I = rng.integers(0, len(ids), (2000, len(ids)))
     data[s] = (P, y, I)
@@ -68,9 +68,9 @@ def blend(P, members):
     return sum(P[m] for m in members) / len(members)
 
 
-# S6R = the combined_raptor submission's members (raptor96_local in for aug_base)
-S6R = [RAPTOR if m == "convnext_base_25d_18slices_v5_aug_base" else m for m in S6 if m in BASE]   # perfinding_fulldata has no held-out preds
-for bname, base in (("all 14", BASE), ("S6 (0.943 core)", [m for m in S6 if m in BASE]), ("S6R (combined_raptor)", S6R)):
+# S6R = the combined_96slices_per_finding_attn submission's members (convnext_base_v5_96slices_per_finding_attn in for aug_base)
+S6R = [ATTN96 if m == "convnext_base_25d_18slices_v5_aug_base" else m for m in S6 if m in BASE]   # perfinding_fulldata has no held-out preds
+for bname, base in (("all 14", BASE), ("S6 (0.943 core)", [m for m in S6 if m in BASE]), ("S6R (combined_96slices_per_finding_attn)", S6R)):
     print(f"\n=== base: {bname} ({len(base)} members)")
     ref = {s: (full_auc(y, blend(P, base)), auc_cols(y, blend(P, base), I)) for s, (P, y, I) in data.items()}
     print(f"  base: audit {ref['audit58'][0]:.4f} | clean-121 {ref['clean121'][0]:.4f}")

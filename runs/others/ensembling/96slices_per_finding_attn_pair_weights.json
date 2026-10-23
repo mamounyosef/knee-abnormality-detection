@@ -1,0 +1,57 @@
+{
+  "members": [
+    "convnext_base_v5_96slices_per_finding_attn",
+    "medimageinsight_davit_huge_v5_96slices_per_finding_attn_sam"
+  ],
+  "weights_per_class": {
+    "ACL": {
+      "convnext_base_v5_96slices_per_finding_attn": 0.7,
+      "medimageinsight_davit_huge_v5_96slices_per_finding_attn_sam": 0.3
+    },
+    "MCL": {
+      "convnext_base_v5_96slices_per_finding_attn": 0.7,
+      "medimageinsight_davit_huge_v5_96slices_per_finding_attn_sam": 0.3
+    },
+    "Medial Meniscus": {
+      "convnext_base_v5_96slices_per_finding_attn": 0.7,
+      "medimageinsight_davit_huge_v5_96slices_per_finding_attn_sam": 0.3
+    },
+    "Lateral Meniscus": {
+      "convnext_base_v5_96slices_per_finding_attn": 0.7,
+      "medimageinsight_davit_huge_v5_96slices_per_finding_attn_sam": 0.3
+    },
+    "Medial OA": {
+      "convnext_base_v5_96slices_per_finding_attn": 0.7,
+      "medimageinsight_davit_huge_v5_96slices_per_finding_attn_sam": 0.3
+    },
+    "Lateral OA": {
+      "convnext_base_v5_96slices_per_finding_attn": 0.7,
+      "medimageinsight_davit_huge_v5_96slices_per_finding_attn_sam": 0.3
+    },
+    "PF OA": {
+      "convnext_base_v5_96slices_per_finding_attn": 0.7,
+      "medimageinsight_davit_huge_v5_96slices_per_finding_attn_sam": 0.3
+    },
+    "Effusion": {
+      "convnext_base_v5_96slices_per_finding_attn": 0.7,
+      "medimageinsight_davit_huge_v5_96slices_per_finding_attn_sam": 0.3
+    },
+    "Synovitis": {
+      "convnext_base_v5_96slices_per_finding_attn": 0.7,
+      "medimageinsight_davit_huge_v5_96slices_per_finding_attn_sam": 0.3
+    },
+    "Baker's": {
+      "convnext_base_v5_96slices_per_finding_attn": 0.7,
+      "medimageinsight_davit_huge_v5_96slices_per_finding_attn_sam": 0.3
+    },
+    "Contusion": {
+      "convnext_base_v5_96slices_per_finding_attn": 0.7,
+      "medimageinsight_davit_huge_v5_96slices_per_finding_attn_sam": 0.3
+    },
+    "Fracture": {
+      "convnext_base_v5_96slices_per_finding_attn": 0.7,
+      "medimageinsight_davit_huge_v5_96slices_per_finding_attn_sam": 0.3
+    }
+  },
+  "note": "11 Oct 96slices_per_finding_attn pair, MII share 0.3 on every finding (runs/others/pair_blend_test.py: val-346 +0.0018, audit +0.0034, clean +0.0010 vs ConvNeXt alone). Logit-space weighted mean, as the engine blends."
+}

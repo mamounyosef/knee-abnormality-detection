@@ -2574,7 +2574,7 @@ class UDRatio:
         # pretrained trunk should only drift, so -5 or -6 is right for it, not a
         # problem. Pooling them hides both facts behind one median.
         # Split STRUCTURALLY, as build_optimizer does: everything outside .backbone is the fresh head. The old
-        # name match ("head"/"classifier"/".fc.") missed raptor's att / clsW and called them trunk.
+        # name match ("head"/"classifier"/".fc.") missed 96slices_per_finding_attn's att / clsW and called them trunk.
         if hasattr(model, "backbone"):
             self.head = {n for n, _ in self.params if not n.startswith("backbone.")}
         else:
@@ -5015,7 +5015,7 @@ def _measure_flops_per_image(model, x, cfg, device) -> float:
         # already runs at 160 of the B200's 178 GB - a second forward pass over the full
         # batch would OOM the run just to print a diagnostic.
         x1 = x[:1] if x.dim() >= 5 and x.shape[0] > 1 else x
-        # TRAIN mode, on the training batch: a window-bag model (raptor) expects 94 windows per study in eval()
+        # TRAIN mode, on the training batch: a window-bag model (96slices_per_finding_attn) expects 94 windows per study in eval()
         # and 12 in train(), so eval() on a training batch failed the reshape and MFU was silently dropped.
         # Buffers are snapshotted so a BatchNorm's running stats do not move from this one forward.
         _bufs = {k: v.detach().clone() for k, v in model.named_buffers()}

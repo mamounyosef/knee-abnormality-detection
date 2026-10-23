@@ -9,8 +9,8 @@ each of **12 abnormalities**. The metric is the **macro-averaged area under the 
 | Submission | Public LB | Private LB | What it is |
 | --- | --- | --- | --- |
 | **14-model ensemble** | **0.942** | **0.928** | ConvNeXt, DINOv3, SwinV2, MRI-CORE ViT and 5 MedImageInsight folds, flat mean |
-| Raptor4 | 0.942 | 0.927 | 4 models (2 Raptor96 + DINOv3 + SwinV2), weighted logit mean |
-| Raptor96 (best single model) | 0.939 | 0.922 | One ConvNeXt-Base over 96 slices with a per-finding attention head |
+| 4-model ensemble | 0.942 | 0.927 | 4 models (2 PerFindingAttn-96 + DINOv3 + SwinV2), weighted logit mean |
+| PerFindingAttn-96 (best single model) | 0.939 | 0.922 | One ConvNeXt-Base over 96 slices with a per-finding attention head |
 
 Kaggle splits the hidden test set in two: the **public** leaderboard (LB) is shown during the competition, the
 **private** one is revealed at the end and decides the final ranking. All scores above come from models trained in
@@ -50,8 +50,8 @@ models on those noisy labels.
 | 0.928 -> 0.932 | 0.915 -> 0.917 | Mixed-architecture ensembles (ConvNeXt, DINOv3, SwinV2, MRI-CORE ViT with cross-slice attention) |
 | 0.938 | 0.925 | 10 members, 6 of them retrained on full data (train + validation + audit) |
 | **0.942** | **0.928** | 14 members, incl. 5 MedImageInsight folds |
-| 0.929 -> 0.939 | 0.911 -> 0.922 | Best single model: MedImageInsight -> **Raptor96** ConvNeXt |
-| 0.942 | 0.927 | Raptor4: the same score as the 14-model ensemble from only 4 models |
+| 0.929 -> 0.939 | 0.911 -> 0.922 | Best single model: MedImageInsight -> **PerFindingAttn-96** ConvNeXt |
+| 0.942 | 0.927 | 4-model ensemble (configs/ens4.py): the same score as the 14-model ensemble from only 4 models |
 
 ### What mattered most
 
@@ -60,7 +60,7 @@ models on those noisy labels.
    same model's public score from 0.916 to 0.927 (+0.011).
 2. **Architecture diversity over data-split diversity.** 5 folds of one ConvNeXt gave 0.918 (+0.004) over a single
    model. Mixing ConvNeXt, DINOv3, SwinV2, MRI-CORE and MedImageInsight gave 0.932 (+0.018).
-3. **More slices, smarter pooling (Raptor96).** 96 slices from 5 series, a bag of 3-slice windows and a per-finding
+3. **More slices, smarter pooling (PerFindingAttn-96).** 96 slices from 5 series, a bag of 3-slice windows and a per-finding
    attention head: 0.929 to 0.939 for the best single model.
 4. **Full-data retrains inside the ensemble.** Swapping members for retrains on train + val + audit lifted the
    ensemble from 0.935 to 0.937 to 0.938. (Alone, a retrained model did not always beat its parent.)
@@ -74,7 +74,7 @@ models on those noisy labels.
 | SAM optimiser | +0.0077 on audit, tie on the leaderboard (0.930 vs 0.930) |
 | Few-shot prompts, labeller ensembles, self-consistency, re-translation | all inside the labeller noise floor (3.3% of decisions) |
 | Greedy ensemble search over 100 candidates | in-sample +0.0069, held out -0.0002 (LB 0.941 vs 0.942) |
-| Raptor96 5 folds | 0.937, below the single full-split model (0.939); no gain inside the ensemble |
+| PerFindingAttn-96 5 folds | 0.937, below the single full-split model (0.939); no gain inside the ensemble |
 | SWA, mirror test-time augmentation, RandConv, multi-window inputs | flat or negative |
 
 ## How it works
@@ -118,9 +118,11 @@ slices are picked), windowed per volume to uint8 and stored as one shard per stu
 - Training ran on [Modal](https://modal.com) (H100 / H200), with an RTX 4060 for small local runs. A config's
   `local:` block swaps in PC-sized settings automatically, so a run can move between the two without edits.
 
-**Raptor96, the strongest recipe:** 5 series slots (sagittal fluid + plain, coronal fluid + plain, axial fluid),
+**PerFindingAttn-96, the strongest recipe:** 5 series slots (sagittal fluid + plain, coronal fluid + plain, axial fluid),
 96 slices, 384 px at 0.365 mm/px, a ConvNeXt-Base (or MedImageInsight DaViT-Huge) trunk applied to 3-slice
 windows (12 random windows in training, all 94 at evaluation), and a per-finding attention head over the windows.
+The input recipe and head design follow a public Kaggle notebook by dreaddevelopment; the backbones, labels,
+training and inference are ours. Run folders: `runs/*_96slices_per_finding_attn*`.
 
 ### 4. Validation
 

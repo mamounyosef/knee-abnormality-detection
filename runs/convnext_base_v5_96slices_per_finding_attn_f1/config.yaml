@@ -1,0 +1,98 @@
+# convnext_base_v5_96slices_per_finding_attn_f1
+#
+# PERFINDINGATTN-96 FOLD 1 of 5 on MODAL (H100), NO SAM (12 Oct, user: folds 1-4 on Modal, fold 0 locally).
+# Written by runs/others/make_96slices_per_finding_attn_folds.py from convnext_base_v5_96slices_per_finding_attn_f0: identical recipe; only the fold's data, the Modal
+# dataloader (batch 8 x accum 1, the same 8 studies per update) and the cheaper validation cadence differ.
+# Cost ~1.5-2 h H100 incl. validations, ~$7-9.
+#
+# ---- convnext_base_v5_96slices_per_finding_attn_f0's notes ----
+# PERFINDINGATTN-96 FOLD 0 of 5, LOCAL RTX 4060, NO SAM (12 Oct, user). The 5-fold mean was our biggest measured LB gain
+# (MII 0.929 -> 0.936, ConvNeXt 0.914 -> 0.918); SAM tied on the LB (0.930 vs 0.930), so the folds go without it.
+# Recipe = convnext_base_v5_96slices_per_finding_attn exactly (solo LB 0.939): 5 slots / 96 slices, 12 random 3-slice windows in
+# training, all 94 at eval, 384 px at 0.365 mm/px, per-finding attention head, backbone 4e-5 / head 2e-3, wd 0.059,
+# 16 epochs, local batch 2 x accum 4 (8 studies per update), grad checkpointing, 1 worker. No extension planned.
+# Data: the round-2 fold split, train 27_fold0_train (3,506 studies, v4 labels), val 21_fold0_val (the SAME 836 studies
+# graded by v3 labels, as convnext_base_25d_18slices_v4_flip_f0: v4 val labels carry teacher predictions). The 58 audit
+# studies are in no fold, so audit-58 stays blind; the fold's val predictions are its out-of-fold predictions.
+# Validations: 836 studies x 94 windows ~ 10 min each locally, so every 800 steps up to epoch 10, then every 400
+# (~12 in all, ~2 h). Training ~7,000 steps at ~700 steps/h. Total ~12 h, $0. Checkpoints stay on D: (no junction).
+
+experiment:
+  name: "convnext_base_v5_96slices_per_finding_attn_f1"
+
+paths:
+  train_csv: "27_fold1_train.csv"    # round-2 fold 1, v4 labels
+  val_csv:   "21_fold1_val.csv"      # same studies as 27_fold1_val, v3-graded
+
+model:
+  name: "convnext_base.fb_in22k_ft_in1k"
+  pretrained: true
+  drop_rate: 0.0                    # the head has its own dropout 0.2 inside the attention scorer
+
+input:
+  laterality_flip: "left"
+  slots: ["sag_fluid", "sag_plain", "cor_fluid", "cor_plain", "ax_fluid"]
+  n_slices: {sag_fluid: 26, sag_plain: 22, cor_fluid: 18, cor_plain: 12, ax_fluid: 18}          # 96
+  slices_as_channels: {sag_fluid: 26, sag_plain: 22, cor_fluid: 18, cor_plain: 12, ax_fluid: 18} # 1 slice per plane
+  window_bag: {train_k: 12, eval_k: 94}
+  size: 384
+  mm_per_px: 0.365                  # 384 x 0.365 = 140 mm
+  slice_margin: 0.06
+  fallback_same_plane: ["sag_fluid", "sag_plain", "cor_fluid", "ax_fluid"]
+
+training:
+  epochs: 16
+  grad_checkpointing: false         # H100 80 GB
+  grad_clip: 3.0
+  optimizer:
+    name: "adamw"
+    weight_decay: 0.059
+    lr: 4.0e-5                      # backbone
+    backbone_lr_mult: 0.02          # head = 2.0e-3
+    layer_decay: null
+  scheduler:
+    name: "cosine"
+    warmup_frac: 0.05
+    min_lr_mult: 0.01
+  loss:
+    name: "bce"
+    pos_weight: null
+    focal_gamma: 2.0
+    aucm_margin: 1.0
+    aucm_bce_mix: 0.1
+  early_stopping:
+    enable: true
+    monitor: "val_macro_auroc"
+    mode: "max"
+    patience: 6                     # validations: 1,500 steps at every 250
+
+dataloader:
+  batch_size: 8                     # 8 studies x 12 windows = 96 images per step (f0 local: 2 x accum 4, same 8 studies)
+  accum_steps: 1
+  val_batch_size: 4                 # 4 x 94 = 376 images per eval batch
+  num_workers: 26
+  val_num_workers: null
+  prefetch_factor: 4
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+
+modal:
+  gpu: "H100"
+  cpu: 16.0
+  memory_gb: 64
+
+evaluation:
+  eval_every_steps_before: 400      # epochs 1-5
+  eval_every_steps_mid: 400         # epoch 6
+  eval_every_steps_epoch_mid_threshold: 6
+  eval_every_steps_after: 250       # epoch 7 onward (~80 s each on an H100)
+  eval_every_steps_epoch_threshold: 7
+
+output:
+  checkpoint_every_steps: 100       # resume point if the PC is restarted
+  keep_last_n: 1
+  keep_top_k: 1
+
+reproducibility:
+  seed: 42
