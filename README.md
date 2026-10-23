@@ -1,15 +1,20 @@
 # RSNA Knee Abnormality Detection
 
-Our solution to the [RSNA Knee Abnormality Detection](https://www.kaggle.com/competitions/rsna-knee-abnormality-detection)
+My solution to the [RSNA Knee Abnormality Detection](https://www.kaggle.com/competitions/rsna-knee-abnormality-detection)
 Kaggle competition (July to October 2026). Given a knee MRI study, the task is to predict a confidence score for
-each of **12 abnormalities**. The score is the **macro-averaged area under the ROC curve (AUROC)** across all 12.
+each of **12 abnormalities**. The metric is the **macro-averaged area under the ROC curve (AUROC)** across all 12.
 
-**Best public leaderboard score: 0.943** (top of the board: 0.964). The best single model scores 0.939.
+## Results at a glance
 
-| Final picks | Public LB | What it is |
-| --- | --- | --- |
-| Combined fit-10 | 0.943 | 10 of our models, blended 60 / 40 in rank space with a public pipeline (its non-commercial stage removed) |
-| Raptor4 | 0.942 | 4 of our own models only, weighted logit mean, no public code |
+| Submission | Public LB | Private LB | What it is |
+| --- | --- | --- | --- |
+| **14-model ensemble** | **0.942** | **0.928** | ConvNeXt, DINOv3, SwinV2, MRI-CORE ViT and 5 MedImageInsight folds, flat mean |
+| Raptor4 | 0.942 | 0.927 | 4 models (2 Raptor96 + DINOv3 + SwinV2), weighted logit mean |
+| Raptor96 (best single model) | 0.939 | 0.922 | One ConvNeXt-Base over 96 slices with a per-finding attention head |
+
+Kaggle splits the hidden test set in two: the **public** leaderboard (LB) is shown during the competition, the
+**private** one is revealed at the end and decides the final ranking. All scores above come from models trained in
+this repository only.
 
 ---
 
@@ -20,9 +25,9 @@ several contrasts. Every study needs a score for:
 
 | Group | Findings |
 | --- | --- |
-| Ligaments | ACL tear, MCL tear |
+| Ligaments | ACL tear (anterior cruciate ligament), MCL tear (medial collateral ligament) |
 | Menisci (the two cartilage "shock absorbers") | Medial Meniscus, Lateral Meniscus |
-| Osteoarthritis (cartilage wear) | Medial OA, Lateral OA, PF OA (behind the kneecap) |
+| Osteoarthritis (OA, cartilage wear) | Medial OA, Lateral OA, PF OA (patellofemoral: behind the kneecap) |
 | Fluid and soft tissue | Effusion (excess joint fluid), Synovitis (inflamed joint lining), Baker's cyst |
 | Bone injury | Contusion (bone bruise), Fracture |
 
@@ -36,39 +41,40 @@ models on those noisy labels.
 
 ## Results
 
-### Milestones
+### Milestones (public / private LB)
 
-| Public LB | What |
-| --- | --- |
-| 0.914 -> 0.918 | One ConvNeXt -> 5 folds of it |
-| 0.916 -> 0.927 | Same model, LLM report labels -> labels blended 50% with out-of-fold model predictions ("teacher" labels) |
-| 0.928 -> 0.932 | Mixed-architecture ensembles (ConvNeXt, DINOv3, SwinV2, MRI-CORE ViT with cross-slice attention) |
-| 0.938 | 10 members, 6 of them retrained on full data (train + validation + audit) |
-| 0.942 | 14 members, incl. 5 MedImageInsight folds and the teacher labels |
-| 0.943 | Our ensemble rank-blended with a prize-safe version of a public pipeline |
-| 0.929 -> 0.939 | Best single model: MedImageInsight -> **Raptor96** ConvNeXt |
-| 0.942 | Raptor4: Raptor96 ConvNeXt + Raptor96 MedImageInsight + DINOv3 + SwinV2, no public code |
+| Public | Private | What changed |
+| --- | --- | --- |
+| 0.914 -> 0.918 | 0.900 -> 0.907 | One ConvNeXt -> 5 folds of it |
+| 0.916 -> 0.927 | 0.900 -> 0.914 | Same model, LLM report labels -> labels blended 50% with out-of-fold model predictions ("teacher" labels) |
+| 0.928 -> 0.932 | 0.915 -> 0.917 | Mixed-architecture ensembles (ConvNeXt, DINOv3, SwinV2, MRI-CORE ViT with cross-slice attention) |
+| 0.938 | 0.925 | 10 members, 6 of them retrained on full data (train + validation + audit) |
+| **0.942** | **0.928** | 14 members, incl. 5 MedImageInsight folds |
+| 0.929 -> 0.939 | 0.911 -> 0.922 | Best single model: MedImageInsight -> **Raptor96** ConvNeXt |
+| 0.942 | 0.927 | Raptor4: the same score as the 14-model ensemble from only 4 models |
 
 ### What mattered most
 
-1. **Labels from reports.** A large LLM reading the (translated) reports gets 0.895 AUROC against the panel labels.
-   Blending in out-of-fold image-model predictions at 50% raised the leaderboard by +0.011 (0.916 to 0.927).
-2. **Architecture diversity over data-split diversity.** 5 folds of one ConvNeXt gave +0.004 over a single model.
-   Mixing ConvNeXt, DINOv3, SwinV2, MRI-CORE and MedImageInsight gave about 4x that.
+1. **Labels from reports.** A large language model (LLM) reading the translated reports reaches 0.911 AUROC against
+   the panel labels (0.895 with a smaller model). Blending in out-of-fold image-model predictions at 50% raised the
+   same model's public score from 0.916 to 0.927 (+0.011).
+2. **Architecture diversity over data-split diversity.** 5 folds of one ConvNeXt gave 0.918 (+0.004) over a single
+   model. Mixing ConvNeXt, DINOv3, SwinV2, MRI-CORE and MedImageInsight gave 0.932 (+0.018).
 3. **More slices, smarter pooling (Raptor96).** 96 slices from 5 series, a bag of 3-slice windows and a per-finding
    attention head: 0.929 to 0.939 for the best single model.
-4. **Full-data retrains.** Training on train + val + audit paid every time it was tried (+0.002 to +0.016).
+4. **Full-data retrains inside the ensemble.** Swapping members for retrains on train + val + audit lifted the
+   ensemble from 0.935 to 0.937 to 0.938. (Alone, a retrained model did not always beat its parent.)
 
 ### What did not help (measured, then closed)
 
 | Idea | Result |
 | --- | --- |
-| AUC-M loss + PESG optimiser | best 0.9023 vs 0.9049 baseline |
+| AUC-M loss + PESG optimiser | best 0.9023 vs 0.9049 baseline (validation) |
 | Stacking (logistic regression on member logits) | loses to a constrained weight search out of fold |
 | SAM optimiser | +0.0077 on audit, tie on the leaderboard (0.930 vs 0.930) |
-| Few-shot prompts, labeler ensembles, self-consistency, re-translation | all inside the labeler noise floor (3.3% of decisions) |
-| Greedy ensemble search over 100 candidates | in-sample +0.0069, held out -0.0002 |
-| Raptor96 5 folds | fold mean below the single full-split model, no gain inside the ensemble |
+| Few-shot prompts, labeller ensembles, self-consistency, re-translation | all inside the labeller noise floor (3.3% of decisions) |
+| Greedy ensemble search over 100 candidates | in-sample +0.0069, held out -0.0002 (LB 0.941 vs 0.942) |
+| Raptor96 5 folds | 0.937, below the single full-split model (0.939); no gain inside the ensemble |
 | SWA, mirror test-time augmentation, RandConv, multi-window inputs | flat or negative |
 
 ## How it works
@@ -95,8 +101,7 @@ themselves against the 58 panel-labelled studies:
 
 "Out-of-fold" means each study's prediction comes from the one fold model that never trained on it. The 58
 panel-labelled studies always keep their panel labels. On the leaderboard, the same model scored 0.914 on v2,
-0.916 on v3 and 0.927 on v4 (0.922 with only a 30% teacher weight). Labeller ideas that did not
-beat the noise floor are listed under "What did not help".
+0.916 on v3 and 0.927 on v4 (0.922 with only a 30% teacher weight).
 
 ### 2. Preprocessing (`data_code/07`, `modal_scripts/modal_preprocess.py`)
 
@@ -139,7 +144,6 @@ for overfitting.
 ## Repository layout
 
 ```text
-data/            derived CSVs (labels, splits, folds), numbered by the script that wrote them
 data_code/       numbered pipeline: EDA, report labelling, splits, folds, teacher labels
 modal_scripts/   download, preprocessing, shard sync, checkpoint and run sync for Modal
 runs/
@@ -148,11 +152,11 @@ runs/
   <experiment>/        config.yaml (only what varies), train.py, results/ (logs, summaries)
   others/              cross-run analysis, ensembling, submission tooling
 checks/          tests for engine features and run configs (most run on Modal CPU)
-other_md/        progress log (outline.md), medical glossary, research notes
-runs_summary.md  scoreboard of every run and ensemble
+other_md/        research notes
 ```
 
-Checkpoints and image shards are not in the repository (hundreds of GB).
+Not in the repository: the competition data and every file derived from it (`data/`, per the competition rules),
+checkpoints and image shards (hundreds of GB).
 
 ## Reproducing
 
@@ -175,7 +179,5 @@ Code: Apache 2.0 (see `LICENSE`). Pretrained weights keep their own licences:
 - MedImageInsight (Microsoft), MRI-CORE, and ImageNet-pretrained ConvNeXt / SwinV2 from
   [timm](https://github.com/huggingface/pytorch-image-models).
 - RadImageNet weights are non-commercial and were never used in a prize-eligible submission.
-- The combined submissions blend in a public Kaggle pipeline (with its non-commercial stage removed). Credit to
-  its authors and to the Kaggle community notebooks this work learned from.
-- Thanks to RSNA and Kaggle for the dataset, the first RSNA AI Challenge to pair every study with its radiology
-  report.
+- Thanks to the Kaggle community notebooks this work learned from, and to RSNA and Kaggle for the dataset, the first
+  RSNA AI Challenge to pair every study with its radiology report.

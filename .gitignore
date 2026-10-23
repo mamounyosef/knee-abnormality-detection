@@ -353,5 +353,8 @@ runs/others/crop_rois/robustness_worst/
 checks/*_crops.png
 data/external/
 
+# local scratch: downloaded public Kaggle notebooks and one-off scripts
+scratchpad/
+
 # competition data and everything derived from it: never public (rules: no redistribution of Competition Data)
 data/
