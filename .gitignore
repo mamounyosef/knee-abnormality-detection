@@ -357,7 +357,7 @@ data/external/
 scratchpad/
 hf_release/out/
 linkedin_post.md
-other_md/linkedin_pipeline.*
+other_md/linkedin_*
 # a few training-input grids kept for show: competition scans, never public
 runs/others/demo_images/
 
