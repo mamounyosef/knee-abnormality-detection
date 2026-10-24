@@ -356,6 +356,7 @@ data/external/
 # local scratch: downloaded public Kaggle notebooks and one-off scripts
 scratchpad/
 hf_release/out/
+linkedin_post.md
 # a few training-input grids kept for show: competition scans, never public
 runs/others/demo_images/
 
