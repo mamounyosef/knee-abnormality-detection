@@ -12,6 +12,12 @@ each of **12 abnormalities**. The metric is the **macro-averaged area under the 
 | 4-model ensemble | 0.942 | 0.927 | 4 models (2 PerFindingAttn-96 + DINOv3 + SwinV2), weighted logit mean |
 | PerFindingAttn-96 (best single model) | 0.939 | 0.922 | One ConvNeXt-Base over 96 slices with a per-finding attention head |
 
+**Trained weights** for 28 models (both ensembles, the folds and the label teachers) are on Hugging Face:
+26 in [mamounyosef/knee-abnormality-detection](https://huggingface.co/mamounyosef/knee-abnormality-detection),
+and the two DINOv3 fine-tunes in
+[mamounyosef/knee-abnormality-detection-dinov3](https://huggingface.co/mamounyosef/knee-abnormality-detection-dinov3)
+(DINOv3 License). Each has a model card, a standalone `modeling.py` and its metrics.
+
 Kaggle splits the hidden test set in two: the **public** leaderboard (LB) is shown during the competition, the
 **private** one is revealed at the end and decides the final ranking. All scores above come from models trained in
 this repository only.
@@ -158,7 +164,7 @@ other_md/        research notes
 ```
 
 Not in the repository: the competition data and every file derived from it (`data/`, per the competition rules),
-checkpoints and image shards (hundreds of GB).
+checkpoints and image shards (hundreds of GB). Released weights are on Hugging Face (links at the top).
 
 ## Reproducing
 

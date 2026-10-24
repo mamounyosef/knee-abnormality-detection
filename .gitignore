@@ -355,6 +355,7 @@ data/external/
 
 # local scratch: downloaded public Kaggle notebooks and one-off scripts
 scratchpad/
+hf_release/out/
 
 # competition data and everything derived from it: never public (rules: no redistribution of Competition Data)
 data/
