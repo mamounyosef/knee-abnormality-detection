@@ -4,6 +4,8 @@ My solution to the [RSNA Knee Abnormality Detection](https://www.kaggle.com/comp
 Kaggle competition (July to October 2026). Given a knee MRI study, the task is to predict a confidence score for
 each of **12 abnormalities**. The metric is the **macro-averaged area under the ROC curve (AUROC)** across all 12.
 
+![Solution pipeline](assets/pipeline.png)
+
 ## Results at a glance
 
 | Submission | Public LB | Private LB | What it is |
@@ -28,6 +30,8 @@ this repository only.
 
 A knee MRI study is a set of 3D scans (series) taken from three directions (sagittal, coronal, axial), each with
 several contrasts. Every study needs a score for:
+
+![One study: three planes, each as a plain and a fluid-sensitive series](assets/six_views.png)
 
 | Group | Findings |
 | --- | --- |
@@ -104,6 +108,10 @@ themselves against the 58 panel-labelled studies:
 | v2 | Qwen3.8-Max, 2.4T parameters (LLM, reports only) | same prompt, reasoning effort medium (`03_label_reports.py`) | 0.911 |
 | v3 | v2 + MedGemma 1.5 (vision-language model, images) | MedGemma's image opinion averaged 50/50 in logit space on Effusion, Synovitis, Baker's, Lateral Meniscus, Lateral OA (`17`) | 0.931 |
 | v4 ("w50") | v3 + two image-model teachers | 50% v3 + 50% out-of-fold predictions of 5-fold ConvNeXt and 5-fold MedImageInsight models (`22`) | 0.945 |
+
+Other labellers tested on audit-58 did not beat Qwen: Kimi K3 (0.904, a tie at the same effort), Gemma 4 31B
+(0.892), Nemotron 3 Ultra (0.888) and gpt-oss 120B (0.883). MedGemma 27B, Baichuan-M3 and Hulu-Med added nothing
+when blended in.
 
 "Out-of-fold" means each study's prediction comes from the one fold model that never trained on it. The 58
 panel-labelled studies always keep their panel labels. On the leaderboard, the same model scored 0.914 on v2,
